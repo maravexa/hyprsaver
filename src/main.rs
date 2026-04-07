@@ -1,13 +1,7 @@
 //! `main.rs` — Entry point for hyprsaver.
-//!
-//! Responsibilities:
-//! - Parse CLI arguments via clap derive macros
-//! - Register SIGTERM/SIGINT handlers via signal-hook
-//! - Initialize env_logger for structured logging
-//! - Load and validate configuration
-//! - Branch into preview mode (xdg-toplevel window) or screensaver mode (layer-shell overlay)
-//! - Drive the calloop event loop until signal or dismiss input
-//! - Clean up Wayland surfaces and GL contexts on exit
+// Public API items in sub-modules are intentionally unused in v0.1.0 and will
+// be called by future callers (palette previewer, interactive mode, etc.).
+#![allow(dead_code)]
 
 use anyhow::Context;
 use clap::Parser;
@@ -18,13 +12,15 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use crate::config::Config;
-
 mod config;
 mod palette;
 mod renderer;
 mod shaders;
 mod wayland;
+
+use crate::config::Config;
+use crate::palette::PaletteManager;
+use crate::shaders::ShaderManager;
 
 /// hyprsaver — Wayland-native fractal screensaver for Hyprland
 #[derive(Parser, Debug)]
@@ -71,7 +67,6 @@ struct Cli {
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
-    // Initialise logging. --verbose sets level to debug, otherwise respect RUST_LOG or default info.
     if cli.verbose {
         std::env::set_var("RUST_LOG", "hyprsaver=debug");
     }
@@ -80,7 +75,7 @@ fn main() -> anyhow::Result<()> {
     info!("hyprsaver starting");
     debug!("CLI args: {:?}", cli);
 
-    // Install signal handlers so SIGTERM (from hypridle) and SIGINT (Ctrl-C) both exit cleanly.
+    // Install signal handlers so SIGTERM (from hypridle) and SIGINT (Ctrl-C) exit cleanly.
     let running = Arc::new(AtomicBool::new(true));
     install_signal_handlers(Arc::clone(&running))
         .context("failed to install signal handlers")?;
@@ -89,13 +84,32 @@ fn main() -> anyhow::Result<()> {
     let cfg = load_config(&cli).context("failed to load config")?;
     debug!("Loaded config: {:?}", cfg);
 
+    // Build managers (needed for --list-* subcommands too).
+    let shader_dir = dirs::config_dir()
+        .unwrap_or_else(|| PathBuf::from(".config"))
+        .join("hyprsaver")
+        .join("shaders");
+    let mut shader_manager =
+        ShaderManager::new(shader_dir).context("failed to initialise ShaderManager")?;
+
+    // Start hot-reload watcher (silently skipped if dir doesn't exist).
+    if let Err(e) = shader_manager.watch_for_changes() {
+        log::warn!("Could not start shader watcher: {e:#}");
+    }
+
+    let palette_manager = PaletteManager::new(cfg.palettes.clone());
+
     // Early-exit commands.
     if cli.list_shaders {
-        list_shaders(&cfg).context("failed to list shaders")?;
+        for name in shader_manager.list() {
+            println!("{name}");
+        }
         return Ok(());
     }
     if cli.list_palettes {
-        list_palettes(&cfg).context("failed to list palettes")?;
+        for name in palette_manager.list() {
+            println!("{name}");
+        }
         return Ok(());
     }
     if cli.quit {
@@ -104,11 +118,9 @@ fn main() -> anyhow::Result<()> {
     }
 
     // Branch: preview window vs full screensaver overlay.
-    if let Some(shader_name) = &cli.preview {
-        run_preview(shader_name, &cfg, running).context("preview mode failed")?;
-    } else {
-        run_screensaver(&cfg, running).context("screensaver mode failed")?;
-    }
+    let preview_mode = cli.preview.is_some();
+    wayland::run(cfg, shader_manager, palette_manager, preview_mode, running)
+        .context("screensaver exited with error")?;
 
     info!("hyprsaver exiting cleanly");
     Ok(())
@@ -131,44 +143,43 @@ fn install_signal_handlers(running: Arc<AtomicBool>) -> anyhow::Result<()> {
 
 /// Load config from CLI flag → XDG path → built-in defaults, then apply CLI overrides.
 fn load_config(cli: &Cli) -> anyhow::Result<Config> {
-    todo!("resolve config path from cli.config / XDG / defaults, parse TOML, apply cli.shader and cli.palette overrides")
+    let path = cli.config.as_deref().and_then(|p| p.to_str());
+    let mut cfg = config::load_config(path)?;
+    cfg.apply_cli_overrides(cli.shader.as_deref(), cli.palette.as_deref());
+    Ok(cfg)
 }
 
-/// Print each available shader name to stdout, one per line.
-fn list_shaders(_cfg: &Config) -> anyhow::Result<()> {
-    todo!("instantiate ShaderManager, call .list(), print each name")
-}
-
-/// Print each available palette name to stdout, one per line.
-fn list_palettes(_cfg: &Config) -> anyhow::Result<()> {
-    todo!("instantiate PaletteManager, call .list(), print each name")
-}
-
-/// Send SIGTERM to the PID stored in the lock file (or find via process name).
+/// Send SIGTERM to the PID stored in the lock file, or find via process name.
 fn send_quit_signal() -> anyhow::Result<()> {
-    todo!("read PID from ~/.cache/hyprsaver/hyprsaver.pid, send SIGTERM")
-}
+    // Try lock file first.
+    let pid_path = dirs::cache_dir()
+        .unwrap_or_else(|| PathBuf::from("/tmp"))
+        .join("hyprsaver")
+        .join("hyprsaver.pid");
 
-/// Run in windowed preview mode: open an xdg-toplevel window, render the named shader,
-/// exit when the window is closed or a signal is received.
-fn run_preview(
-    shader_name: &str,
-    cfg: &Config,
-    running: Arc<AtomicBool>,
-) -> anyhow::Result<()> {
-    todo!(
-        "create xdg-toplevel window via glutin/winit, init Renderer, load shader '{}', \
-         enter render loop checking running flag and window close events",
-        shader_name
-    )
-}
+    if pid_path.exists() {
+        let pid_str = std::fs::read_to_string(&pid_path)
+            .context("failed to read PID file")?;
+        let pid: i32 = pid_str.trim().parse().context("invalid PID in lock file")?;
+        // Safety: kill(pid, SIGTERM) is a standard POSIX call.
+        let ret = unsafe { libc::kill(pid, libc::SIGTERM) };
+        if ret == 0 {
+            info!("Sent SIGTERM to PID {pid}");
+            return Ok(());
+        }
+        log::warn!("kill({pid}, SIGTERM) failed; trying pkill");
+    }
 
-/// Run in screensaver mode: create wlr-layer-shell surfaces on all outputs, render until
-/// input event or signal sets running=false.
-fn run_screensaver(cfg: &Config, running: Arc<AtomicBool>) -> anyhow::Result<()> {
-    todo!(
-        "call wayland::WaylandState::connect(), create_surfaces(), \
-         init Renderer per surface, enter calloop event loop, \
-         on running=false call destroy_surfaces() and return"
-    )
+    // Fallback: pkill by process name.
+    let status = std::process::Command::new("pkill")
+        .arg("-TERM")
+        .arg("hyprsaver")
+        .status()
+        .context("failed to run pkill")?;
+    if status.success() {
+        info!("Sent SIGTERM via pkill");
+        Ok(())
+    } else {
+        anyhow::bail!("pkill found no running hyprsaver process")
+    }
 }
