@@ -1,0 +1,32 @@
+[package]
+name = "hyprsaver"
+version = "0.1.0"
+edition = "2021"
+authors = ["Mara Vexa"]
+description = "A Wayland-native screensaver for Hyprland — fractal shaders on wlr-layer-shell overlays"
+license = "MIT"
+repository = "https://github.com/maravexa/hyprsaver"
+keywords = ["wayland", "hyprland", "screensaver", "opengl", "fractals"]
+categories = ["graphics", "rendering"]
+
+[dependencies]
+smithay-client-toolkit = "0.19"
+glow = "0.14"
+glutin = "0.32"
+raw-window-handle = "0.6"
+calloop = "0.14"
+wayland-client = "0.31"
+wayland-protocols-wlr = "0.3"
+toml = "0.8"
+serde = { version = "1", features = ["derive"] }
+clap = { version = "4", features = ["derive"] }
+notify = "7"
+signal-hook = "0.3"
+log = "0.4"
+env_logger = "0.11"
+dirs = "5"
+anyhow = "1"
+
+[profile.release]
+opt-level = 2
+lto = "thin"
