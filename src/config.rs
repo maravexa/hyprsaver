@@ -18,7 +18,7 @@ use crate::palette::Palette;
 
 /// Complete hyprsaver configuration. All fields are optional in the TOML file;
 /// missing keys fall back to the `Default` impl.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default)]
 pub struct Config {
     #[serde(default)]
@@ -32,15 +32,6 @@ pub struct Config {
     pub palettes: HashMap<String, Palette>,
 }
 
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            general: GeneralConfig::default(),
-            behavior: BehaviorConfig::default(),
-            palettes: HashMap::new(),
-        }
-    }
-}
 
 // ---------------------------------------------------------------------------
 // [general]
