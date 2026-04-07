@@ -102,10 +102,14 @@ impl Renderer {
     /// The caller must ensure a current GL context is bound on the calling thread.
     pub fn new(gl: glow::Context) -> anyhow::Result<Self> {
         let (vao, vbo) = unsafe {
-            let vao = gl.create_vertex_array().map_err(|e| anyhow::anyhow!("create VAO: {e}"))?;
+            let vao = gl
+                .create_vertex_array()
+                .map_err(|e| anyhow::anyhow!("create VAO: {e}"))?;
             gl.bind_vertex_array(Some(vao));
 
-            let vbo = gl.create_buffer().map_err(|e| anyhow::anyhow!("create VBO: {e}"))?;
+            let vbo = gl
+                .create_buffer()
+                .map_err(|e| anyhow::anyhow!("create VBO: {e}"))?;
             gl.bind_buffer(glow::ARRAY_BUFFER, Some(vbo));
 
             // Upload quad vertices as raw bytes
@@ -221,7 +225,8 @@ impl Renderer {
     /// Fade in/out is config-supported but implementation is deferred to a later milestone.
     pub fn render(&mut self, resolution: [f32; 2]) {
         unsafe {
-            self.gl.viewport(0, 0, resolution[0] as i32, resolution[1] as i32);
+            self.gl
+                .viewport(0, 0, resolution[0] as i32, resolution[1] as i32);
             self.gl.clear(glow::COLOR_BUFFER_BIT);
         }
 
@@ -241,7 +246,8 @@ impl Renderer {
             }
             // Resolution
             if let Some(ref loc) = self.uniforms.u_resolution {
-                self.gl.uniform_2_f32(Some(loc), resolution[0], resolution[1]);
+                self.gl
+                    .uniform_2_f32(Some(loc), resolution[0], resolution[1]);
             }
             // Frame
             if let Some(ref loc) = self.uniforms.u_frame {
@@ -249,7 +255,8 @@ impl Renderer {
             }
             // Mouse
             if let Some(ref loc) = self.uniforms.u_mouse {
-                self.gl.uniform_2_f32(Some(loc), self.mouse_pos[0], self.mouse_pos[1]);
+                self.gl
+                    .uniform_2_f32(Some(loc), self.mouse_pos[0], self.mouse_pos[1]);
             }
 
             // Palette
@@ -298,7 +305,11 @@ impl Renderer {
             if !self.gl.get_shader_compile_status(shader) {
                 let log = self.gl.get_shader_info_log(shader);
                 self.gl.delete_shader(shader);
-                let stage_name = if stage == glow::VERTEX_SHADER { "vertex" } else { "fragment" };
+                let stage_name = if stage == glow::VERTEX_SHADER {
+                    "vertex"
+                } else {
+                    "fragment"
+                };
                 return Err(anyhow::anyhow!("{stage_name} shader compile error: {log}"));
             }
 
@@ -371,7 +382,10 @@ mod tests {
 
     #[test]
     fn test_vert_src_has_a_pos() {
-        assert!(VERT_SRC.contains("a_pos"), "vertex shader must reference a_pos attribute");
+        assert!(
+            VERT_SRC.contains("a_pos"),
+            "vertex shader must reference a_pos attribute"
+        );
         assert!(
             VERT_SRC.contains("layout(location = 0)"),
             "a_pos must be at location 0"

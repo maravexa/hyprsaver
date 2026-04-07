@@ -174,7 +174,11 @@ impl PaletteManager {
             .unwrap_or_default()
             .subsec_nanos() as usize
             % self.palettes.len();
-        let (name, palette) = self.palettes.iter().nth(idx).expect("palette map is non-empty");
+        let (name, palette) = self
+            .palettes
+            .iter()
+            .nth(idx)
+            .expect("palette map is non-empty");
         (name.as_str(), palette)
     }
 }
@@ -264,7 +268,10 @@ mod tests {
         custom.insert("electric".to_string(), custom_electric.clone());
         let mgr = PaletteManager::new(custom);
         let got = mgr.get("electric").expect("electric must exist");
-        assert_eq!(got, &custom_electric, "custom palette should override built-in");
+        assert_eq!(
+            got, &custom_electric,
+            "custom palette should override built-in"
+        );
     }
 
     #[test]
@@ -273,7 +280,10 @@ mod tests {
         let names = mgr.list();
         let mut sorted = names.clone();
         sorted.sort_unstable();
-        assert_eq!(names, sorted, "list() must return alphabetically sorted names");
+        assert_eq!(
+            names, sorted,
+            "list() must return alphabetically sorted names"
+        );
     }
 
     #[test]
