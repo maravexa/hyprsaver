@@ -113,12 +113,15 @@ pub fn builtin_palettes() -> HashMap<String, Palette> {
         },
     );
     map.insert(
+        // Roaring campfire: bright flame orange, vivid red, hot yellow, deep amber.
+        // Red and green swing wide (a+b ≈ 1.0) to hit near-white yellow at peaks.
+        // Blue stays near zero across the full range (max = 0.05+0.05 = 0.10).
         "ember".to_string(),
         Palette {
-            a: [0.5, 0.2, 0.1],
-            b: [0.5, 0.3, 0.2],
-            c: [0.8, 0.8, 0.5],
-            d: [0.00, 0.05, 0.10],
+            a: [0.7, 0.4, 0.05],
+            b: [0.3, 0.5, 0.05],
+            c: [1.0, 1.0, 0.5],
+            d: [0.00, 0.05, 0.50],
         },
     );
     map.insert(
@@ -134,13 +137,14 @@ pub fn builtin_palettes() -> HashMap<String, Palette> {
     );
     map.insert(
         // Neon magenta, electric blue, and cyberpunk cyan — high saturation throughout.
-        // Wide phase separation (d) drives the magenta↔cyan swing.
+        // Blue frequency matches red (c[2]=1.0) and phase aligns (d[2]=0.0) so blue is always
+        // high when red is high — ensuring magenta/pink, never pure red.
         "vapor".to_string(),
         Palette {
-            a: [0.5, 0.2, 0.6],
-            b: [0.5, 0.3, 0.4],
-            c: [1.0, 1.0, 0.5],
-            d: [0.00, 0.60, 0.50],
+            a: [0.5, 0.2, 0.65],
+            b: [0.5, 0.3, 0.35],
+            c: [1.0, 1.0, 1.0],
+            d: [0.00, 0.60, 0.00],
         },
     );
     map.insert(
