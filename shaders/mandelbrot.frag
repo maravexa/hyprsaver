@@ -4,11 +4,11 @@ precision highp float;
 // ---------------------------------------------------------------------------
 // hyprsaver — mandelbrot.frag
 //
-// Animated zoom into a classic region of the Mandelbrot set at
-// c ≈ (-0.7269, 0.1889), near the boundary of a large filament. The camera
-// slowly spirals inward, revealing infinite self-similar detail. Smooth
-// (continuous) iteration count coloring eliminates band artifacts and feeds
-// directly into the cosine gradient palette.
+// Animated zoom into the Seahorse Valley of the Mandelbrot set at
+// c ≈ (-0.74364, 0.13183) — a boundary point with infinite spiral detail at
+// every scale. Zoom loops every ~133s before float32 precision degrades.
+// Smooth (continuous) iteration count coloring eliminates band artifacts and
+// feeds directly into the cosine gradient palette.
 // ---------------------------------------------------------------------------
 
 uniform float u_time;
@@ -53,24 +53,14 @@ float mandelbrot(vec2 c, int max_iter) {
 // Zoom path: slow inward spiral toward the target point
 // ---------------------------------------------------------------------------
 
-// Target: Seahorse Valley entry — visually rich, dense filaments.
-const vec2  TARGET    = vec2(-0.7269450, 0.1889600);
-// Starting zoom level (1/scale gives view radius).
-const float ZOOM_BASE = 1.8;
-// How many seconds for one decade of zoom (10× magnification).
-const float ZOOM_RATE = 40.0;
+// Target: Seahorse Valley — exact boundary point with infinite spiral detail.
+const vec2 TARGET = vec2(-0.743643887037158, 0.131825904205330);
 
 vec2 zoom_center(float t) {
     // Very slow drift to keep the interesting region in frame.
     float drift_x = sin(t * 0.013) * 0.00012;
     float drift_y = cos(t * 0.017) * 0.00008;
     return TARGET + vec2(drift_x, drift_y);
-}
-
-float zoom_scale(float t) {
-    // Exponential zoom: doubles every ZOOM_RATE seconds, then resets.
-    float zoom_t = mod(t, ZOOM_RATE * 10.0); // cycle after 10 decades
-    return ZOOM_BASE * pow(2.0, zoom_t / ZOOM_RATE * 10.0);
 }
 
 // ---------------------------------------------------------------------------
@@ -82,15 +72,18 @@ void main() {
     // Aspect-corrected UV in [-1, 1]² (y flipped to match math convention).
     vec2 p = (uv * 2.0 - 1.0) * vec2(u_resolution.x / u_resolution.y, 1.0);
 
-    float t     = u_time;
+    float t      = u_time;
+    // Loop zoom every ~133s (40 zoom-seconds at rate 0.3). Resets cleanly
+    // before float32 precision degrades (~zoom 1e7 at zoom_t ≈ 40).
+    float zoom_t = mod(t * 0.3, 40.0);
     vec2  center = zoom_center(t);
-    float scale  = zoom_scale(t);
+    float scale  = pow(1.5, zoom_t);
 
     // Map screen coordinates to complex plane.
     vec2 c = center + p / scale;
 
-    // Adaptive iteration count: increase with zoom depth to keep detail.
-    int max_iter = int(min(64.0 + scale * 0.5, 512.0));
+    // Adaptive iteration count: ramp up with zoom depth to preserve detail.
+    int max_iter = 100 + int(zoom_t * 8.0);
     float n = mandelbrot(c, max_iter);
 
     if (n == 0.0) {
@@ -102,8 +95,8 @@ void main() {
     // Normalise to [0, 1] for palette lookup.
     float t_palette = n / float(max_iter);
 
-    // Slow time-based rotation through the palette.
-    float time_offset = u_time * 0.04;
+    // Slow time-based color drift so hues shift even when geometry is stable.
+    float time_offset = u_time * 0.02;
     vec3 col = palette(fract(t_palette + time_offset));
 
     // Enhance contrast near the boundary with a smooth power curve.

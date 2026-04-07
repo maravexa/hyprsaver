@@ -31,7 +31,7 @@ vec3 palette(float t) {
 vec2 julia_c(float t) {
     // Slow path along a cardioid near the main bulb / period-2 bulb boundary.
     // This keeps the Julia set in a visually interesting, connected region.
-    float angle = t * 0.12 + 1.3;
+    float angle = t * 0.15 + 1.3;
     float r     = 0.7885;
     return vec2(r * cos(angle), r * sin(angle));
 }
