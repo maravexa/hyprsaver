@@ -81,16 +81,19 @@ pub fn builtin_palettes() -> HashMap<String, Palette> {
         },
     );
     map.insert(
+        // Golden yellows, burnt orange, and rust reds — actual autumn foliage.
+        // Blue channel stays low across the full range (max = 0.1+0.1 = 0.2).
         "autumn".to_string(),
         Palette {
-            a: [0.5, 0.5, 0.5],
-            b: [0.5, 0.5, 0.2],
+            a: [0.6, 0.3, 0.1],
+            b: [0.4, 0.3, 0.1],
             c: [1.0, 1.0, 1.0],
-            d: [0.00, 0.15, 0.20],
+            d: [0.00, 0.10, 0.20],
         },
     );
     map.insert(
-        "vapor".to_string(),
+        // Groovy 70s oranges, pinks, and warm tones.
+        "groovy".to_string(),
         Palette {
             a: [0.8, 0.5, 0.4],
             b: [0.2, 0.4, 0.2],
@@ -99,12 +102,14 @@ pub fn builtin_palettes() -> HashMap<String, Palette> {
         },
     );
     map.insert(
+        // Icy blues, steel, and silver — blue always dominates, no warm tones.
+        // Blue min = 0.9-0.1 = 0.8; red max = 0.6+0.2 = 0.8, but blue stays ≥ red.
         "frost".to_string(),
         Palette {
-            a: [0.7, 0.8, 0.9],
-            b: [0.2, 0.2, 0.3],
+            a: [0.6, 0.7, 0.9],
+            b: [0.2, 0.2, 0.1],
             c: [1.0, 1.0, 0.5],
-            d: [0.00, 0.10, 0.20],
+            d: [0.00, 0.05, 0.15],
         },
     );
     map.insert(
@@ -117,12 +122,36 @@ pub fn builtin_palettes() -> HashMap<String, Palette> {
         },
     );
     map.insert(
+        // Deep navy, teal, and seafoam green — no brown or rust.
+        // Phase keeps red low when green/blue are high.
         "ocean".to_string(),
         Palette {
-            a: [0.2, 0.4, 0.6],
-            b: [0.3, 0.3, 0.3],
-            c: [1.0, 1.0, 1.0],
-            d: [0.00, 0.10, 0.30],
+            a: [0.2, 0.5, 0.6],
+            b: [0.2, 0.3, 0.3],
+            c: [1.0, 1.0, 0.8],
+            d: [0.30, 0.20, 0.10],
+        },
+    );
+    map.insert(
+        // Neon magenta, electric blue, and cyberpunk cyan — high saturation throughout.
+        // Wide phase separation (d) drives the magenta↔cyan swing.
+        "vapor".to_string(),
+        Palette {
+            a: [0.5, 0.2, 0.6],
+            b: [0.5, 0.3, 0.4],
+            c: [1.0, 1.0, 0.5],
+            d: [0.00, 0.60, 0.50],
+        },
+    );
+    map.insert(
+        // Sage greens, deep greens, and earthy coffee browns — Pacific Northwest.
+        // Green dominant throughout; brown from balanced R+G with low B.
+        "forest".to_string(),
+        Palette {
+            a: [0.3, 0.4, 0.2],
+            b: [0.2, 0.2, 0.1],
+            c: [1.0, 1.0, 1.5],
+            d: [0.15, 0.00, 0.20],
         },
     );
     map.insert(
@@ -253,7 +282,7 @@ mod tests {
 
     #[test]
     fn test_builtin_count() {
-        assert_eq!(builtin_palettes().len(), 7);
+        assert_eq!(builtin_palettes().len(), 9);
     }
 
     #[test]
