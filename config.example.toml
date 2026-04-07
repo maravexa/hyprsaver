@@ -1,0 +1,182 @@
+# hyprsaver — example configuration
+# Location: ~/.config/hyprsaver/config.toml
+#
+# Every key shown here is optional. If a key is omitted, the built-in default
+# (shown as the value below) is used. A completely empty config file — or no
+# file at all — is perfectly valid.
+
+# ---------------------------------------------------------------------------
+# [general] — Core rendering behaviour
+# ---------------------------------------------------------------------------
+[general]
+
+# Target render frame rate. Lower values save GPU power.
+# Fractals at 30 fps are indistinguishable from 60 fps for most viewers.
+fps = 30
+
+# Which shader to display. Options:
+#   - A shader name from the built-in library (see --list-shaders)
+#   - A filename stem from ~/.config/hyprsaver/shaders/ (without .frag)
+#   - "random"  — pick a random shader each time hyprsaver starts
+#   - "cycle"   — rotate through all available shaders on shader_cycle_interval
+shader = "mandelbrot"
+
+# Which palette to apply. Options:
+#   - A palette name from the built-in library (see --list-palettes)
+#   - A name defined in [[palettes.custom]] below
+#   - "random"  — random built-in palette on start
+#   - "cycle"   — step through palettes alongside shaders
+palette = "electric"
+
+# When shader = "cycle", how many seconds to display each shader before advancing.
+shader_cycle_interval = 300   # 5 minutes
+
+# Month-indexed palette rotation. If palette = "cycle" and this list is provided,
+# hyprsaver uses the palette at index (current_month - 1). Perfect for seasonal themes.
+# If the list is shorter than 12, it wraps around.
+#
+# palette_cycle = [
+#     "frost",      # Jan
+#     "frost",      # Feb
+#     "ocean",      # Mar
+#     "vapor",      # Apr
+#     "electric",   # May
+#     "electric",   # Jun
+#     "ember",      # Jul
+#     "ember",      # Aug
+#     "autumn",     # Sep
+#     "autumn",     # Oct
+#     "monochrome", # Nov
+#     "frost",      # Dec
+# ]
+
+# ---------------------------------------------------------------------------
+# [behavior] — Input and transition settings
+# ---------------------------------------------------------------------------
+[behavior]
+
+# Fade-in duration in milliseconds. The overlay fades from transparent to full
+# opacity over this time when the screensaver activates.
+fade_in_ms = 800
+
+# Fade-out duration when dismissed (before the surface is destroyed).
+fade_out_ms = 400
+
+# Which input events dismiss the screensaver and exit.
+# Valid values: "key", "mouse_move", "mouse_click", "touch"
+# Remove any entry to ignore that input type (e.g. remove "mouse_move" if you
+# have a pet that walks on the desk).
+dismiss_on = ["key", "mouse_move", "mouse_click", "touch"]
+
+# ---------------------------------------------------------------------------
+# [shaders] — Shader file locations and hot-reload
+# ---------------------------------------------------------------------------
+[shaders]
+
+# Directory scanned for user-supplied .frag shader files.
+# Files here are available by their stem name (e.g. my_shader.frag → "my_shader").
+# Built-in shaders are always available regardless of this setting.
+shader_dir = "~/.config/hyprsaver/shaders"
+
+# Watch shader_dir for file changes and hot-reload modified shaders without restart.
+# Very useful when writing or tweaking shaders with --preview.
+hot_reload = true
+
+# If a shader fails to compile (e.g. syntax error after hot-reload), keep the
+# current shader running instead of crashing. Error is logged to stderr.
+fallback_on_error = true
+
+# ---------------------------------------------------------------------------
+# [palettes] — Custom palette definitions
+# ---------------------------------------------------------------------------
+# You can define your own cosine gradient palettes here. They become available
+# alongside the built-ins for use in the palette = "..." setting above.
+#
+# The cosine gradient formula is:
+#   color(t) = a + b * cos(2π × (c × t + d))
+#
+# where a, b, c, d are [r, g, b] vectors and t ∈ [0, 1].
+# See https://iquilezles.org/articles/palettes/ for full mathematical background.
+#
+# Intuition:
+#   a — average brightness per channel (the midpoint of the oscillation)
+#   b — amplitude of colour oscillation (higher = more contrast)
+#   c — frequency per channel (1.0 = one full cycle, 2.0 = two cycles, etc.)
+#   d — phase offset per channel (rotates the hue of each channel independently)
+
+[palettes.custom]
+
+# Example: "neon" — hot pinks and electric greens, high contrast cyberpunk.
+[palettes.custom.neon]
+a = [0.5, 0.5, 0.5]
+b = [0.5, 0.5, 0.5]
+c = [1.0, 1.0, 1.0]
+d = [0.90, 0.20, 0.55]
+
+# Example: "aurora" — greens through whites to violets, Northern Lights feel.
+[palettes.custom.aurora]
+a = [0.4, 0.6, 0.5]
+b = [0.4, 0.4, 0.5]
+c = [0.8, 1.0, 1.2]
+d = [0.00, 0.25, 0.50]
+
+# Example: "sunset" — warm gradient from deep indigo through magenta to amber.
+[palettes.custom.sunset]
+a = [0.5, 0.3, 0.4]
+b = [0.5, 0.3, 0.3]
+c = [0.8, 0.6, 1.0]
+d = [0.70, 0.30, 0.10]
+
+# ---------------------------------------------------------------------------
+# Built-in palettes (for reference — these are always available, no need to
+# copy them here unless you want to customise them).
+# ---------------------------------------------------------------------------
+#
+# [palettes.custom.electric]
+# # Classic rainbow — full hue rotation
+# a = [0.5, 0.5, 0.5]
+# b = [0.5, 0.5, 0.5]
+# c = [1.0, 1.0, 1.0]
+# d = [0.00, 0.33, 0.67]
+#
+# [palettes.custom.autumn]
+# # Golds, rusts, deep reds
+# a = [0.5, 0.35, 0.1]
+# b = [0.5, 0.35, 0.1]
+# c = [1.0, 1.0, 0.5]
+# d = [0.00, 0.10, 0.20]
+#
+# [palettes.custom.vapor]
+# # Vaporwave: pinks, teals, purples
+# a = [0.5, 0.3, 0.6]
+# b = [0.5, 0.3, 0.4]
+# c = [1.0, 0.7, 1.0]
+# d = [0.00, 0.50, 0.75]
+#
+# [palettes.custom.frost]
+# # Icy blues and silvers
+# a = [0.6, 0.7, 0.8]
+# b = [0.4, 0.3, 0.2]
+# c = [0.8, 1.0, 1.2]
+# d = [0.55, 0.60, 0.65]
+#
+# [palettes.custom.ember]
+# # Deep reds through bright orange/yellow
+# a = [0.5, 0.2, 0.05]
+# b = [0.5, 0.2, 0.05]
+# c = [1.0, 0.7, 0.4]
+# d = [0.00, 0.05, 0.10]
+#
+# [palettes.custom.ocean]
+# # Deep navy through cyan to white
+# a = [0.15, 0.40, 0.55]
+# b = [0.15, 0.40, 0.45]
+# c = [0.6,  0.8,  1.0]
+# d = [0.50, 0.55, 0.60]
+#
+# [palettes.custom.monochrome]
+# # Pure grayscale
+# a = [0.5, 0.5, 0.5]
+# b = [0.5, 0.5, 0.5]
+# c = [1.0, 1.0, 1.0]
+# d = [0.0, 0.0, 0.0]
