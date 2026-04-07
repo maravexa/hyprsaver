@@ -57,16 +57,17 @@ float julia(vec2 z, vec2 c, int max_iter, out float trap) {
 }
 
 void main() {
+    float t = u_time * 0.5;  // half speed
     vec2 uv = gl_FragCoord.xy / u_resolution;
     vec2 p  = (uv * 2.0 - 1.0) * vec2(u_resolution.x / u_resolution.y, -1.0);
 
     // Gentle oscillating zoom to animate depth without dizziness.
-    float zoom = 1.3 + 0.3 * sin(u_time * 0.07);
+    float zoom = 1.3 + 0.3 * sin(t * 0.07);
     // Slow pan to keep interesting regions centered.
-    vec2 offset = vec2(sin(u_time * 0.031) * 0.05, cos(u_time * 0.023) * 0.05);
+    vec2 offset = vec2(sin(t * 0.031) * 0.05, cos(t * 0.023) * 0.05);
 
     vec2 z = p / zoom + offset;
-    vec2 c = julia_c(u_time);
+    vec2 c = julia_c(t);
 
     int   max_iter = 200;
     float trap;
@@ -75,7 +76,7 @@ void main() {
     if (n == 0.0) {
         // Interior: dark with subtle orbit-trap glow.
         float glow = exp(-trap * 4.0) * 0.4;
-        vec3 interior = palette(fract(u_time * 0.03)) * glow;
+        vec3 interior = palette(fract(t * 0.03)) * glow;
         fragColor = vec4(interior, 1.0);
         return;
     }
@@ -83,9 +84,9 @@ void main() {
     float t_col = n / float(max_iter);
 
     // Two-layer coloring: boundary striping + orbit trap shimmer.
-    vec3 col_boundary = palette(fract(t_col * 3.0 + u_time * 0.05));
+    vec3 col_boundary = palette(fract(t_col * 3.0 + t * 0.05));
     float trap_glow   = exp(-trap * 6.0);
-    vec3 col_trap     = palette(fract(u_time * 0.07 + 0.5)) * trap_glow;
+    vec3 col_trap     = palette(fract(t * 0.07 + 0.5)) * trap_glow;
 
     vec3 col = mix(col_boundary, col_trap, 0.35);
     col *= pow(t_col, 0.5) * 1.6;
