@@ -14,7 +14,8 @@ smithay-client-toolkit = "0.19"
 glow = "0.14"
 glutin = "0.32"
 raw-window-handle = "0.6"
-calloop = "0.14"
+calloop = "0.13"
+calloop-wayland-source = "0.3"
 wayland-client = "0.31"
 wayland-protocols-wlr = "0.3"
 toml = "0.8"
@@ -26,6 +27,10 @@ log = "0.4"
 env_logger = "0.11"
 dirs = "5"
 anyhow = "1"
+libc = "0.2"
+bytemuck = "1"
+khronos-egl = { version = "6", features = ["dynamic"] }
+wayland-egl = "0.32"
 
 [profile.release]
 opt-level = 2
