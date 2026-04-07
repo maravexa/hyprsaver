@@ -85,10 +85,10 @@ pub fn builtin_palettes() -> HashMap<String, Palette> {
         // Blue channel stays low across the full range (max = 0.1+0.1 = 0.2).
         "autumn".to_string(),
         Palette {
-            a: [0.6, 0.3, 0.1],
+            a: [0.65, 0.3, 0.1],
             b: [0.4, 0.3, 0.1],
             c: [1.0, 1.0, 1.0],
-            d: [0.00, 0.10, 0.20],
+            d: [0.0, 0.1, 0.2],
         },
     );
     map.insert(
@@ -118,10 +118,10 @@ pub fn builtin_palettes() -> HashMap<String, Palette> {
         // Blue stays near zero across the full range (max = 0.05+0.05 = 0.10).
         "ember".to_string(),
         Palette {
-            a: [0.7, 0.4, 0.05],
-            b: [0.3, 0.5, 0.05],
-            c: [1.0, 1.0, 0.5],
-            d: [0.00, 0.05, 0.50],
+            a: [0.97, 0.30, 0.05],
+            b: [0.33, 0.35, 0.05],
+            c: [1.0, 1.0, 1.0],
+            d: [0.0, 0.08, 0.1],
         },
     );
     map.insert(
@@ -141,10 +141,10 @@ pub fn builtin_palettes() -> HashMap<String, Palette> {
         // high when red is high — ensuring magenta/pink, never pure red.
         "vapor".to_string(),
         Palette {
-            a: [0.5, 0.2, 0.65],
-            b: [0.5, 0.3, 0.35],
+            a: [0.55, 0.22, 0.65],
+            b: [0.45, 0.30, 0.35],
             c: [1.0, 1.0, 1.0],
-            d: [0.00, 0.60, 0.00],
+            d: [0.0, 0.50, 0.45],
         },
     );
     map.insert(
@@ -152,10 +152,10 @@ pub fn builtin_palettes() -> HashMap<String, Palette> {
         // Green dominant throughout; brown from balanced R+G with low B.
         "forest".to_string(),
         Palette {
-            a: [0.3, 0.4, 0.2],
-            b: [0.2, 0.2, 0.1],
+            a: [0.25, 0.50, 0.12],
+            b: [0.15, 0.25, 0.05],
             c: [1.0, 1.0, 1.5],
-            d: [0.15, 0.00, 0.20],
+            d: [0.15, 0.0, 0.2],
         },
     );
     map.insert(
