@@ -4,11 +4,10 @@ precision highp float;
 // ---------------------------------------------------------------------------
 // hyprsaver — mandelbrot.frag
 //
-// Animated zoom into the Seahorse Valley of the Mandelbrot set at
-// c ≈ (-0.74364, 0.13183) — a boundary point with infinite spiral detail at
-// every scale. Zoom loops every ~133s before float32 precision degrades.
-// Smooth (continuous) iteration count coloring eliminates band artifacts and
-// feeds directly into the cosine gradient palette.
+// Animated ping-pong zoom into Mandelbrot boundary regions.
+// Cycles through 4 targets every 50 s; max zoom ~268x (1.5^14) — safely
+// within float32 precision limits. Smooth (continuous) iteration count
+// coloring eliminates band artifacts and feeds into the cosine palette.
 // ---------------------------------------------------------------------------
 
 uniform float u_time;
@@ -50,17 +49,15 @@ float mandelbrot(vec2 c, int max_iter) {
 }
 
 // ---------------------------------------------------------------------------
-// Zoom path: slow inward spiral toward the target point
+// Zoom targets — four Mandelbrot boundary regions with rich detail
 // ---------------------------------------------------------------------------
-
-// Target: Seahorse Valley — exact boundary point with infinite spiral detail.
-const vec2 TARGET = vec2(-0.743643887037158, 0.131825904205330);
-
-vec2 zoom_center(float t) {
-    // Very slow drift to keep the interesting region in frame.
-    float drift_x = sin(t * 0.013) * 0.00012;
-    float drift_y = cos(t * 0.017) * 0.00008;
-    return TARGET + vec2(drift_x, drift_y);
+// GLSL ES 3.2 requires constant-index access on arrays declared as const.
+// Declare as a function returning the appropriate vec2 to stay compatible.
+vec2 zoom_target(int idx) {
+    if (idx == 0) return vec2(-0.743643887037158, 0.131825904205330); // seahorse valley
+    if (idx == 1) return vec2(-0.1015,            0.9658);            // elephant valley
+    if (idx == 2) return vec2(-0.749,             0.1);               // spiral arm
+                  return vec2(-1.25066,            0.02012);           // deep spiral
 }
 
 // ---------------------------------------------------------------------------
@@ -72,18 +69,23 @@ void main() {
     // Aspect-corrected UV in [-1, 1]² (y flipped to match math convention).
     vec2 p = (uv * 2.0 - 1.0) * vec2(u_resolution.x / u_resolution.y, 1.0);
 
-    float t      = u_time;
-    // Loop zoom every ~133s (40 zoom-seconds at rate 0.3). Resets cleanly
-    // before float32 precision degrades (~zoom 1e7 at zoom_t ≈ 40).
-    float zoom_t = mod(t * 0.3, 40.0);
-    vec2  center = zoom_center(t);
-    float scale  = pow(1.5, zoom_t);
+    // Zoom parameters — stay well within float32 precision limits.
+    float zoom_cycle  = 50.0;        // seconds per ping-pong cycle
+    float max_zoom_exp = 14.0;       // 1.5^14 ≈ 268x — hard ceiling for clean float32
+
+    // Sine-based ping-pong: 0→1→0 over zoom_cycle seconds, no discontinuity.
+    float t = 0.5 - 0.5 * cos(u_time * 6.28318 / zoom_cycle);  // [0, 1]
+    float scale = pow(1.5, t * max_zoom_exp);
+
+    // Switch target region each time the sine wave completes a full cycle.
+    int target_idx = int(floor(u_time / zoom_cycle)) % 4;
+    vec2 center = zoom_target(target_idx);
 
     // Map screen coordinates to complex plane.
     vec2 c = center + p / scale;
 
-    // Adaptive iteration count: ramp up with zoom depth to preserve detail.
-    int max_iter = 100 + int(zoom_t * 8.0);
+    // Adaptive iteration count: 100 at widest view, 300 at maximum zoom.
+    int max_iter = 100 + int(t * 200.0);
     float n = mandelbrot(c, max_iter);
 
     if (n == 0.0) {
