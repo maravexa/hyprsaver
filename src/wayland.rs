@@ -593,14 +593,21 @@ pub fn run(
 
     // Run the event loop until running becomes false.
     log::info!("hyprsaver entering event loop");
-    event_loop
-        .run(None, &mut state, |state| {
-            // Check signal flag each iteration.
-            if !state.signal_flag.load(Ordering::Relaxed) {
-                state.running = false;
-            }
-        })
-        .context("event loop error")?;
+    loop {
+        event_loop
+            .dispatch(Some(Duration::from_millis(frame_ms)), &mut state)
+            .context("event loop dispatch error")?;
+
+        // Check signal flag after each dispatch iteration.
+        if !state.signal_flag.load(Ordering::Relaxed) {
+            state.running = false;
+        }
+
+        if !state.running {
+            log::info!("Exiting hyprsaver (running=false)");
+            break;
+        }
+    }
 
     // Cleanup: destroy GL resources before dropping everything.
     if let Some(egl) = &state.egl {
