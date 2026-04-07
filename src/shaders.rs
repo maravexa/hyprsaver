@@ -112,7 +112,10 @@ impl ShaderManager {
             ("voronoi", BUILTIN_VORONOI),
         ];
         for (name, raw_const) in builtins {
-            let raw = raw_const.strip_prefix('\u{FEFF}').unwrap_or(raw_const).to_string();
+            let raw = raw_const
+                .strip_prefix('\u{FEFF}')
+                .unwrap_or(raw_const)
+                .to_string();
             let compiled = prepare_shader(&raw);
             shaders.insert(
                 name.to_string(),
@@ -134,7 +137,11 @@ impl ShaderManager {
                         if path.extension().and_then(|e| e.to_str()) != Some("frag") {
                             continue;
                         }
-                        let Some(name) = path.file_stem().and_then(|s| s.to_str()).map(str::to_string) else {
+                        let Some(name) = path
+                            .file_stem()
+                            .and_then(|s| s.to_str())
+                            .map(str::to_string)
+                        else {
                             continue;
                         };
                         match std::fs::read_to_string(&path) {
@@ -146,7 +153,12 @@ impl ShaderManager {
                                 let compiled = prepare_shader(&raw);
                                 shaders.insert(
                                     name.clone(),
-                                    ShaderSource { name, raw, compiled, builtin: false },
+                                    ShaderSource {
+                                        name,
+                                        raw,
+                                        compiled,
+                                        builtin: false,
+                                    },
                                 );
                             }
                             Err(e) => {
@@ -214,11 +226,19 @@ impl ShaderManager {
         let path = self.shader_dir.join(format!("{name}.frag"));
         let content = std::fs::read_to_string(&path)
             .with_context(|| format!("cannot read shader file: {}", path.display()))?;
-        let raw = content.strip_prefix('\u{FEFF}').unwrap_or(&content).to_string();
+        let raw = content
+            .strip_prefix('\u{FEFF}')
+            .unwrap_or(&content)
+            .to_string();
         let compiled = prepare_shader(&raw);
         self.shaders.insert(
             name.to_string(),
-            ShaderSource { name: name.to_string(), raw, compiled, builtin: false },
+            ShaderSource {
+                name: name.to_string(),
+                raw,
+                compiled,
+                builtin: false,
+            },
         );
         Ok(())
     }
@@ -322,9 +342,7 @@ fn prepare_shader(raw: &str) -> String {
     let mut header_done = false;
     for line in source.lines() {
         let trimmed = line.trim();
-        if !header_done
-            && (trimmed.starts_with("#version") || trimmed.starts_with("precision"))
-        {
+        if !header_done && (trimmed.starts_with("#version") || trimmed.starts_with("precision")) {
             header_lines.push(line);
         } else {
             header_done = true;
@@ -423,7 +441,10 @@ mod tests {
         let mgr = manager();
         let names = mgr.list();
         for expected in &["mandelbrot", "julia", "plasma", "tunnel", "voronoi"] {
-            assert!(names.contains(expected), "missing built-in shader: {expected}");
+            assert!(
+                names.contains(expected),
+                "missing built-in shader: {expected}"
+            );
         }
     }
 
@@ -433,7 +454,10 @@ mod tests {
         let names = mgr.list();
         let mut sorted = names.clone();
         sorted.sort_unstable();
-        assert_eq!(names, sorted, "list() must return alphabetically sorted names");
+        assert_eq!(
+            names, sorted,
+            "list() must return alphabetically sorted names"
+        );
     }
 
     #[test]
@@ -450,7 +474,10 @@ mod tests {
         let compiled = prepare_shader(source);
 
         // Palette function must be injected.
-        assert!(compiled.contains("vec3 palette("), "palette function must be present");
+        assert!(
+            compiled.contains("vec3 palette("),
+            "palette function must be present"
+        );
 
         // u_time declaration must not be duplicated.
         assert_eq!(
@@ -470,12 +497,30 @@ mod tests {
         );
         let compiled = prepare_shader(source);
 
-        assert!(compiled.contains("#define iTime u_time"), "iTime alias must be present");
-        assert!(compiled.contains("void main()"), "void main() wrapper must be present");
-        assert!(compiled.contains("mainImage(fragColor,"), "wrapper must call mainImage");
-        assert!(compiled.contains("vec3 palette("), "palette function must be present");
-        assert!(compiled.contains("uniform float u_time"), "u_time uniform must be present");
-        assert!(compiled.contains("uniform vec2 u_resolution"), "u_resolution must be present");
+        assert!(
+            compiled.contains("#define iTime u_time"),
+            "iTime alias must be present"
+        );
+        assert!(
+            compiled.contains("void main()"),
+            "void main() wrapper must be present"
+        );
+        assert!(
+            compiled.contains("mainImage(fragColor,"),
+            "wrapper must call mainImage"
+        );
+        assert!(
+            compiled.contains("vec3 palette("),
+            "palette function must be present"
+        );
+        assert!(
+            compiled.contains("uniform float u_time"),
+            "u_time uniform must be present"
+        );
+        assert!(
+            compiled.contains("uniform vec2 u_resolution"),
+            "u_resolution must be present"
+        );
     }
 
     #[test]
@@ -506,7 +551,10 @@ mod tests {
         let mgr = manager();
         let compiled = mgr.get_compiled("mandelbrot");
         assert!(compiled.is_some(), "mandelbrot compiled source must exist");
-        assert!(!compiled.unwrap().is_empty(), "compiled source must not be empty");
+        assert!(
+            !compiled.unwrap().is_empty(),
+            "compiled source must not be empty"
+        );
     }
 
     #[test]
@@ -515,6 +563,9 @@ mod tests {
         std::fs::create_dir_all(&tmp).expect("cannot create temp dir");
         let mut mgr = ShaderManager::new(tmp).expect("ShaderManager::new must succeed");
         let result = mgr.reload_shader("doesnotexist");
-        assert!(result.is_err(), "reload of a non-existent shader must return Err");
+        assert!(
+            result.is_err(),
+            "reload of a non-existent shader must return Err"
+        );
     }
 }
