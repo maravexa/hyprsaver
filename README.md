@@ -312,6 +312,43 @@ d = [0.00, 0.15, 0.30] # phase offset (shifts each channel's hue)
 
 Palettes are tiny and easy to share -- post them as four TOML lines.
 
+### Palette Tuning Workflow
+
+For fast iteration when designing or tweaking palettes, use the included test shader:
+
+1. Copy the test shader to your user shader directory:
+   ```bash
+   mkdir -p ~/.config/hyprsaver/shaders
+   cp examples/palette_test.frag ~/.config/hyprsaver/shaders/
+   ```
+
+2. Launch hyprsaver with the test shader and your target palette:
+   ```bash
+   hyprsaver --shader palette_test --palette autumn
+   ```
+
+   The top portion of the screen shows the full palette as a horizontal gradient.
+   The bottom shows the palette applied to a ring pattern, simulating how it
+   looks on fractal geometry.
+
+3. Edit your palette values in `~/.config/hyprsaver/config.toml`:
+   ```toml
+   [palettes.my_custom_palette]
+   a = [0.5, 0.3, 0.2]
+   b = [0.5, 0.4, 0.3]
+   c = [1.0, 1.0, 1.0]
+   d = [0.0, 0.1, 0.2]
+   ```
+
+4. Hot-reload picks up config changes automatically — save the file and the
+   palette updates live on screen. No restart needed.
+
+The cosine palette formula is `color(t) = a + b × cos(2π × (c × t + d))`.
+Each channel ranges from `a - b` (minimum) to `a + b` (maximum). Adjust `d`
+values to control where each color channel peaks relative to the others.
+For a deeper explanation, see
+[Inigo Quilez's palette article](https://iquilezles.org/articles/palettes/).
+
 ---
 
 ## CLI Reference
