@@ -32,7 +32,6 @@ pub struct Config {
     pub palettes: HashMap<String, Palette>,
 }
 
-
 // ---------------------------------------------------------------------------
 // [general]
 // ---------------------------------------------------------------------------
@@ -228,7 +227,10 @@ dismiss_on = ["key", "touch"]
         assert_eq!(cfg.general.palette_cycle, vec!["electric", "frost"]);
         assert_eq!(cfg.behavior.fade_in_ms, 200);
         assert_eq!(cfg.behavior.fade_out_ms, 100);
-        assert_eq!(cfg.behavior.dismiss_on, vec![DismissEvent::Key, DismissEvent::Touch]);
+        assert_eq!(
+            cfg.behavior.dismiss_on,
+            vec![DismissEvent::Key, DismissEvent::Touch]
+        );
     }
 
     #[test]

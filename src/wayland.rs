@@ -88,7 +88,11 @@ impl EglState {
             .context("eglChooseConfig failed")?
             .ok_or_else(|| anyhow::anyhow!("no suitable EGL config found"))?;
 
-        Ok(Self { egl, display, config })
+        Ok(Self {
+            egl,
+            display,
+            config,
+        })
     }
 }
 
@@ -178,7 +182,12 @@ impl Surface {
             .context("eglCreateContext failed")?;
 
         egl.egl
-            .make_current(egl.display, Some(egl_surface), Some(egl_surface), Some(egl_context))
+            .make_current(
+                egl.display,
+                Some(egl_surface),
+                Some(egl_surface),
+                Some(egl_context),
+            )
             .context("eglMakeCurrent failed")?;
 
         // Create glow context from EGL proc loader
@@ -241,7 +250,9 @@ impl Surface {
         // eglSurfaceAttrib for resize is handled by the wl_egl_window resize.
         // Just re-make-current to re-sync the viewport.
         if let (Some(es), Some(ec)) = (self.egl_surface, self.egl_context) {
-            let _ = egl.egl.make_current(egl.display, Some(es), Some(es), Some(ec));
+            let _ = egl
+                .egl
+                .make_current(egl.display, Some(es), Some(es), Some(ec));
         }
     }
 
@@ -249,7 +260,9 @@ impl Surface {
     fn destroy_gl(&mut self, egl: &EglState) {
         // Drop renderer first while context is current
         if let (Some(es), Some(ec)) = (self.egl_surface, self.egl_context) {
-            let _ = egl.egl.make_current(egl.display, Some(es), Some(es), Some(ec));
+            let _ = egl
+                .egl
+                .make_current(egl.display, Some(es), Some(es), Some(ec));
         }
         self.renderer = None;
 
@@ -367,9 +380,7 @@ impl WaylandState {
             Some("hyprsaver"),
             output,
         );
-        layer_surface.set_anchor(
-            Anchor::TOP | Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT,
-        );
+        layer_surface.set_anchor(Anchor::TOP | Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT);
         layer_surface.set_exclusive_zone(-1);
         layer_surface.set_keyboard_interactivity(KeyboardInteractivity::Exclusive);
         layer_surface.commit();
@@ -408,13 +419,13 @@ pub fn run(
     let conn = Connection::connect_to_env()
         .context("failed to connect to Wayland display; is WAYLAND_DISPLAY set?")?;
 
-    let (globals, event_queue) = registry_queue_init(&conn)
-        .context("failed to enumerate Wayland globals")?;
+    let (globals, event_queue) =
+        registry_queue_init(&conn).context("failed to enumerate Wayland globals")?;
     let qh: QueueHandle<WaylandState> = event_queue.handle();
 
-    let compositor =
-        CompositorState::bind(&globals, &qh).context("wl_compositor not available")?;
-    let layer_shell = LayerShell::bind(&globals, &qh).context("zwlr_layer_shell_v1 not available; is a wlr-compatible compositor running?")?;
+    let compositor = CompositorState::bind(&globals, &qh).context("wl_compositor not available")?;
+    let layer_shell = LayerShell::bind(&globals, &qh)
+        .context("zwlr_layer_shell_v1 not available; is a wlr-compatible compositor running?")?;
     let seat_state = SeatState::new(&globals, &qh);
     let output_state = OutputState::new(&globals, &qh);
     let registry_state = RegistryState::new(&globals);
@@ -461,8 +472,7 @@ pub fn run(
 
     // Create one layer surface per known output.
     {
-        let outputs: Vec<wl_output::WlOutput> =
-            state.output_state.outputs().collect();
+        let outputs: Vec<wl_output::WlOutput> = state.output_state.outputs().collect();
         for output in outputs {
             let surface = WaylandState::make_layer_surface(
                 &state.compositor_state,
@@ -541,13 +551,16 @@ pub fn run(
 
     // Shader cycling timer (if enabled).
     if shader_cycling {
-        let cycle_timer = calloop::timer::Timer::from_duration(Duration::from_secs(
-            shader_cycle_interval.max(1),
-        ));
+        let cycle_timer =
+            calloop::timer::Timer::from_duration(Duration::from_secs(shader_cycle_interval.max(1)));
         loop_handle
             .insert_source(cycle_timer, move |_, _, state: &mut WaylandState| {
-                let names: Vec<String> =
-                    state.shader_manager.list().iter().map(|s| s.to_string()).collect();
+                let names: Vec<String> = state
+                    .shader_manager
+                    .list()
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect();
                 if names.is_empty() {
                     return calloop::timer::TimeoutAction::ToDuration(Duration::from_secs(
                         shader_cycle_interval,
@@ -715,12 +728,7 @@ impl OutputHandler for WaylandState {
 }
 
 impl LayerShellHandler for WaylandState {
-    fn closed(
-        &mut self,
-        _conn: &Connection,
-        _qh: &QueueHandle<Self>,
-        _layer: &LayerSurface,
-    ) {
+    fn closed(&mut self, _conn: &Connection, _qh: &QueueHandle<Self>, _layer: &LayerSurface) {
         log::info!("Layer surface closed by compositor");
         self.running = false;
     }
@@ -734,7 +742,10 @@ impl LayerShellHandler for WaylandState {
         _serial: u32,
     ) {
         // Find the matching surface.
-        let surf = self.surfaces.values_mut().find(|s| &s.layer_surface == layer);
+        let surf = self
+            .surfaces
+            .values_mut()
+            .find(|s| &s.layer_surface == layer);
         let Some(surf) = surf else { return };
 
         let (new_w, new_h) = configure.new_size;
@@ -769,7 +780,11 @@ impl LayerShellHandler for WaylandState {
                 if let Err(e) = surf.init_gl(unsafe { &*egl_ptr }, &shader_compiled, &palette) {
                     log::error!("Failed to init GL for surface: {e:#}");
                 } else {
-                    log::info!("GL context initialised for surface {}x{}", surf.width, surf.height);
+                    log::info!(
+                        "GL context initialised for surface {}x{}",
+                        surf.width,
+                        surf.height
+                    );
                 }
             }
         } else {
@@ -790,13 +805,7 @@ impl SeatHandler for WaylandState {
         &mut self.seat_state
     }
 
-    fn new_seat(
-        &mut self,
-        _conn: &Connection,
-        _qh: &QueueHandle<Self>,
-        _seat: wl_seat::WlSeat,
-    ) {
-    }
+    fn new_seat(&mut self, _conn: &Connection, _qh: &QueueHandle<Self>, _seat: wl_seat::WlSeat) {}
 
     fn new_capability(
         &mut self,
@@ -838,12 +847,7 @@ impl SeatHandler for WaylandState {
         }
     }
 
-    fn remove_seat(
-        &mut self,
-        _conn: &Connection,
-        _qh: &QueueHandle<Self>,
-        _seat: wl_seat::WlSeat,
-    ) {
+    fn remove_seat(&mut self, _conn: &Connection, _qh: &QueueHandle<Self>, _seat: wl_seat::WlSeat) {
     }
 }
 
@@ -917,14 +921,24 @@ impl PointerHandler for WaylandState {
         for event in events {
             match event.kind {
                 PointerEventKind::Motion { .. } => {
-                    if self.config.behavior.dismiss_on.contains(&DismissEvent::MouseMove) {
+                    if self
+                        .config
+                        .behavior
+                        .dismiss_on
+                        .contains(&DismissEvent::MouseMove)
+                    {
                         log::info!("Mouse motion detected; dismissing screensaver");
                         self.running = false;
                         return;
                     }
                 }
                 PointerEventKind::Press { .. } => {
-                    if self.config.behavior.dismiss_on.contains(&DismissEvent::MouseClick) {
+                    if self
+                        .config
+                        .behavior
+                        .dismiss_on
+                        .contains(&DismissEvent::MouseClick)
+                    {
                         log::info!("Mouse button press detected; dismissing screensaver");
                         self.running = false;
                         return;

@@ -60,3 +60,27 @@ cargo build --release
 - v0.3.0: PipeWire audio reactivity, interactive mode, MPRIS integration.
 - v0.4.0: wgpu backend, shader parameter GUI, community repo.
 - v1.0.0: Stable config format, AUR/Nix packages, full Shadertoy uniform support.
+
+## v0.1.0 Status
+
+All core modules implemented:
+- config.rs: TOML config with full defaults, CLI overrides
+- palette.rs: Cosine gradient palettes, 7 built-ins, PaletteManager
+- shaders.rs: Shader loading, Shadertoy compat shim, hot-reload via notify, 5 built-in shaders
+- renderer.rs: glow-based OpenGL ES renderer, fullscreen quad, uniform upload
+- wayland.rs: SCTK layer-shell surfaces, EGL context per output, input dismiss, calloop event loop
+- main.rs: CLI (clap), signal handling, PID file, config→manager→run pipeline
+
+### Known Limitations (v0.1.0)
+- Fade in/out not implemented (config fields exist but are ignored)
+- Preview mode (--preview) falls back to layer-shell mode with a warning
+- Shader cycling timer is wired into the event loop but palette cycling by month is not
+- Multi-monitor uses same shader+palette on all outputs (per-monitor config is v0.2.0)
+- No audio reactivity, no interactive mouse input
+
+### Next Implementation Priorities
+1. Fade in/out (render alpha ramp)
+2. Preview mode (xdg-toplevel fallback)
+3. Palette cycling in the event loop
+4. Per-monitor shader/palette assignment
+5. LUT and gradient-stop palettes
