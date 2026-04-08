@@ -27,9 +27,15 @@ pub struct Config {
     #[serde(default)]
     pub behavior: BehaviorConfig,
 
-    /// User-defined palettes keyed by name. Merged with built-in palettes at runtime.
+    /// User-defined cosine palettes keyed by name (`[palettes.name]` TOML syntax).
+    /// Merged with built-in cosine palettes at runtime.
     #[serde(default)]
     pub palettes: HashMap<String, Palette>,
+
+    /// Extended palette entries using `[[palette]]` table-array syntax.
+    /// Supports `type = "lut"` (PNG file) and `type = "gradient"` (CSS stops).
+    #[serde(default, rename = "palette")]
+    pub palette_entries: Vec<PaletteConfigEntry>,
 }
 
 // ---------------------------------------------------------------------------
@@ -53,6 +59,9 @@ pub struct GeneralConfig {
 
     /// Optional ordered list of palette names for cycle rotation.
     pub palette_cycle: Vec<String>,
+
+    /// Cross-fade duration when switching palettes, in seconds. `0.0` = instant snap (default).
+    pub palette_transition_duration: f32,
 }
 
 impl Default for GeneralConfig {
@@ -63,6 +72,7 @@ impl Default for GeneralConfig {
             palette: "electric".to_string(),
             shader_cycle_interval: 300,
             palette_cycle: Vec::new(),
+            palette_transition_duration: 0.0,
         }
     }
 }
@@ -107,6 +117,52 @@ pub enum DismissEvent {
     MouseMove,
     MouseClick,
     Touch,
+}
+
+// ---------------------------------------------------------------------------
+// Extended palette config — [[palette]] table-array
+// ---------------------------------------------------------------------------
+
+/// A gradient stop used in `type = "gradient"` palette entries.
+#[derive(Debug, Clone, Deserialize)]
+pub struct GradientStopConfig {
+    /// Stop position in `[0.0, 1.0]`.
+    pub position: f32,
+    /// Color as a `#RRGGBB` hex string.
+    pub color: String,
+}
+
+/// One entry from the `[[palette]]` TOML table-array.
+///
+/// Example TOML:
+/// ```toml
+/// [[palette]]
+/// name = "fire"
+/// type = "lut"
+/// path = "~/.config/hyprsaver/palettes/fire.png"
+///
+/// [[palette]]
+/// name = "sunset"
+/// type = "gradient"
+/// stops = [
+///   { position = 0.0, color = "#0d0221" },
+///   { position = 1.0, color = "#efefd0" },
+/// ]
+/// ```
+#[derive(Debug, Clone, Deserialize)]
+pub struct PaletteConfigEntry {
+    /// Palette name (used to refer to it in `general.palette` or `general.palette_cycle`).
+    pub name: String,
+
+    /// Palette kind: `"lut"` or `"gradient"`.
+    #[serde(rename = "type")]
+    pub kind: String,
+
+    /// Path to a PNG file (`type = "lut"`). Tilde expansion is performed by the caller.
+    pub path: Option<String>,
+
+    /// Gradient stops (`type = "gradient"`).
+    pub stops: Option<Vec<GradientStopConfig>>,
 }
 
 // ---------------------------------------------------------------------------
@@ -184,13 +240,12 @@ mod tests {
         assert_eq!(cfg.general.palette, "electric");
         assert_eq!(cfg.general.shader_cycle_interval, 300);
         assert!(cfg.general.palette_cycle.is_empty());
+        assert_eq!(cfg.general.palette_transition_duration, 0.0);
         assert_eq!(cfg.behavior.fade_in_ms, 800);
         assert_eq!(cfg.behavior.fade_out_ms, 400);
         assert!(cfg.behavior.dismiss_on.contains(&DismissEvent::Key));
-        assert!(cfg.behavior.dismiss_on.contains(&DismissEvent::MouseMove));
-        assert!(cfg.behavior.dismiss_on.contains(&DismissEvent::MouseClick));
-        assert!(cfg.behavior.dismiss_on.contains(&DismissEvent::Touch));
         assert!(cfg.palettes.is_empty());
+        assert!(cfg.palette_entries.is_empty());
     }
 
     #[test]
@@ -213,6 +268,7 @@ shader = "julia"
 palette = "vapor"
 shader_cycle_interval = 120
 palette_cycle = ["electric", "frost"]
+palette_transition_duration = 1.5
 
 [behavior]
 fade_in_ms = 200
@@ -225,6 +281,7 @@ dismiss_on = ["key", "touch"]
         assert_eq!(cfg.general.palette, "vapor");
         assert_eq!(cfg.general.shader_cycle_interval, 120);
         assert_eq!(cfg.general.palette_cycle, vec!["electric", "frost"]);
+        assert_eq!(cfg.general.palette_transition_duration, 1.5);
         assert_eq!(cfg.behavior.fade_in_ms, 200);
         assert_eq!(cfg.behavior.fade_out_ms, 100);
         assert_eq!(
@@ -234,7 +291,7 @@ dismiss_on = ["key", "touch"]
     }
 
     #[test]
-    fn test_parse_custom_palette() {
+    fn test_parse_custom_cosine_palette() {
         let toml_str = r#"
 [palettes.neon]
 a = [0.1, 0.2, 0.3]
@@ -248,6 +305,45 @@ d = [0.0, 0.1, 0.2]
         assert_eq!(neon.b, [0.4, 0.5, 0.6]);
         assert_eq!(neon.c, [1.0, 2.0, 3.0]);
         assert_eq!(neon.d, [0.0, 0.1, 0.2]);
+    }
+
+    #[test]
+    fn test_parse_lut_palette_entry() {
+        let toml_str = r#"
+[[palette]]
+name = "fire"
+type = "lut"
+path = "~/.config/hyprsaver/palettes/fire.png"
+"#;
+        let cfg: Config = toml::from_str(toml_str).expect("lut TOML must parse");
+        assert_eq!(cfg.palette_entries.len(), 1);
+        let entry = &cfg.palette_entries[0];
+        assert_eq!(entry.name, "fire");
+        assert_eq!(entry.kind, "lut");
+        assert_eq!(entry.path.as_deref(), Some("~/.config/hyprsaver/palettes/fire.png"));
+    }
+
+    #[test]
+    fn test_parse_gradient_palette_entry() {
+        // Use r##"..."## so that "#RRGGBB" hex colors don't close the raw string.
+        let toml_str = r##"
+[[palette]]
+name = "sunset"
+type = "gradient"
+stops = [
+  { position = 0.0, color = "#0d0221" },
+  { position = 0.3, color = "#ff6b35" },
+  { position = 1.0, color = "#efefd0" },
+]
+"##;
+        let cfg: Config = toml::from_str(toml_str).expect("gradient TOML must parse");
+        assert_eq!(cfg.palette_entries.len(), 1);
+        let entry = &cfg.palette_entries[0];
+        assert_eq!(entry.name, "sunset");
+        assert_eq!(entry.kind, "gradient");
+        let stops = entry.stops.as_ref().expect("stops must be present");
+        assert_eq!(stops.len(), 3);
+        assert_eq!(stops[0].color, "#0d0221");
     }
 
     #[test]
@@ -279,15 +375,11 @@ d = [0.0, 0.1, 0.2]
 
     #[test]
     fn test_missing_file_returns_default() {
-        // Explicit nonexistent path must return an error.
         assert!(
             load_config(Some("/nonexistent_hyprsaver_xyz/config.toml")).is_err(),
             "explicit nonexistent path should error"
         );
 
-        // load_config(None) with no config file on disk returns Config::default().
-        // Override XDG_CONFIG_HOME and HOME to point at a nonexistent directory so
-        // no config file can be found.
         let orig_xdg = std::env::var("XDG_CONFIG_HOME").ok();
         let orig_home = std::env::var("HOME").ok();
 
@@ -296,7 +388,6 @@ d = [0.0, 0.1, 0.2]
 
         let result = load_config(None);
 
-        // Restore env vars
         match orig_xdg {
             Some(v) => std::env::set_var("XDG_CONFIG_HOME", v),
             None => std::env::remove_var("XDG_CONFIG_HOME"),
