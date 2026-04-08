@@ -1117,19 +1117,37 @@ fn draw_panel(
 
             ui.add_space(10.0);
             ui.label(format!("Speed  {:.2}×", state.speed));
-            ui.add(
-                egui::Slider::new(&mut state.speed, 0.1_f32..=3.0)
-                    .step_by(0.05f64)
-                    .show_value(false),
-            );
+            ui.horizontal(|ui| {
+                ui.add(
+                    egui::Slider::new(&mut state.speed, 0.1_f32..=3.0)
+                        .step_by(0.05f64)
+                        .show_value(false),
+                );
+                if ui
+                    .add(egui::Button::new("↺").min_size(egui::Vec2::new(24.0, 0.0)))
+                    .on_hover_text("Reset to default")
+                    .clicked()
+                {
+                    state.speed = 1.0;
+                }
+            });
 
             ui.add_space(6.0);
             ui.label(format!("Zoom  {:.2}×", state.zoom));
-            ui.add(
-                egui::Slider::new(&mut state.zoom, 0.1_f32..=3.0)
-                    .step_by(0.05f64)
-                    .show_value(false),
-            );
+            ui.horizontal(|ui| {
+                ui.add(
+                    egui::Slider::new(&mut state.zoom, 0.1_f32..=3.0)
+                        .step_by(0.05f64)
+                        .show_value(false),
+                );
+                if ui
+                    .add(egui::Button::new("↺").min_size(egui::Vec2::new(24.0, 0.0)))
+                    .on_hover_text("Reset to default")
+                    .clicked()
+                {
+                    state.zoom = 1.0;
+                }
+            });
 
             ui.add_space(14.0);
 
