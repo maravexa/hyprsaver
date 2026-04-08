@@ -149,11 +149,54 @@ make uninstall
 paru -S hyprsaver  # or yay, or manual makepkg
 ```
 
-### Nix Flake (planned)
+### Nix / NixOS
+
+A Nix flake is included in the repository root.
+
+**Run without installing:**
+
+```sh
+nix run github:maravexa/hyprsaver
+```
+
+**Add to your NixOS / Home Manager flake:**
 
 ```nix
-inputs.hyprsaver.url = "github:maravexa/hyprsaver";
+# flake.nix
+{
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    hyprsaver.url = "github:maravexa/hyprsaver";
+  };
+
+  outputs = { self, nixpkgs, hyprsaver, ... }: {
+    # NixOS system config:
+    nixosConfigurations.myhostname = nixpkgs.lib.nixosSystem {
+      modules = [
+        ({ pkgs, ... }: {
+          environment.systemPackages = [
+            hyprsaver.packages.${pkgs.system}.default
+          ];
+        })
+      ];
+    };
+  };
+}
 ```
+
+**Development shell** (includes Rust stable + rust-analyzer + clippy):
+
+```sh
+nix develop github:maravexa/hyprsaver
+```
+
+> **NixOS note**: `libGL` and `libEGL` are dlopen'd at runtime. The flake's
+> `devShell` sets `LD_LIBRARY_PATH` automatically. If you run the installed
+> binary outside the dev shell, wrap it with:
+> ```sh
+> LD_LIBRARY_PATH=$(nix eval --raw 'nixpkgs#mesa')/lib:$LD_LIBRARY_PATH hyprsaver
+> ```
+> or use `programs.hyprsaver.enable` once a NixOS module is added (planned for v1.0.0).
 
 ---
 
