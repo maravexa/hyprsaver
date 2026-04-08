@@ -19,7 +19,7 @@ optdepends=(
     'hyprlock: lock screen to pair with hyprsaver'
 )
 source=("$pkgname-$pkgver.tar.gz::https://github.com/maravexa/hyprsaver/archive/v$pkgver.tar.gz")
-sha256sums=('SKIP')
+sha256sums=('7d734c2e25240a77c5db9ecc7dd9bdc843b380c600cbc9acc009c218fb710381')
 
 prepare() {
     cd "$pkgname-$pkgver"
