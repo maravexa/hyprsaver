@@ -12,8 +12,8 @@ precision highp float;
 // GLSL — no per-frame CPU work.
 //
 // Layer parameters (i = 0 nearest … 4 furthest):
-//   speed   = 0.45 - i * 0.09       (UV units / second along -y)
-//   dot_r   = (4.5 - i * 0.72) px   (radius, converted to UV via resolution.y)
+//   speed   = float[](0.360, 0.315, 0.270, 0.225, 0.180) + jitter
+//   size_px = float[](9.0, 5.5, 3.0, 1.6, 0.7)  (exponential depth falloff)
 //   density = 10 dots per layer      (50 total / 5 layers)
 // ---------------------------------------------------------------------------
 
@@ -40,9 +40,14 @@ float hash11(float p) {
 // ---------------------------------------------------------------------------
 
 vec3 snowLayer(vec2 uv, float fi, float aspect) {
-    // Layer kinematics.
-    float speed  = 0.45 - fi * 0.09;                       // 0.45 → 0.09 UV/s
-    float dot_r  = (4.5 - fi * 0.72) / u_resolution.y;    // pixel radius → UV units
+    // Layer kinematics — compressed range, less mechanical lockstep.
+    float speed_base[5] = float[](0.360, 0.315, 0.270, 0.225, 0.180);
+    // Exponential size falloff for strong depth illusion; layer 4 sub-pixel → soft haze.
+    float size_px[5]    = float[](9.0, 5.5, 3.0, 1.6, 0.7);
+
+    int li      = int(fi);
+    float base  = speed_base[li];
+    float dot_r = size_px[li] / min(u_resolution.x, u_resolution.y);
 
     // Per-layer hash seed so dot positions are independent across layers.
     float seed = fi * 137.531;
@@ -56,15 +61,19 @@ vec3 snowLayer(vec2 uv, float fi, float aspect) {
         float fj = float(j);
 
         // Independent position hashes for each dot.
-        float hx = hash11(seed + fj * 17.37 + 1.11);
-        float hy = hash11(seed + fj * 53.19 + 2.22);
+        float hx         = hash11(seed + fj * 17.37 + 1.11);
+        float hy         = hash11(seed + fj * 53.19 + 2.22);
+        float hash_phase = hash11(seed + fj * 73.11 + 4.44);
+
+        // Per-dot speed jitter breaks mechanical lockstep within a layer.
+        float effective_speed = base + (hash_phase - 0.5) * 0.02;
 
         // x: stationary, spread across the full screen width.
         float dot_x = (hx - 0.5) * aspect;
 
         // y: falls straight down; wraps from bottom back to top.
         //    fract(hy + speed*t) grows over time → mapped to decreasing UV y.
-        float dot_y = 0.5 - fract(hy + speed * u_time * u_speed_scale);
+        float dot_y = 0.5 - fract(hy + effective_speed * u_time * u_speed_scale);
 
         // Distance from current pixel to dot centre.
         float dist = length(uv - vec2(dot_x, dot_y));
