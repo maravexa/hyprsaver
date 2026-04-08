@@ -408,7 +408,7 @@ impl PreviewState {
                             log::info!("panel: shader → '{sel_shader}'");
                         }
                         Err(e) => {
-                            bundle.state.status_message = format!("Compile error (see log)");
+                            bundle.state.status_message = "Compile error (see log)".to_string();
                             log::warn!("panel: compile error for '{sel_shader}': {e:#}");
                         }
                     }
