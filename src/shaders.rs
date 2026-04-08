@@ -31,7 +31,10 @@ pub const BUILTIN_TUNNEL: &str = include_str!("../shaders/tunnel.frag");
 /// Animated Voronoi cells.
 pub const BUILTIN_VORONOI: &str = include_str!("../shaders/voronoi.frag");
 
-/// Three-layer parallax starfield with palette-colored glow and brightness pulse.
+/// Five-layer parallax snowfall with palette-colored dot glow and brightness pulse.
+pub const BUILTIN_SNOWFALL: &str = include_str!("../shaders/snowfall.frag");
+
+/// Hyperspace zoom tunnel — 120 stars radiate outward from a central vanishing point.
 pub const BUILTIN_STARFIELD: &str = include_str!("../shaders/starfield.frag");
 
 /// N-fold kaleidoscope driven by domain-warped FBM noise.
@@ -127,6 +130,7 @@ impl ShaderManager {
             ("mandelbrot", BUILTIN_MANDELBROT),
             ("plasma", BUILTIN_PLASMA),
             ("raymarcher", BUILTIN_RAYMARCHER),
+            ("snowfall", BUILTIN_SNOWFALL),
             ("starfield", BUILTIN_STARFIELD),
             ("tunnel", BUILTIN_TUNNEL),
             ("voronoi", BUILTIN_VORONOI),
@@ -434,6 +438,14 @@ fn prepare_shader(raw: &str) -> String {
         out.push_str("uniform float u_alpha;\n");
     }
 
+    // Speed / zoom multipliers — uploaded every frame; default 1.0 in daemon mode.
+    if !source.contains("u_speed_scale") {
+        out.push_str("uniform float u_speed_scale;\n");
+    }
+    if !source.contains("u_zoom_scale") {
+        out.push_str("uniform float u_zoom_scale;\n");
+    }
+
     // ---- inject palette block (if not already present) ----
     // Guard on the palette() function signature — avoids injecting twice even if
     // the shader already declares u_palette_a_* uniforms by another name.
@@ -526,7 +538,7 @@ mod tests {
 
     #[test]
     fn test_builtin_shader_count() {
-        assert_eq!(manager().list().len(), 10);
+        assert_eq!(manager().list().len(), 11);
     }
 
     #[test]
@@ -539,6 +551,7 @@ mod tests {
             "plasma",
             "tunnel",
             "voronoi",
+            "snowfall",
             "starfield",
             "kaleidoscope",
             "flow_field",

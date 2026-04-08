@@ -98,7 +98,8 @@ sudo pacman -U hyprsaver-0.1.0-x86_64-linux.tar.zst
   | `plasma`        | Classic plasma effect                              |
   | `tunnel`        | Infinite tunnel flythrough                         |
   | `voronoi`       | Animated Voronoi cells                             |
-  | `starfield`     | Three-layer parallax starfield with palette glow   |
+  | `snowfall`      | Five-layer parallax snowfall with palette dot glow |
+  | `starfield`     | Hyperspace zoom tunnel with motion-blur tracers    |
   | `kaleidoscope`  | 6-fold kaleidoscope driven by domain-warped FBM    |
   | `flow_field`    | Curl-noise flow field with 8-step particle tracing |
   | `raymarcher`    | Raymarched torus with Phong lighting and fog       |
@@ -363,6 +364,32 @@ hyprsaver accepts shaders written in Shadertoy's convention. The following remap
 | `iFrame` | `u_frame` |
 
 If your shader contains `void mainImage(out vec4 fragColor, in vec2 fragCoord)`, a `void main()` wrapper is appended automatically. You can paste most Shadertoy shaders directly (note: `iChannel` texture uniforms are not yet supported -- v1.0.0).
+
+### Preview Mode — Control Panel
+
+`--preview` opens a desktop window split into two regions:
+
+- **Left**: live shader viewport
+- **Right**: 280-px egui control panel
+
+The panel provides:
+
+| Control | Description |
+|---------|-------------|
+| **Shader** ComboBox | Switch to any built-in or user shader instantly |
+| **Palette** ComboBox | Switch palette without restarting |
+| **Speed** slider | 0.1× – 3.0× time multiplier (default 1.0) |
+| **Zoom** slider | 0.1× – 3.0× zoom depth (fractal / starfield shaders) |
+| **▶  Preview** button | Apply selected shader, palette, speed, and zoom |
+
+Keyboard shortcuts always active in the preview window:
+
+| Key | Action |
+|-----|--------|
+| `Q` / `Esc` | Quit preview |
+| `R` | Force-reload current shader from disk |
+
+> **Note:** Speed and zoom sliders only affect the preview window — the daemon always uses `u_speed_scale = 1.0` and `u_zoom_scale = 1.0` unless you add those uniforms to your own shader logic.
 
 ### Hot-Reload Workflow
 

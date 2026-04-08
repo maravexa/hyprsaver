@@ -14,6 +14,8 @@ allow = [
     "CC0-1.0",     # notify
     "MPL-2.0",     # option-ext, via dirs-sys -> dirs
     "Unicode-3.0", # unicode-ident
+    "OFL-1.1",      # egui bundled fonts (epaint_default_fonts)
+    "LicenseRef-UFL-1.0", # Ubuntu Font License — also in epaint_default_fonts
 ]
 
 [bans]
@@ -34,7 +36,6 @@ skip = [
     { name = "windows_aarch64_gnullvm" },
     { name = "windows_aarch64_msvc" },
     { name = "windows_i686_gnu" },
-    { name = "windows_i686_gnullvm" },
     { name = "windows_i686_msvc" },
     { name = "windows_x86_64_gnu" },
     { name = "windows_x86_64_gnullvm" },

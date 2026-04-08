@@ -100,7 +100,7 @@ void main() {
     // Centered at screen midpoint, uniform scaling, aspect-ratio correct.
     vec2 uv = (gl_FragCoord.xy - 0.5 * u_resolution.xy) / u_resolution.y;
 
-    float t = u_time * 0.18;
+    float t = u_time * u_speed_scale * 0.18;
 
     // Two Voronoi layers at different scales.
     float cell_lg = 0.22;  // large background cells
@@ -117,8 +117,8 @@ void main() {
     float dist_sm = v_sm.x;
 
     // Palette lookup: mix cell ID, dist, angle, and time for richness.
-    float t_lg = fract(id_lg + u_time * 0.05);
-    float t_sm = fract(id_sm * 3.1 + dist_sm * 0.8 + u_time * 0.08);
+    float t_lg = fract(id_lg + u_time * u_speed_scale * 0.05);
+    float t_sm = fract(id_sm * 3.1 + dist_sm * 0.8 + u_time * u_speed_scale * 0.08);
 
     vec3 col_lg = palette(t_lg) * 0.5;
     vec3 col_sm = palette(t_sm);
@@ -127,7 +127,7 @@ void main() {
     vec3 col = mix(col_lg, col_sm, 0.6);
 
     // Draw cell edges as bright glowing lines.
-    vec3 edge_col = palette(fract(u_time * 0.04 + 0.3));
+    vec3 edge_col = palette(fract(u_time * u_speed_scale * 0.04 + 0.3));
     col = mix(col, edge_col * 1.4, (1.0 - edge_sm) * 0.5);
     col = mix(col, edge_col * 0.8, (1.0 - edge_lg) * 0.25);
 

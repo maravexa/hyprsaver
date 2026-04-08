@@ -4,11 +4,12 @@ precision highp float;
 // ---------------------------------------------------------------------------
 // hyprsaver — starfield.frag
 //
-// Three depth layers of scrolling stars. Each layer moves at a different
-// speed along the Y axis, simulating parallax depth. Stars are hash-positioned
-// within a grid of cells, colored by depth through the cosine palette, and
-// brightness-pulsed with per-star phase offsets. Fully stateless GLSL —
-// no CPU work per frame.
+// Hyperspace zoom tunnel. 120 stars radiate outward from a central vanishing
+// point. Each star zooms from its seed position toward the screen edge,
+// leaving a motion-blur tracer behind it. Close stars have large cores and
+// long bright tracers; distant stars are tiny pinpricks. ~15% of stars are
+// tinted by the active palette; the rest are white-ish blue. Black void.
+// Fully stateless GLSL — no per-frame CPU work.
 // ---------------------------------------------------------------------------
 
 uniform float u_time;
@@ -16,84 +17,71 @@ uniform vec2  u_resolution;
 uniform vec2  u_mouse;
 uniform int   u_frame;
 
+const float ZOOM = 0.4;   // zoom-cycle frequency (cycles / second)
+const int   N    = 120;   // total star count
+
 // ---------------------------------------------------------------------------
-// Hash utilities
+// Hash — float → float in [0, 1)
 // ---------------------------------------------------------------------------
 
-float hash11(float p) {
-    p = fract(p * 0.1031);
-    p *= p + 33.33;
-    p *= p + p;
-    return fract(p);
-}
-
-vec2 hash21(float p) {
-    vec2 q = fract(vec2(p) * vec2(0.1031, 0.1030));
-    q += dot(q, q.yx + 33.33);
-    return fract((q.xx + q.yx) * q.xy);
+float h11(float p) {
+    p = fract(p * 0.1031); p *= p + 33.33; p *= p + p; return fract(p);
 }
 
 // ---------------------------------------------------------------------------
-// Accumulate star glow for one depth layer.
-//   depth : 0.0 = far (slow, small, dim) … 1.0 = near (fast, large, bright)
-//   speed : scroll velocity along Y
+// Signed distance from point q to line segment a→b.
 // ---------------------------------------------------------------------------
-vec3 starLayer(vec2 uv, float depth, float speed) {
-    float cellSize = mix(0.05, 0.15, depth);
-    vec2 scaled = uv / cellSize;
-    scaled.y += u_time * speed;
 
-    vec2 cellId   = floor(scaled);
-    vec2 cellFrac = fract(scaled);
-
-    vec3 col = vec3(0.0);
-
-    // Check 3×3 neighborhood so stars near cell boundaries are not clipped.
-    for (int dy = -1; dy <= 1; dy++) {
-        for (int dx = -1; dx <= 1; dx++) {
-            vec2  nb = cellId + vec2(float(dx), float(dy));
-            float h  = hash11(nb.x * 127.1 + nb.y * 311.7 + depth * 74.3);
-
-            // Star centre within cell in [0.2, 0.8] — avoids edge crowding.
-            vec2 pos = hash21(h * 127.1) * 0.6 + 0.2;
-
-            vec2  diff   = cellFrac - (pos + vec2(float(dx), float(dy)));
-            float dist   = length(diff);
-            float radius = mix(0.05, 0.13, depth);
-
-            // Soft circular glow with sharpened core.
-            float glow = smoothstep(radius, 0.0, dist);
-            glow *= glow;
-
-            // Per-star brightness pulse using a unique phase offset.
-            float phase    = hash11(h * 53.7) * 6.28318530718;
-            float pulseSpd = mix(0.4, 1.3, hash11(h * 31.4));
-            float pulse    = 0.75 + 0.25 * sin(u_time * pulseSpd + phase);
-
-            // Color from palette at star depth with a small per-star jitter.
-            vec3 starCol = palette(depth + hash11(h * 91.3) * 0.15);
-
-            col += starCol * glow * pulse;
-        }
-    }
-    return col;
+float segDist(vec2 q, vec2 a, vec2 b) {
+    vec2 ab = b - a, aq = q - a;
+    float t = clamp(dot(aq, ab) / dot(ab, ab), 0.0, 1.0);
+    return length(aq - ab * t);
 }
 
 // ---------------------------------------------------------------------------
 
 void main() {
-    vec2 uv = (gl_FragCoord.xy - 0.5 * u_resolution.xy) / u_resolution.y;
+    float aspect = u_resolution.x / u_resolution.y;
+    vec2  uv     = (gl_FragCoord.xy - 0.5 * u_resolution.xy) / u_resolution.y;
+    vec3  col    = vec3(0.0);   // black void
 
-    vec3 col = vec3(0.0);
+    for (int i = 0; i < N; i++) {
+        float fi = float(i);
 
-    // Three layers: distant (slow, small) → near (fast, large).
-    col += starLayer(uv, 0.0, 0.04);
-    col += starLayer(uv, 0.5, 0.13);
-    col += starLayer(uv, 1.0, 0.32);
+        // Fixed seed position in UV space; x scaled by aspect for uniform coverage.
+        vec2  seed = vec2((h11(fi * 17.37 + 1.0) - 0.5) * aspect,
+                           h11(fi * 53.19 + 2.0) - 0.5);
+        float hd   = h11(fi * 91.73 + 3.0);   // per-star depth phase
+        float hc   = h11(fi * 37.11 + 4.0);   // color selector
 
-    // Subtle vignette to draw the eye toward the centre.
-    float vig = 1.0 - 0.28 * dot(uv * 1.2, uv * 1.2);
-    col *= clamp(vig, 0.0, 1.0);
+        // d: zoom phase in [0,1). depth = 1 - d: 1=far (seed pos), →0=close (flying past).
+        float d     = fract(hd + u_time * ZOOM * u_speed_scale * u_zoom_scale);
+        float depth = 1.0 - d;                          // always in (0, 1] since d ∈ [0,1)
+        vec2  p     = seed / max(depth, 0.001);         // project outward from center
+
+        // Cull stars that are too far off screen.
+        if (abs(p.x) > 1.6 || abs(p.y) > 1.6) continue;
+
+        // Previous frame position: depth was slightly larger (star was farther back).
+        vec2  p_prev = seed / (depth + ZOOM * u_speed_scale * u_zoom_scale * 0.016);
+
+        // Core: circular glow, radius grows as star approaches (d→1).
+        float radius = d * 0.012 + 0.002;
+        float core   = smoothstep(radius, 0.0, length(uv - p));
+
+        // Tracer: gaussian glow along the segment p_prev→p.
+        float td  = segDist(uv, p_prev, p);
+        float trl = exp(-td * td * 800.0);
+        // Fade toward tail (p_prev, t=0) — bright at head (p, t=1).
+        vec2  seg     = p - p_prev;
+        float t_along = dot(uv - p_prev, seg) / max(dot(seg, seg), 1e-8);
+        trl *= clamp(t_along, 0.0, 1.0) * d;   // d: close stars have brighter tracers
+
+        // Color: white-ish blue for most; palette-tinted for ~15% (hc > 0.85).
+        vec3 star_col = hc > 0.85 ? palette(hc) : vec3(0.85, 0.90, 1.0);
+
+        col += star_col * (core + trl * 0.6);
+    }
 
     fragColor = vec4(col, 1.0);
 }
