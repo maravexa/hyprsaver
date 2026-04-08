@@ -17,6 +17,11 @@ exclude = [
     "examples/hyprland.conf",
     "*.tar.gz",
     "CLAUDE.md",
+    "PKGBUILD",
+    "flake.nix",
+    "flake.lock",
+    "deny.toml",
+    "rustfmt.toml",
 ]
 
 [dependencies]
