@@ -149,7 +149,7 @@ impl Surface {
         &mut self,
         egl: &EglState,
         shader_compiled: &str,
-        palette: &crate::palette::Palette,
+        palette: &crate::palette::PaletteEntry,
     ) -> anyhow::Result<()> {
         let w = self.phys_width().max(1) as i32;
         let h = self.phys_height().max(1) as i32;
@@ -204,7 +204,7 @@ impl Surface {
         renderer
             .load_shader(shader_compiled)
             .context("initial shader load failed")?;
-        renderer.set_palette(palette.a, palette.b, palette.c, palette.d);
+        renderer.set_palette(palette).context("initial palette upload failed")?;
 
         self.wl_egl_window = Some(wl_egl);
         self.egl_surface = Some(egl_surface);
@@ -532,6 +532,25 @@ pub fn run(
                 }
             }
 
+            // Advance palette cross-fade transition and propagate blend factor.
+            let now = std::time::Instant::now();
+            let blend = state.palette_manager.advance_transition(now);
+            if blend > 0.0 {
+                // Transition in progress: update blend on all renderers.
+                for surf in state.surfaces.values_mut() {
+                    if let Some(r) = surf.renderer.as_mut() {
+                        r.set_blend(blend);
+                    }
+                }
+            } else if state.palette_manager.next_palette().is_none() {
+                // Transition just completed or was never started: ensure blend=0.
+                for surf in state.surfaces.values_mut() {
+                    if let Some(r) = surf.renderer.as_mut() {
+                        r.set_blend(0.0);
+                    }
+                }
+            }
+
             // Render all configured surfaces.
             // We need egl ref — take it out temporarily.
             // SAFETY: egl is only None if init failed; surfaces won't have renderers in that case.
@@ -777,7 +796,7 @@ impl LayerShellHandler for WaylandState {
                     .palette_manager
                     .get(&palette_name)
                     .cloned()
-                    .unwrap_or_default();
+                    .unwrap_or_default(); // PaletteEntry::default() is cosine electric
                 let shader_compiled = self
                     .shader_manager
                     .get_compiled(&shader_name)

@@ -31,6 +31,10 @@ libc = "0.2"
 bytemuck = "1"
 khronos-egl = { version = "6", features = ["dynamic"] }
 wayland-egl = "0.32"
+image = { version = "0.25", default-features = false, features = ["png"] }
+
+[build-dependencies]
+image = { version = "0.25", default-features = false, features = ["png"] }
 
 [profile.release]
 opt-level = 2
