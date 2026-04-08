@@ -17,7 +17,28 @@ It is designed to complement [hyprlock](https://github.com/hyprwm/hyprlock) and 
 
 ---
 
+
 ## Quick Start
+
+### Debian / Ubuntu
+```bash
+# Download the .deb from the latest release
+sudo dpkg -i hyprsaver_0.1.0_amd64.deb
+```
+
+### Fedora / RHEL / openSUSE
+```bash
+# Download the .rpm from the latest release
+sudo rpm -i hyprsaver-0.1.0-1.x86_64.rpm
+```
+
+### Arch Linux
+```bash
+# Download the .tar.zst from the latest release
+sudo pacman -U hyprsaver-0.1.0-x86_64-linux.tar.zst
+```
+
+## Manual Installation
 
 1. Build and install:
    ```
