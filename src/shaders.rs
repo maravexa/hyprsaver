@@ -439,10 +439,12 @@ fn prepare_shader(raw: &str) -> String {
     }
 
     // Speed / zoom multipliers — uploaded every frame; default 1.0 in daemon mode.
-    if !source.contains("u_speed_scale") {
+    // Check for the *declaration* (not just usage) so shaders that reference these
+    // uniforms in their body without declaring them still get the injection.
+    if !source.contains("uniform float u_speed_scale") {
         out.push_str("uniform float u_speed_scale;\n");
     }
-    if !source.contains("u_zoom_scale") {
+    if !source.contains("uniform float u_zoom_scale") {
         out.push_str("uniform float u_zoom_scale;\n");
     }
 
@@ -674,6 +676,69 @@ mod tests {
             compiled.matches("uniform float u_time").count(),
             1,
             "u_time uniform must appear exactly once"
+        );
+    }
+
+    /// Regression test: shaders that USE u_speed_scale / u_zoom_scale in their body
+    /// without declaring them must still get the uniform declaration injected.
+    /// Previously, `source.contains("u_speed_scale")` matched the usage and skipped
+    /// injection, causing a GLSL compile error ("undeclared identifier").
+    #[test]
+    fn test_speed_zoom_injected_when_used_but_not_declared() {
+        let source = concat!(
+            "#version 320 es\n",
+            "precision highp float;\n",
+            "uniform float u_time;\n",
+            "void main() {\n",
+            "    float t = u_time * u_speed_scale;\n",
+            "    float z = 1.0 * u_zoom_scale;\n",
+            "    fragColor = vec4(t, z, 0.0, 1.0);\n",
+            "}\n",
+        );
+        let compiled = prepare_shader(source);
+        assert!(
+            compiled.contains("uniform float u_speed_scale;"),
+            "u_speed_scale declaration must be injected when used but not declared"
+        );
+        assert!(
+            compiled.contains("uniform float u_zoom_scale;"),
+            "u_zoom_scale declaration must be injected when used but not declared"
+        );
+        // Must appear exactly once each.
+        assert_eq!(
+            compiled.matches("uniform float u_speed_scale").count(),
+            1,
+            "u_speed_scale uniform must appear exactly once"
+        );
+        assert_eq!(
+            compiled.matches("uniform float u_zoom_scale").count(),
+            1,
+            "u_zoom_scale uniform must appear exactly once"
+        );
+    }
+
+    /// Shaders that already declare u_speed_scale / u_zoom_scale must not get
+    /// a duplicate injection.
+    #[test]
+    fn test_speed_zoom_no_duplicate_when_already_declared() {
+        let source = concat!(
+            "uniform float u_speed_scale;\n",
+            "uniform float u_zoom_scale;\n",
+            "void main() {\n",
+            "    float t = u_speed_scale * u_zoom_scale;\n",
+            "    fragColor = vec4(t, 0.0, 0.0, 1.0);\n",
+            "}\n",
+        );
+        let compiled = prepare_shader(source);
+        assert_eq!(
+            compiled.matches("uniform float u_speed_scale").count(),
+            1,
+            "u_speed_scale must appear exactly once"
+        );
+        assert_eq!(
+            compiled.matches("uniform float u_zoom_scale").count(),
+            1,
+            "u_zoom_scale must appear exactly once"
         );
     }
 
