@@ -59,14 +59,14 @@ void main() {
 
     // Zoom parameters — stay well within float32 precision limits.
     float zoom_cycle  = 50.0;        // seconds per ping-pong cycle
-    float max_zoom_exp = 14.0;       // 1.5^14 ≈ 268x — hard ceiling for clean float32
+    float max_zoom_exp = 14.0 * u_zoom_scale;  // u_zoom_scale deepens the zoom ceiling
 
     // Sine-based ping-pong: 0→1→0 over zoom_cycle seconds, no discontinuity.
-    float t = 0.5 - 0.5 * cos(u_time * 6.28318 / zoom_cycle);  // [0, 1]
+    float t = 0.5 - 0.5 * cos(u_time * u_speed_scale * 6.28318 / zoom_cycle);  // [0, 1]
     float scale = pow(1.5, t * max_zoom_exp);
 
     // Switch target region each time the sine wave completes a full cycle.
-    int target_idx = int(floor(u_time / zoom_cycle)) % 4;
+    int target_idx = int(floor(u_time * u_speed_scale / zoom_cycle)) % 4;
     vec2 center = zoom_target(target_idx);
 
     // Map screen coordinates to complex plane.
@@ -86,7 +86,7 @@ void main() {
     float t_palette = n / float(max_iter);
 
     // Slow time-based color drift so hues shift even when geometry is stable.
-    float time_offset = u_time * 0.02;
+    float time_offset = u_time * u_speed_scale * 0.02;
     vec3 col = palette(fract(t_palette + time_offset));
 
     // Enhance contrast near the boundary with a smooth power curve.

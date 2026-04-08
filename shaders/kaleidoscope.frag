@@ -66,7 +66,7 @@ void main() {
     float theta = atan(uv.y, uv.x);
 
     // Slow global rotation (period ≈ 30 s)
-    theta += u_time * (6.28318530718 / 30.0);
+    theta += u_time * u_speed_scale * (6.28318530718 / 30.0);
 
     // Fold theta into [0, sector) and mirror for true kaleidoscope symmetry.
     float sector = 6.28318530718 / SECTORS;
@@ -77,8 +77,8 @@ void main() {
     vec2 kp = vec2(cos(theta), sin(theta)) * r;
 
     // Warp magnitude oscillates on the same ≈ 30 s period.
-    float warpMag  = 0.4 + 0.2 * sin(u_time * (6.28318530718 / 30.0) + 1.5);
-    vec2  noiseC   = kp * 2.0 + vec2(u_time * 0.05, 0.0);
+    float warpMag  = 0.4 + 0.2 * sin(u_time * u_speed_scale * (6.28318530718 / 30.0) + 1.5);
+    vec2  noiseC   = kp * 2.0 + vec2(u_time * u_speed_scale * 0.05, 0.0);
     vec2  warpVec  = vec2(fbm(noiseC), fbm(noiseC + vec2(3.7, 1.9)));
     float n        = fbm(noiseC + warpMag * warpVec);
 

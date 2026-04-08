@@ -64,7 +64,7 @@ vec3 snowLayer(vec2 uv, float fi, float aspect) {
 
         // y: falls straight down; wraps from bottom back to top.
         //    fract(hy + speed*t) grows over time → mapped to decreasing UV y.
-        float dot_y = 0.5 - fract(hy + speed * u_time);
+        float dot_y = 0.5 - fract(hy + speed * u_time * u_speed_scale);
 
         // Distance from current pixel to dot centre.
         float dist = length(uv - vec2(dot_x, dot_y));
@@ -77,7 +77,7 @@ vec3 snowLayer(vec2 uv, float fi, float aspect) {
 
         // Subtle per-dot brightness pulse (hash-driven phase, slow oscillation).
         float phase = hash11(seed + fj * 91.73 + 3.33) * 6.28318;
-        float pulse = 0.75 + 0.25 * sin(u_time * 0.8 + phase);
+        float pulse = 0.75 + 0.25 * sin(u_time * u_speed_scale * 0.8 + phase);
 
         col += dot_col * glow * pulse;
     }
@@ -100,7 +100,7 @@ void main() {
         bg = vec3(0.0);
     } else {
         // Slow drift along the far end of the palette for a complementary hue.
-        float bg_t = 0.5 + 0.5 * sin(u_time * 0.03);
+        float bg_t = 0.5 + 0.5 * sin(u_time * u_speed_scale * 0.03);
         bg = palette(bg_t) * 0.18;   // dark but not black — enough to contrast snow
     }
 

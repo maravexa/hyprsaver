@@ -47,12 +47,12 @@ void main() {
     vec2 uv = (gl_FragCoord.xy - 0.5 * u_resolution.xy) / u_resolution.y * 1.5;
 
     // Each curve's phase drifts at a distinct rate so they interact over time.
-    float phase0 = u_time * 0.17;
-    float phase1 = u_time * 0.11;
-    float phase2 = u_time * 0.07;
+    float phase0 = u_time * u_speed_scale * 0.17;
+    float phase1 = u_time * u_speed_scale * 0.11;
+    float phase2 = u_time * u_speed_scale * 0.07;
 
     // Slowly cycling hue base for all three curves.
-    float hueBase = u_time * 0.05;
+    float hueBase = u_time * u_speed_scale * 0.05;
 
     vec3 col = vec3(0.0);   // black background
 

@@ -438,6 +438,14 @@ fn prepare_shader(raw: &str) -> String {
         out.push_str("uniform float u_alpha;\n");
     }
 
+    // Speed / zoom multipliers — uploaded every frame; default 1.0 in daemon mode.
+    if !source.contains("u_speed_scale") {
+        out.push_str("uniform float u_speed_scale;\n");
+    }
+    if !source.contains("u_zoom_scale") {
+        out.push_str("uniform float u_zoom_scale;\n");
+    }
+
     // ---- inject palette block (if not already present) ----
     // Guard on the palette() function signature — avoids injecting twice even if
     // the shader already declares u_palette_a_* uniforms by another name.
