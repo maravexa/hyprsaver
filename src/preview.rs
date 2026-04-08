@@ -40,12 +40,7 @@ use wayland_client::{
     Connection, QueueHandle,
 };
 
-use crate::{
-    config::Config,
-    palette::PaletteManager,
-    renderer::Renderer,
-    shaders::ShaderManager,
-};
+use crate::{config::Config, palette::PaletteManager, renderer::Renderer, shaders::ShaderManager};
 
 // ---------------------------------------------------------------------------
 // EGL state (mirrors wayland.rs — preview and daemon paths are kept separate)
@@ -90,7 +85,11 @@ impl EglState {
             .context("eglChooseConfig failed")?
             .ok_or_else(|| anyhow::anyhow!("no suitable EGL config found"))?;
 
-        Ok(Self { egl, display, config })
+        Ok(Self {
+            egl,
+            display,
+            config,
+        })
     }
 }
 
@@ -313,8 +312,8 @@ pub fn run(
     let qh: QueueHandle<PreviewState> = event_queue.handle();
 
     let compositor = CompositorState::bind(&globals, &qh).context("wl_compositor not available")?;
-    let xdg_shell =
-        XdgShell::bind(&globals, &qh).context("xdg_wm_base not available; is a desktop compositor running?")?;
+    let xdg_shell = XdgShell::bind(&globals, &qh)
+        .context("xdg_wm_base not available; is a desktop compositor running?")?;
     let seat_state = SeatState::new(&globals, &qh);
     let output_state = OutputState::new(&globals, &qh);
     let registry_state = RegistryState::new(&globals);
@@ -323,7 +322,11 @@ pub fn run(
     let active_shader = resolve_shader(&config, &shader_manager, shader_override);
     let active_palette = resolve_palette(&config, &palette_manager);
 
-    log::info!("preview: shader='{}' palette='{}'", active_shader, active_palette);
+    log::info!(
+        "preview: shader='{}' palette='{}'",
+        active_shader,
+        active_palette
+    );
 
     // Initialise EGL.
     let display_ptr = conn.backend().display_ptr() as *mut std::ffi::c_void;
@@ -388,8 +391,7 @@ pub fn run(
         .map_err(|e| anyhow::anyhow!("failed to insert WaylandSource: {e}"))?;
 
     // Render timer — fires every frame_ms milliseconds.
-    let render_timer =
-        calloop::timer::Timer::from_duration(Duration::from_millis(frame_ms));
+    let render_timer = calloop::timer::Timer::from_duration(Duration::from_millis(frame_ms));
     loop_handle
         .insert_source(render_timer, move |_, _, state: &mut PreviewState| {
             // Check signal flag (SIGTERM/SIGINT).
@@ -602,12 +604,7 @@ impl OutputHandler for PreviewState {
 }
 
 impl WindowHandler for PreviewState {
-    fn request_close(
-        &mut self,
-        _conn: &Connection,
-        _qh: &QueueHandle<Self>,
-        _window: &Window,
-    ) {
+    fn request_close(&mut self, _conn: &Connection, _qh: &QueueHandle<Self>, _window: &Window) {
         log::info!("preview: window close requested by compositor");
         self.running = false;
     }
@@ -649,7 +646,9 @@ impl WindowHandler for PreviewState {
                 use wayland_client::Proxy as _;
                 let surface_id = window.wl_surface().id();
 
-                if let Err(e) = self.init_gl(unsafe { &*egl_ptr }, surface_id, &shader_compiled, &palette) {
+                if let Err(e) =
+                    self.init_gl(unsafe { &*egl_ptr }, surface_id, &shader_compiled, &palette)
+                {
                     log::error!("preview: GL init failed: {e:#}");
                 } else {
                     log::info!("preview: GL context initialised ({}x{})", w, h);
@@ -673,13 +672,7 @@ impl SeatHandler for PreviewState {
         &mut self.seat_state
     }
 
-    fn new_seat(
-        &mut self,
-        _conn: &Connection,
-        _qh: &QueueHandle<Self>,
-        _seat: wl_seat::WlSeat,
-    ) {
-    }
+    fn new_seat(&mut self, _conn: &Connection, _qh: &QueueHandle<Self>, _seat: wl_seat::WlSeat) {}
 
     fn new_capability(
         &mut self,
@@ -710,12 +703,7 @@ impl SeatHandler for PreviewState {
         }
     }
 
-    fn remove_seat(
-        &mut self,
-        _conn: &Connection,
-        _qh: &QueueHandle<Self>,
-        _seat: wl_seat::WlSeat,
-    ) {
+    fn remove_seat(&mut self, _conn: &Connection, _qh: &QueueHandle<Self>, _seat: wl_seat::WlSeat) {
     }
 }
 
