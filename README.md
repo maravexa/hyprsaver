@@ -67,6 +67,16 @@ sudo pacman -U hyprsaver-0.1.0-x86_64-linux.tar.zst
    [general]
    shader = "julia"
    palette = "vapor"
+
+   [behavior]
+   fade_in_ms = 800
+   fade_out_ms = 400
+
+   # Per-monitor overrides (run `hyprctl monitors` for output names)
+   [[monitor]]
+   name = "DP-1"
+   shader = "raymarcher"
+   palette = "frost"
    ```
 
 ---
@@ -75,7 +85,7 @@ sudo pacman -U hyprsaver-0.1.0-x86_64-linux.tar.zst
 
 - **Wayland-native** via wlr-layer-shell -- not a window, a proper overlay surface
 - **GPU-accelerated GLSL** fragment shaders via OpenGL ES (glow crate)
-- **Multi-monitor** support -- one surface per output, all run simultaneously
+- **Multi-monitor** support -- one surface per output, with per-monitor shader/palette assignment via `[[monitor]]` config blocks
 - **Cosine gradient palettes** -- 12 floats define smooth, infinite color ramps. Any shader x any palette
 - **Shadertoy-compatible** shader format -- paste Shadertoy code with minimal edits, it just works
 - **Hot-reload** shaders from `~/.config/hyprsaver/shaders/` -- edit, save, see the change instantly
@@ -480,7 +490,8 @@ graph TD
 ### v0.2.0
 - LUT palettes: 256-color tables from PNG strips or inline hex arrays
 - CSS-style gradient-stop palettes (interpolated to LUT at load time)
-- Per-monitor shader and palette assignment in config
+- Per-monitor shader and palette assignment in config (done)
+- Fade in/out with configurable duration (done)
 - Palette transition animations (smooth crossfade when cycling palettes)
 
 ### v0.3.0

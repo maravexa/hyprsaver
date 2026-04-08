@@ -220,45 +220,159 @@ pub fn load_lut_from_png(path: &Path) -> anyhow::Result<Vec<[f32; 3]>> {
 /// Returns a map of all built-in cosine palettes by name.
 pub fn builtin_palettes() -> HashMap<String, Palette> {
     let mut map = HashMap::new();
-    map.insert("electric".into(), Palette { a: [0.5,0.5,0.5], b: [0.5,0.5,0.5], c: [1.0,1.0,1.0], d: [0.00,0.33,0.67] });
-    map.insert("autumn".into(),   Palette { a: [0.65,0.3,0.1], b: [0.4,0.3,0.1], c: [1.0,1.0,1.0], d: [0.0,0.1,0.2] });
-    map.insert("groovy".into(),   Palette { a: [0.8,0.5,0.4], b: [0.2,0.4,0.2], c: [2.0,1.0,1.0], d: [0.00,0.25,0.50] });
-    map.insert("frost".into(),    Palette { a: [0.6,0.7,0.9], b: [0.2,0.2,0.1], c: [1.0,1.0,0.5], d: [0.00,0.05,0.15] });
-    map.insert("ember".into(),    Palette { a: [0.97,0.30,0.05], b: [0.33,0.35,0.05], c: [1.0,1.0,1.0], d: [0.0,0.08,0.1] });
-    map.insert("ocean".into(),    Palette { a: [0.2,0.5,0.6], b: [0.2,0.3,0.3], c: [1.0,1.0,0.8], d: [0.30,0.20,0.10] });
-    map.insert("vapor".into(),    Palette { a: [0.55,0.22,0.65], b: [0.45,0.30,0.35], c: [1.0,1.0,1.0], d: [0.0,0.50,0.45] });
-    map.insert("forest".into(),   Palette { a: [0.25,0.50,0.12], b: [0.15,0.25,0.05], c: [1.0,1.0,1.5], d: [0.15,0.0,0.2] });
-    map.insert("monochrome".into(),Palette { a: [0.5,0.5,0.5], b: [0.5,0.5,0.5], c: [1.0,1.0,1.0], d: [0.00,0.00,0.00] });
+    map.insert(
+        "electric".into(),
+        Palette {
+            a: [0.5, 0.5, 0.5],
+            b: [0.5, 0.5, 0.5],
+            c: [1.0, 1.0, 1.0],
+            d: [0.00, 0.33, 0.67],
+        },
+    );
+    map.insert(
+        "autumn".into(),
+        Palette {
+            a: [0.65, 0.3, 0.1],
+            b: [0.4, 0.3, 0.1],
+            c: [1.0, 1.0, 1.0],
+            d: [0.0, 0.1, 0.2],
+        },
+    );
+    map.insert(
+        "groovy".into(),
+        Palette {
+            a: [0.8, 0.5, 0.4],
+            b: [0.2, 0.4, 0.2],
+            c: [2.0, 1.0, 1.0],
+            d: [0.00, 0.25, 0.50],
+        },
+    );
+    map.insert(
+        "frost".into(),
+        Palette {
+            a: [0.6, 0.7, 0.9],
+            b: [0.2, 0.2, 0.1],
+            c: [1.0, 1.0, 0.5],
+            d: [0.00, 0.05, 0.15],
+        },
+    );
+    map.insert(
+        "ember".into(),
+        Palette {
+            a: [0.97, 0.30, 0.05],
+            b: [0.33, 0.35, 0.05],
+            c: [1.0, 1.0, 1.0],
+            d: [0.0, 0.08, 0.1],
+        },
+    );
+    map.insert(
+        "ocean".into(),
+        Palette {
+            a: [0.2, 0.5, 0.6],
+            b: [0.2, 0.3, 0.3],
+            c: [1.0, 1.0, 0.8],
+            d: [0.30, 0.20, 0.10],
+        },
+    );
+    map.insert(
+        "vapor".into(),
+        Palette {
+            a: [0.55, 0.22, 0.65],
+            b: [0.45, 0.30, 0.35],
+            c: [1.0, 1.0, 1.0],
+            d: [0.0, 0.50, 0.45],
+        },
+    );
+    map.insert(
+        "forest".into(),
+        Palette {
+            a: [0.25, 0.50, 0.12],
+            b: [0.15, 0.25, 0.05],
+            c: [1.0, 1.0, 1.5],
+            d: [0.15, 0.0, 0.2],
+        },
+    );
+    map.insert(
+        "monochrome".into(),
+        Palette {
+            a: [0.5, 0.5, 0.5],
+            b: [0.5, 0.5, 0.5],
+            c: [1.0, 1.0, 1.0],
+            d: [0.00, 0.00, 0.00],
+        },
+    );
     map
 }
 
 /// Build the three built-in gradient/LUT palettes: "sunset", "aurora", "midnight".
 pub fn builtin_gradient_palettes() -> Vec<(String, PaletteEntry)> {
     let sunset = gradient_to_lut(&[
-        GradientStop { position: 0.0, color: [0.051, 0.008, 0.129] }, // #0d0221
-        GradientStop { position: 0.3, color: [1.000, 0.420, 0.208] }, // #ff6b35
-        GradientStop { position: 0.7, color: [0.969, 0.773, 0.624] }, // #f7c59f
-        GradientStop { position: 1.0, color: [0.937, 0.937, 0.816] }, // #efefd0
-    ]).unwrap_or_default();
+        GradientStop {
+            position: 0.0,
+            color: [0.051, 0.008, 0.129],
+        }, // #0d0221
+        GradientStop {
+            position: 0.3,
+            color: [1.000, 0.420, 0.208],
+        }, // #ff6b35
+        GradientStop {
+            position: 0.7,
+            color: [0.969, 0.773, 0.624],
+        }, // #f7c59f
+        GradientStop {
+            position: 1.0,
+            color: [0.937, 0.937, 0.816],
+        }, // #efefd0
+    ])
+    .unwrap_or_default();
 
     let aurora = gradient_to_lut(&[
-        GradientStop { position: 0.0, color: [0.012, 0.024, 0.157] }, // #030640
-        GradientStop { position: 0.3, color: [0.000, 0.690, 0.502] }, // #00b080
-        GradientStop { position: 0.6, color: [0.220, 0.918, 0.690] }, // #38eab0
-        GradientStop { position: 0.8, color: [0.639, 0.384, 0.933] }, // #a362ee
-        GradientStop { position: 1.0, color: [0.102, 0.008, 0.220] }, // #1a0238
-    ]).unwrap_or_default();
+        GradientStop {
+            position: 0.0,
+            color: [0.012, 0.024, 0.157],
+        }, // #030640
+        GradientStop {
+            position: 0.3,
+            color: [0.000, 0.690, 0.502],
+        }, // #00b080
+        GradientStop {
+            position: 0.6,
+            color: [0.220, 0.918, 0.690],
+        }, // #38eab0
+        GradientStop {
+            position: 0.8,
+            color: [0.639, 0.384, 0.933],
+        }, // #a362ee
+        GradientStop {
+            position: 1.0,
+            color: [0.102, 0.008, 0.220],
+        }, // #1a0238
+    ])
+    .unwrap_or_default();
 
     let midnight = gradient_to_lut(&[
-        GradientStop { position: 0.0, color: [0.004, 0.004, 0.020] }, // #010105
-        GradientStop { position: 0.4, color: [0.020, 0.047, 0.271] }, // #050c45
-        GradientStop { position: 0.7, color: [0.098, 0.165, 0.588] }, // #192a96
-        GradientStop { position: 1.0, color: [0.431, 0.604, 0.961] }, // #6e9af5
-    ]).unwrap_or_default();
+        GradientStop {
+            position: 0.0,
+            color: [0.004, 0.004, 0.020],
+        }, // #010105
+        GradientStop {
+            position: 0.4,
+            color: [0.020, 0.047, 0.271],
+        }, // #050c45
+        GradientStop {
+            position: 0.7,
+            color: [0.098, 0.165, 0.588],
+        }, // #192a96
+        GradientStop {
+            position: 1.0,
+            color: [0.431, 0.604, 0.961],
+        }, // #6e9af5
+    ])
+    .unwrap_or_default();
 
     vec![
-        ("sunset".into(),   PaletteEntry::Lut(sunset)),
-        ("aurora".into(),   PaletteEntry::Lut(aurora)),
+        ("sunset".into(), PaletteEntry::Lut(sunset)),
+        ("aurora".into(), PaletteEntry::Lut(aurora)),
         ("midnight".into(), PaletteEntry::Lut(midnight)),
     ]
 }
@@ -354,7 +468,11 @@ impl PaletteManager {
             .unwrap_or_default()
             .subsec_nanos() as usize
             % self.palettes.len();
-        let (name, entry) = self.palettes.iter().nth(idx).expect("palette map non-empty");
+        let (name, entry) = self
+            .palettes
+            .iter()
+            .nth(idx)
+            .expect("palette map non-empty");
         (name.as_str(), entry)
     }
 
@@ -398,7 +516,8 @@ impl PaletteManager {
     /// - Returns `0.0` when no transition is active.
     /// - Promotes `next` → `current` and returns `0.0` once the blend reaches `1.0`.
     pub fn advance_transition(&mut self, now: Instant) -> f32 {
-        let (Some(start), Some(next_name)) = (self.transition_start, self.next_name.as_deref()) else {
+        let (Some(start), Some(next_name)) = (self.transition_start, self.next_name.as_deref())
+        else {
             return 0.0;
         };
 
@@ -443,7 +562,12 @@ mod tests {
     }
 
     fn electric() -> Palette {
-        Palette { a: [0.5,0.5,0.5], b: [0.5,0.5,0.5], c: [1.0,1.0,1.0], d: [0.00,0.33,0.67] }
+        Palette {
+            a: [0.5, 0.5, 0.5],
+            b: [0.5, 0.5, 0.5],
+            c: [1.0, 1.0, 1.0],
+            d: [0.00, 0.33, 0.67],
+        }
     }
 
     // --- Cosine palette ---
@@ -469,7 +593,12 @@ mod tests {
 
     #[test]
     fn color_at_clamps_to_unit_range() {
-        let extreme = Palette { a: [2.0,2.0,2.0], b: [2.0,2.0,2.0], c: [1.0,1.0,1.0], d: [0.0,0.0,0.0] };
+        let extreme = Palette {
+            a: [2.0, 2.0, 2.0],
+            b: [2.0, 2.0, 2.0],
+            c: [1.0, 1.0, 1.0],
+            d: [0.0, 0.0, 0.0],
+        };
         for i in 0..=100 {
             for ch in extreme.color_at(i as f32 / 100.0) {
                 assert!(ch >= 0.0 && ch <= 1.0, "channel out of range: {ch}");
@@ -504,7 +633,7 @@ mod tests {
     #[test]
     fn test_parse_hex_invalid() {
         assert!(parse_hex_color("123456").is_err()); // missing #
-        assert!(parse_hex_color("#1234").is_err());   // wrong length
+        assert!(parse_hex_color("#1234").is_err()); // wrong length
         assert!(parse_hex_color("#gggggg").is_err()); // bad digits
     }
 
@@ -513,8 +642,14 @@ mod tests {
     #[test]
     fn test_gradient_black_to_white_midpoint() {
         let stops = vec![
-            GradientStop { position: 0.0, color: [0.0, 0.0, 0.0] },
-            GradientStop { position: 1.0, color: [1.0, 1.0, 1.0] },
+            GradientStop {
+                position: 0.0,
+                color: [0.0, 0.0, 0.0],
+            },
+            GradientStop {
+                position: 1.0,
+                color: [1.0, 1.0, 1.0],
+            },
         ];
         let lut = gradient_to_lut(&stops).unwrap();
         assert_eq!(lut.len(), 256);
@@ -524,15 +659,24 @@ mod tests {
 
     #[test]
     fn test_gradient_needs_at_least_two_stops() {
-        let stops = vec![GradientStop { position: 0.0, color: [1.0, 0.0, 0.0] }];
+        let stops = vec![GradientStop {
+            position: 0.0,
+            color: [1.0, 0.0, 0.0],
+        }];
         assert!(gradient_to_lut(&stops).is_err());
     }
 
     #[test]
     fn test_gradient_positions_must_ascend() {
         let stops = vec![
-            GradientStop { position: 0.8, color: [0.0, 0.0, 0.0] },
-            GradientStop { position: 0.2, color: [1.0, 1.0, 1.0] },
+            GradientStop {
+                position: 0.8,
+                color: [0.0, 0.0, 0.0],
+            },
+            GradientStop {
+                position: 0.2,
+                color: [1.0, 1.0, 1.0],
+            },
         ];
         assert!(gradient_to_lut(&stops).is_err());
     }
@@ -540,8 +684,14 @@ mod tests {
     #[test]
     fn test_gradient_position_out_of_range() {
         let stops = vec![
-            GradientStop { position: 0.0, color: [0.0, 0.0, 0.0] },
-            GradientStop { position: 1.5, color: [1.0, 1.0, 1.0] },
+            GradientStop {
+                position: 0.0,
+                color: [0.0, 0.0, 0.0],
+            },
+            GradientStop {
+                position: 1.5,
+                color: [1.0, 1.0, 1.0],
+            },
         ];
         assert!(gradient_to_lut(&stops).is_err());
     }
@@ -561,13 +711,19 @@ mod tests {
 
         // First sample (near-black) must be non-zero (has some red component).
         let first = lut[0];
-        assert!(first[0] > 0.0 || first[1] > 0.0 || first[2] > 0.0,
-            "first sample must be non-zero, got {:?}", first);
+        assert!(
+            first[0] > 0.0 || first[1] > 0.0 || first[2] > 0.0,
+            "first sample must be non-zero, got {:?}",
+            first
+        );
 
         // Last sample (near-white) must be non-zero.
         let last = lut[255];
-        assert!(last[0] > 0.0 || last[1] > 0.0 || last[2] > 0.0,
-            "last sample must be non-zero, got {:?}", last);
+        assert!(
+            last[0] > 0.0 || last[1] > 0.0 || last[2] > 0.0,
+            "last sample must be non-zero, got {:?}",
+            last
+        );
     }
 
     // --- Built-in gradient palettes ---
@@ -606,7 +762,12 @@ mod tests {
     #[test]
     fn test_manager_custom_cosine_override() {
         let mut custom = HashMap::new();
-        let custom_electric = Palette { a: [0.1,0.2,0.3], b: [0.4,0.5,0.6], c: [0.7,0.8,0.9], d: [0.0,0.1,0.2] };
+        let custom_electric = Palette {
+            a: [0.1, 0.2, 0.3],
+            b: [0.4, 0.5, 0.6],
+            c: [0.7, 0.8, 0.9],
+            d: [0.0, 0.1, 0.2],
+        };
         custom.insert("electric".to_string(), custom_electric.clone());
         let mgr = PaletteManager::new(custom, Vec::new(), 0.0, "electric");
         match mgr.get("electric").unwrap() {
@@ -640,7 +801,10 @@ mod tests {
         // At 1 second into a 2-second transition, blend ≈ 0.5.
         let t1 = t0 + std::time::Duration::from_secs(1);
         let blend = mgr.advance_transition(t1);
-        assert!((blend - 0.5).abs() < 0.01, "blend at 1s / 2s should be ~0.5, got {blend}");
+        assert!(
+            (blend - 0.5).abs() < 0.01,
+            "blend at 1s / 2s should be ~0.5, got {blend}"
+        );
     }
 
     #[test]
@@ -652,7 +816,14 @@ mod tests {
         let t1 = t0 + std::time::Duration::from_secs(2);
         let blend = mgr.advance_transition(t1);
         assert_eq!(blend, 0.0, "completed transition should return 0.0");
-        assert_eq!(mgr.current_name(), "frost", "current should have advanced to frost");
-        assert!(mgr.next_palette().is_none(), "next should be None after completion");
+        assert_eq!(
+            mgr.current_name(),
+            "frost",
+            "current should have advanced to frost"
+        );
+        assert!(
+            mgr.next_palette().is_none(),
+            "next should be None after completion"
+        );
     }
 }
