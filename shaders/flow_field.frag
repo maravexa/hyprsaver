@@ -89,7 +89,7 @@ void main() {
         float t = float(i) / float(STEPS);
 
         // Noise coordinate: scale, then animate phase at 0.03 speed.
-        vec2 np  = pos * 1.5 + vec2(u_time * 0.03, 0.0);
+        vec2 np  = pos * 1.5 + vec2(u_time * u_speed_scale * 0.03, 0.0);
         vec2 vel = curlNoise(np);
 
         // Glow contribution: bright near zero-crossings of a secondary noise

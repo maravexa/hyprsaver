@@ -25,7 +25,7 @@ float wave(float x) {
 void main() {
     // Centered at screen midpoint, uniform scaling, aspect-ratio correct.
     vec2 uv = (gl_FragCoord.xy - 0.5 * u_resolution.xy) / u_resolution.y;
-    float t = u_time;
+    float t = u_time * u_speed_scale;
 
     // ---------------------------------------------------------------------------
     // Four plasma layers with incommensurable frequencies

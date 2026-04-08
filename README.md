@@ -365,6 +365,32 @@ hyprsaver accepts shaders written in Shadertoy's convention. The following remap
 
 If your shader contains `void mainImage(out vec4 fragColor, in vec2 fragCoord)`, a `void main()` wrapper is appended automatically. You can paste most Shadertoy shaders directly (note: `iChannel` texture uniforms are not yet supported -- v1.0.0).
 
+### Preview Mode — Control Panel
+
+`--preview` opens a desktop window split into two regions:
+
+- **Left**: live shader viewport
+- **Right**: 280-px egui control panel
+
+The panel provides:
+
+| Control | Description |
+|---------|-------------|
+| **Shader** ComboBox | Switch to any built-in or user shader instantly |
+| **Palette** ComboBox | Switch palette without restarting |
+| **Speed** slider | 0.1× – 3.0× time multiplier (default 1.0) |
+| **Zoom** slider | 0.1× – 3.0× zoom depth (fractal / starfield shaders) |
+| **▶  Preview** button | Apply selected shader, palette, speed, and zoom |
+
+Keyboard shortcuts always active in the preview window:
+
+| Key | Action |
+|-----|--------|
+| `Q` / `Esc` | Quit preview |
+| `R` | Force-reload current shader from disk |
+
+> **Note:** Speed and zoom sliders only affect the preview window — the daemon always uses `u_speed_scale = 1.0` and `u_zoom_scale = 1.0` unless you add those uniforms to your own shader logic.
+
 ### Hot-Reload Workflow
 
 ```sh

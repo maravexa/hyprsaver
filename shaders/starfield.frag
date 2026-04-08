@@ -55,7 +55,7 @@ void main() {
         float hc   = h11(fi * 37.11 + 4.0);   // color selector
 
         // d: zoom phase in [0,1). depth = 1 - d: 1=far (seed pos), →0=close (flying past).
-        float d     = fract(hd + u_time * ZOOM);
+        float d     = fract(hd + u_time * ZOOM * u_speed_scale * u_zoom_scale);
         float depth = 1.0 - d;                          // always in (0, 1] since d ∈ [0,1)
         vec2  p     = seed / max(depth, 0.001);         // project outward from center
 
@@ -63,7 +63,7 @@ void main() {
         if (abs(p.x) > 1.6 || abs(p.y) > 1.6) continue;
 
         // Previous frame position: depth was slightly larger (star was farther back).
-        vec2  p_prev = seed / (depth + ZOOM * 0.016);
+        vec2  p_prev = seed / (depth + ZOOM * u_speed_scale * u_zoom_scale * 0.016);
 
         // Core: circular glow, radius grows as star approaches (d→1).
         float radius = d * 0.012 + 0.002;

@@ -43,7 +43,7 @@ float sdTorus(vec3 p, float R, float r) {
 }
 
 float scene(vec3 p) {
-    vec3 q = rotXZ(u_time * 0.23) * rotXY(u_time * 0.17) * p;
+    vec3 q = rotXZ(u_time * u_speed_scale * 0.23) * rotXY(u_time * u_speed_scale * 0.17) * p;
     return sdTorus(q, 0.8, 0.3);
 }
 
@@ -79,9 +79,10 @@ void main() {
     vec2 uv = (gl_FragCoord.xy - 0.5 * u_resolution.xy) / u_resolution.y;
 
     // Orbiting camera with gentle Y bob
-    float camAngle = u_time * 0.20;
-    float camY     = 0.8 + 0.30 * sin(u_time * 0.13);
-    vec3  ro       = vec3(sin(camAngle) * 2.5, camY, cos(camAngle) * 2.5);
+    float camAngle  = u_time * u_speed_scale * 0.20;
+    float camY      = 0.8 + 0.30 * sin(u_time * u_speed_scale * 0.13);
+    float camRadius = 2.5 / u_zoom_scale;
+    vec3  ro        = vec3(sin(camAngle) * camRadius, camY, cos(camAngle) * camRadius);
 
     // Build camera basis from look-at
     vec3 fwd = normalize(vec3(0.0) - ro);

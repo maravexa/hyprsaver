@@ -75,6 +75,25 @@ The `palette(t)` GLSL function signature is unchanged: `vec3 palette(float t)`.
 If your shader does not define `palette()`, the new multi-mode version is injected automatically.
 Built-in shaders are all updated; user shaders that define their own `palette()` are untouched.
 
+## Preview-Mode Speed / Zoom Uniforms
+
+Two additional uniforms are injected by `prepare_shader()` in `shaders.rs` for every shader that does not already declare them:
+
+| Uniform | Type | Default | Purpose |
+|---------|------|---------|---------|
+| `u_speed_scale` | `float` | `1.0` | Multiplies time-based motion expressions |
+| `u_zoom_scale` | `float` | `1.0` | Multiplies zoom depth (fractal/starfield shaders) |
+
+**In daemon mode** both uniforms are always uploaded as `1.0` — no behavioral change from before.
+
+**In preview mode** the egui control panel's Speed and Zoom sliders call `Renderer::set_speed_scale()` / `set_zoom_scale()` which are forwarded to the shader each frame.
+
+**All 11 built-in shaders** have been updated to wire these uniforms into their time-based motion expressions:
+- All shaders: `u_time` replaced with `u_time * u_speed_scale` in motion/animation expressions (not in position-seeding hashes).
+- Zoom-specific shaders: `mandelbrot` (`max_zoom_exp *= u_zoom_scale`), `raymarcher` (camera orbit radius `/ u_zoom_scale`), `starfield` (`ZOOM * u_speed_scale * u_zoom_scale`).
+
+**Custom shaders** that don't declare `u_speed_scale` or `u_zoom_scale` will have them injected automatically by the pipeline (no action needed). Shaders that define their own values for these uniforms are left untouched.
+
 ## Roadmap Summary
 - v0.1.0: Core screensaver. Layer-shell, glow, cosine palettes, built-in shaders, hot-reload, preview mode.
 - v0.2.0: LUT + gradient palettes, per-monitor config, palette transitions.
@@ -91,10 +110,16 @@ All Palette Engine Upgrade modules implemented (Phase 3):
 - config.rs: [[palette]] table-array, PaletteConfigEntry (type = "lut" / "gradient"), GradientStopConfig,
   general.palette_transition_duration field.
 - renderer.rs: LUT textures (256×1 RGBA8 GL_TEXTURE_2D on units 1+2), u_use_lut / u_palette_blend uniforms,
-  set_palette(PaletteEntry) / begin_transition / set_blend API.
+  set_palette(PaletteEntry) / begin_transition / set_blend API. Also: u_speed_scale / u_zoom_scale
+  uniforms (1.0 default — no daemon behavior change).
 - shaders.rs: Updated palette() injection — cosine + LUT code paths, mix() crossfade, new uniform names.
+  Also: u_speed_scale / u_zoom_scale injected if not declared; 11 built-in shaders updated.
 - wayland.rs: advance_transition() called each frame, blend factor propagated to all renderers.
 - build.rs: Generates examples/palettes/fire.png at build time (black→deep-red→orange→yellow-white).
+- preview.rs: Full egui control panel (shader/palette ComboBox, speed/zoom sliders, ▶ Preview button).
+  Uses egui 0.29 + egui_glow 0.29. Split viewport: shader left, panel right (280 px). Pointer routing.
+  starfield.frag: new hyperspace zoom tunnel (120 stars, depth projection, motion-blur tracers).
+  snowfall.frag: 5-layer parallax snowfall (replaces old starfield).
 
 ### v0.1.0 Status
 
