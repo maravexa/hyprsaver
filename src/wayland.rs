@@ -560,13 +560,8 @@ pub fn run(
     config: Config,
     shader_manager: ShaderManager,
     palette_manager: PaletteManager,
-    preview_mode: bool,
     signal_flag: Arc<AtomicBool>,
 ) -> anyhow::Result<()> {
-    if preview_mode {
-        log::warn!("Preview mode not yet implemented — launching in screensaver mode");
-    }
-
     let conn = Connection::connect_to_env()
         .context("failed to connect to Wayland display; is WAYLAND_DISPLAY set?")?;
 
