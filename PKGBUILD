@@ -9,7 +9,6 @@ license=('MIT')
 depends=(
     'wayland'
     'mesa'
-    'libgl'
 )
 makedepends=(
     'rust'
@@ -19,21 +18,25 @@ optdepends=(
     'hypridle: idle daemon for automatic activation'
     'hyprlock: lock screen to pair with hyprsaver'
 )
-source=()
-sha256sums=()
+source=("$pkgname-$pkgver.tar.gz::https://github.com/maravexa/hyprsaver/archive/v$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+prepare() {
+    cd "$pkgname-$pkgver"
+    export RUSTUP_TOOLCHAIN=stable
+    cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+}
 
 build() {
-    cd "$startdir"
+    cd "$pkgname-$pkgver"
+    export RUSTUP_TOOLCHAIN=stable
     cargo build --release --locked
 }
 
 package() {
-    cd "$startdir"
-
+    cd "$pkgname-$pkgver"
     install -Dm755 target/release/hyprsaver "$pkgdir/usr/bin/hyprsaver"
-
     install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
-
     install -dm755 "$pkgdir/usr/share/$pkgname/examples"
     install -Dm644 examples/hypridle.conf "$pkgdir/usr/share/$pkgname/examples/hypridle.conf"
     install -Dm644 examples/hyprland.conf "$pkgdir/usr/share/$pkgname/examples/hyprland.conf"
