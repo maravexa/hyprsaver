@@ -1,6 +1,6 @@
 [package]
 name = "hyprsaver"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 authors = ["Mara Vexa"]
 description = "A Wayland-native screensaver for Hyprland — fractal shaders on wlr-layer-shell overlays"
@@ -14,7 +14,7 @@ exclude = [
     "examples/config.toml",
     "examples/hypridle.conf",
     "examples/hyprland.conf",
-    "hyprsaver-0.1.0.tar.gz",
+    "*.tar.gz",
     "CLAUDE.md",
 ]
 

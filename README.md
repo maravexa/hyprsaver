@@ -23,19 +23,19 @@ It is designed to complement [hyprlock](https://github.com/hyprwm/hyprlock) and 
 ### Debian / Ubuntu
 ```bash
 # Download the .deb from the latest release
-sudo dpkg -i hyprsaver_0.1.0_amd64.deb
+sudo dpkg -i hyprsaver_0.2.0_amd64.deb
 ```
 
 ### Fedora / RHEL / openSUSE
 ```bash
 # Download the .rpm from the latest release
-sudo rpm -i hyprsaver-0.1.0-1.x86_64.rpm
+sudo rpm -i hyprsaver-0.2.0-1.x86_64.rpm
 ```
 
 ### Arch Linux
 ```bash
 # Download the .tar.zst from the latest release
-sudo pacman -U hyprsaver-0.1.0-x86_64-linux.tar.zst
+sudo pacman -U hyprsaver-0.2.0-x86_64-linux.tar.zst
 ```
 
 ## Manual Installation
@@ -81,7 +81,7 @@ sudo pacman -U hyprsaver-0.1.0-x86_64-linux.tar.zst
 
 ---
 
-## Features (v0.1.0)
+## Features (v0.2.0)
 
 - **Wayland-native** via wlr-layer-shell -- not a window, a proper overlay surface
 - **GPU-accelerated GLSL** fragment shaders via OpenGL ES (glow crate)
@@ -144,7 +144,7 @@ To uninstall:
 make uninstall
 ```
 
-### AUR (planned)
+### AUR
 
 ```sh
 paru -S hyprsaver  # or yay, or manual makepkg
@@ -267,8 +267,8 @@ shader_cycle_interval = 300    # seconds per shader when shader = "cycle"
 palette_cycle = ["frost", "ocean", "electric", "ember"]  # month-indexed
 
 [behavior]
-fade_in_ms = 800               # fade-in duration (not yet implemented in v0.1.0)
-fade_out_ms = 400              # fade-out duration (not yet implemented in v0.1.0)
+fade_in_ms = 800               # fade-in duration
+fade_out_ms = 400              # fade-out duration
 dismiss_on = ["key", "mouse_move", "mouse_click", "touch"]
 
 # Custom palettes are defined as top-level [palettes.<name>] sections
@@ -315,18 +315,25 @@ uniform vec2  u_resolution;  // physical pixel dimensions of the surface
 uniform vec2  u_mouse;       // last mouse position (window-space pixels)
 uniform int   u_frame;       // frame counter, starts at 0
 
-// Cosine gradient palette -- set by the active palette config
-uniform vec3  u_palette_a;
-uniform vec3  u_palette_b;
-uniform vec3  u_palette_c;
-uniform vec3  u_palette_d;
+// Cosine gradient palette -- set by the active palette config (v0.2.0+ names)
+uniform vec3  u_palette_a_a;   // brightness
+uniform vec3  u_palette_a_b;   // amplitude
+uniform vec3  u_palette_a_c;   // frequency
+uniform vec3  u_palette_a_d;   // phase
+// LUT palette (texture units 1/2) and blend factor are also injected automatically
+uniform sampler2D u_lut_a;
+uniform int       u_use_lut;   // 0 = cosine, 1 = LUT
+uniform float     u_palette_blend;
+
+// Speed/zoom controls (preview panel drives these; daemon always sends 1.0)
+uniform float u_speed_scale;
+uniform float u_zoom_scale;
 
 out vec4 fragColor;
 
 // Palette helper -- included automatically, always available
-vec3 palette(float t) {
-    return u_palette_a + u_palette_b * cos(6.28318 * (u_palette_c * t + u_palette_d));
-}
+// Signature unchanged from v0.1.x; implementation handles cosine + LUT modes
+vec3 palette(float t);
 ```
 
 ### Minimal Example Shader
@@ -337,17 +344,15 @@ precision highp float;
 
 uniform float u_time;
 uniform vec2  u_resolution;
-uniform vec3  u_palette_a, u_palette_b, u_palette_c, u_palette_d;
+uniform float u_speed_scale;
 
 out vec4 fragColor;
 
-vec3 palette(float t) {
-    return u_palette_a + u_palette_b * cos(6.28318 * (u_palette_c * t + u_palette_d));
-}
+// palette() is injected automatically — no need to declare it yourself
 
 void main() {
     vec2 uv = gl_FragCoord.xy / u_resolution;
-    float t = length(uv - 0.5) * 3.0 - u_time * 0.5;
+    float t = length(uv - 0.5) * 3.0 - u_time * u_speed_scale * 0.5;
     fragColor = vec4(palette(fract(t)), 1.0);
 }
 ```
@@ -556,13 +561,6 @@ graph TD
 ---
 
 ## Roadmap
-
-### v0.2.0
-- LUT palettes: 256-color tables from PNG strips or inline hex arrays
-- CSS-style gradient-stop palettes (interpolated to LUT at load time)
-- Per-monitor shader and palette assignment in config (done)
-- Fade in/out with configurable duration (done)
-- Palette transition animations (smooth crossfade when cycling palettes)
 
 ### v0.3.0
 - Audio reactivity via PipeWire (FFT frequency bands -> shader uniforms)
