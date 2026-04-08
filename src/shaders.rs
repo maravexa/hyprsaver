@@ -34,6 +34,9 @@ pub const BUILTIN_VORONOI: &str = include_str!("../shaders/voronoi.frag");
 /// Five-layer parallax snowfall with palette-colored dot glow and brightness pulse.
 pub const BUILTIN_SNOWFALL: &str = include_str!("../shaders/snowfall.frag");
 
+/// Hyperspace zoom tunnel — 120 stars radiate outward from a central vanishing point.
+pub const BUILTIN_STARFIELD: &str = include_str!("../shaders/starfield.frag");
+
 /// N-fold kaleidoscope driven by domain-warped FBM noise.
 pub const BUILTIN_KALEIDOSCOPE: &str = include_str!("../shaders/kaleidoscope.frag");
 
@@ -128,6 +131,7 @@ impl ShaderManager {
             ("plasma", BUILTIN_PLASMA),
             ("raymarcher", BUILTIN_RAYMARCHER),
             ("snowfall", BUILTIN_SNOWFALL),
+            ("starfield", BUILTIN_STARFIELD),
             ("tunnel", BUILTIN_TUNNEL),
             ("voronoi", BUILTIN_VORONOI),
         ];
@@ -526,7 +530,7 @@ mod tests {
 
     #[test]
     fn test_builtin_shader_count() {
-        assert_eq!(manager().list().len(), 10);
+        assert_eq!(manager().list().len(), 11);
     }
 
     #[test]
@@ -540,6 +544,7 @@ mod tests {
             "tunnel",
             "voronoi",
             "snowfall",
+            "starfield",
             "kaleidoscope",
             "flow_field",
             "raymarcher",

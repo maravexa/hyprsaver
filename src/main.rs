@@ -436,6 +436,7 @@ fn shader_descriptions() -> std::collections::HashMap<&'static str, &'static str
         ("plasma", "Classic plasma effect"),
         ("raymarcher", "Raymarched torus with Phong lighting"),
         ("snowfall", "Five-layer parallax snowfall"),
+        ("starfield", "Hyperspace zoom tunnel with motion-blur tracers"),
         ("tunnel", "Infinite tunnel flythrough"),
         ("voronoi", "Animated Voronoi cells"),
     ]
