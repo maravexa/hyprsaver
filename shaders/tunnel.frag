@@ -30,26 +30,24 @@ const float PI  = 3.14159265359;
 const float TAU = 6.28318530718;
 
 void main() {
-    vec2 uv = gl_FragCoord.xy / u_resolution;
-    float ar = u_resolution.x / u_resolution.y;
-
-    // Centred, aspect-corrected.
-    vec2 p = (uv - 0.5) * vec2(ar, 1.0);
+    // Centered at screen midpoint, uniform scaling, aspect-ratio correct.
+    vec2 uv = (gl_FragCoord.xy - 0.5 * u_resolution.xy) / u_resolution.y;
 
     float t = u_time;
 
     // ---------------------------------------------------------------------------
     // Tunnel projection
     // Convert screen-space ray to polar tunnel coordinates.
+    // Origin at screen center — vanishing point is always centered.
     // ---------------------------------------------------------------------------
-    float dist  = length(p);
-    float angle = atan(p.y, p.x);
+    float dist  = length(uv) + 0.001;  // epsilon prevents div-by-zero at center
+    float angle = atan(uv.y, uv.x);
 
     // Tunnel UV:
     //   s = angular position around the tunnel, wrapped [0, 1]
     //   r = forward position — increases as you approach the centre (dist → 0)
     float s = angle / TAU + 0.5;                  // [0, 1] angular
-    float r = 0.35 / max(dist, 0.001);             // forward depth
+    float r = 0.35 / dist;                            // forward depth
 
     // Forward motion: add time to r to fly forward.
     float depth = r + t * 0.5;

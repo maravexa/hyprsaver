@@ -58,15 +58,15 @@ float julia(vec2 z, vec2 c, int max_iter, out float trap) {
 
 void main() {
     float t = u_time * 0.5;  // half speed
-    vec2 uv = gl_FragCoord.xy / u_resolution;
-    vec2 p  = (uv * 2.0 - 1.0) * vec2(u_resolution.x / u_resolution.y, -1.0);
+    // Centered at screen midpoint, uniform scaling, aspect-ratio correct.
+    vec2 uv = (gl_FragCoord.xy - 0.5 * u_resolution.xy) / u_resolution.y;
 
     // Gentle oscillating zoom to animate depth without dizziness.
     float zoom = 1.3 + 0.3 * sin(t * 0.07);
     // Slow pan to keep interesting regions centered.
     vec2 offset = vec2(sin(t * 0.031) * 0.05, cos(t * 0.023) * 0.05);
 
-    vec2 z = p / zoom + offset;
+    vec2 z = uv * 2.5 / zoom + offset;
     vec2 c = julia_c(t);
 
     int   max_iter = 200;
