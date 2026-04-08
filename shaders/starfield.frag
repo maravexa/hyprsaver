@@ -62,8 +62,8 @@ void main() {
         float core_dist = length(uv - p);
         float core_glow = smoothstep(core_r, core_r * 0.1, core_dist);
 
-        // Color: white-ish blue for most; palette-tinted for ~15% (hc > 0.85).
-        vec3 star_color = hc > 0.85 ? palette(hc) : vec3(0.85, 0.90, 1.0);
+        // All stars sample palette at their unique hc value.
+        vec3 star_color = palette(hc);
 
         // Core contribution.
         col += star_color * core_glow;
