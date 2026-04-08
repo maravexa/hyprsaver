@@ -35,3 +35,8 @@ wayland-egl = "0.32"
 [profile.release]
 opt-level = 2
 lto = "thin"
+
+[package.metadata.generate-rpm]
+assets = [
+  { source = "target/release/hyprsaver", dest = "/usr/bin/hyprsaver", mode = "755" },
+]
