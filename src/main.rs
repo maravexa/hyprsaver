@@ -14,6 +14,7 @@ use std::sync::Arc;
 
 mod config;
 mod palette;
+mod preview;
 mod renderer;
 mod shaders;
 mod wayland;
@@ -45,6 +46,11 @@ use crate::shaders::ShaderManager;
                   on-timeout = hyprsaver\n      \
                   on-resume = hyprsaver --quit\n  \
                   }\n\n\
+                  Preview mode — shader/palette authoring without triggering the screensaver:\n\n  \
+                  hyprsaver --preview                        (config shader/palette)\n  \
+                  hyprsaver --preview --shader kaleidoscope  (specific shader)\n  \
+                  hyprsaver --preview --shader ~/my.frag     (custom shader from path)\n\n\
+                  Press Q/Escape to quit the preview window, R to reload the shader.\n\n\
                   Configuration: ~/.config/hyprsaver/config.toml\n\
                   User shaders:  ~/.config/hyprsaver/shaders/*.frag"
 )]
@@ -53,8 +59,8 @@ struct Cli {
     #[arg(short, long, value_name = "PATH")]
     config: Option<PathBuf>,
 
-    /// Shader to use (name or "random" or "cycle")
-    #[arg(short, long, value_name = "NAME")]
+    /// Shader to use (name or path to .frag file; "random" or "cycle" in daemon mode)
+    #[arg(short, long, value_name = "NAME|PATH")]
     shader: Option<String>,
 
     /// Palette to use (name or "random" or "cycle")
@@ -73,9 +79,11 @@ struct Cli {
     #[arg(long)]
     quit: bool,
 
-    /// Open a windowed preview of the given shader (for authoring)
-    #[arg(long, value_name = "SHADER")]
-    preview: Option<String>,
+    /// Open a resizable preview window for shader authoring (no screensaver overlay).
+    /// Combine with --shader to select what to preview.
+    /// Keyboard: Q/Escape = quit, R = reload shader from disk.
+    #[arg(long)]
+    preview: bool,
 
     /// Enable verbose debug logging (equivalent to RUST_LOG=hyprsaver=debug)
     #[arg(short, long)]
@@ -146,19 +154,69 @@ fn run() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    // Check if another instance is already running.
-    check_already_running()?;
+    if cli.preview {
+        // Preview mode: windowed xdg-toplevel window, no PID file, no daemon check.
+        // Resolve shader path or name override from --shader flag.
+        let shader_override = resolve_preview_shader(&cli, &mut shader_manager, &cfg);
 
-    // Write PID file for --quit support.
-    let _pid_guard = PidFile::create().context("failed to write PID file")?;
-
-    // Branch: preview window vs full screensaver overlay.
-    let preview_mode = cli.preview.is_some();
-    wayland::run(cfg, shader_manager, palette_manager, preview_mode, running)
-        .context("screensaver exited with error")?;
+        println!("Preview mode: press Q or Escape to quit, R to reload shader");
+        preview::run(cfg, shader_manager, palette_manager, running, shader_override.as_deref())
+            .context("preview exited with error")?;
+    } else {
+        // Screensaver daemon mode.
+        check_already_running()?;
+        let _pid_guard = PidFile::create().context("failed to write PID file")?;
+        wayland::run(cfg, shader_manager, palette_manager, running)
+            .context("screensaver exited with error")?;
+    }
 
     info!("hyprsaver exiting cleanly");
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Preview-mode shader resolution
+// ---------------------------------------------------------------------------
+
+/// Resolve the shader for preview mode.
+///
+/// If `--shader` looks like a file path (contains `/` or ends with `.frag`),
+/// load it into the ShaderManager and return its registered name.
+/// Otherwise, return the raw name string as-is (ShaderManager lookup happens
+/// inside `preview::run`).
+fn resolve_preview_shader(
+    cli: &Cli,
+    shader_manager: &mut ShaderManager,
+    cfg: &Config,
+) -> Option<String> {
+    // The shader value comes from --shader (if provided), else config general.shader.
+    // We only need to do special path handling in preview mode.
+    let raw = match &cli.shader {
+        Some(s) => s.clone(),
+        None => cfg.general.shader.clone(),
+    };
+
+    // Detect a file-system path: contains a directory separator or ends with .frag.
+    let looks_like_path = raw.contains('/') || raw.ends_with(".frag");
+
+    if looks_like_path {
+        let path = expand_tilde(&raw);
+        match shader_manager.load_from_path(&path) {
+            Ok(name) => {
+                log::info!("preview: loaded shader '{}' from {}", name, path.display());
+                Some(name)
+            }
+            Err(e) => {
+                log::warn!("preview: could not load shader from '{}': {e:#}", raw);
+                None
+            }
+        }
+    } else if raw.is_empty() || raw == "cycle" || raw == "random" {
+        // Let preview::run() handle these special tokens itself.
+        None
+    } else {
+        Some(raw)
+    }
 }
 
 // ---------------------------------------------------------------------------
