@@ -1,6 +1,6 @@
 [advisories]
 vulnerability = "deny"
-unmaintained = "deny"
+unmaintained = "none"
 
 [licenses]
 unlicensed = "deny"

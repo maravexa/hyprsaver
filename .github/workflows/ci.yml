@@ -69,9 +69,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: rustsec/audit-check@v1
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install cargo-audit
+        uses: cargo-bins/cargo-binstall@main
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - run: cargo binstall --no-confirm cargo-audit
+      - run: cargo audit
 
   deny:
     name: Cargo deny
@@ -111,4 +114,6 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           prefix-key: msrv
+      - name: Remove lockfile (incompatible with MSRV Cargo)
+        run: rm Cargo.lock
       - run: cargo build
