@@ -34,30 +34,28 @@ float wave(float x) {
 }
 
 void main() {
-    vec2 uv  = gl_FragCoord.xy / u_resolution;
-    float ar = u_resolution.x / u_resolution.y;
-
-    // Aspect-corrected coordinates centered at (0, 0).
-    vec2 p = (uv - 0.5) * vec2(ar, 1.0) * 2.0;
+    // Centered at screen midpoint, uniform scaling, aspect-ratio correct.
+    vec2 uv = (gl_FragCoord.xy - 0.5 * u_resolution.xy) / u_resolution.y;
     float t = u_time;
 
     // ---------------------------------------------------------------------------
     // Four plasma layers with incommensurable frequencies
+    // (frequencies are in screen-height units, resolution independent)
     // ---------------------------------------------------------------------------
 
     // Layer 1 — horizontal sine ripple, slow drift
-    float v1 = wave(p.x * 3.1 + t * 0.7);
+    float v1 = wave(uv.x * 6.2 + t * 0.7);
 
     // Layer 2 — diagonal sine, medium speed
-    float v2 = wave(p.x * 1.7 + p.y * 2.3 - t * 1.1);
+    float v2 = wave(uv.x * 3.4 + uv.y * 4.6 - t * 1.1);
 
     // Layer 3 — radial: distance from animated off-centre point
-    vec2 center3 = vec2(sin(t * 0.41) * 0.6, cos(t * 0.37) * 0.4);
-    float v3 = wave(length(p - center3) * 4.7 - t * 1.9);
+    vec2 center3 = vec2(sin(t * 0.41) * 0.3, cos(t * 0.37) * 0.2);
+    float v3 = wave(length(uv - center3) * 9.4 - t * 1.9);
 
     // Layer 4 — second radial, different orbit
-    vec2 center4 = vec2(cos(t * 0.29) * 0.5, sin(t * 0.53) * 0.3);
-    float v4 = wave(length(p - center4) * 3.3 + t * 1.3);
+    vec2 center4 = vec2(cos(t * 0.29) * 0.25, sin(t * 0.53) * 0.15);
+    float v4 = wave(length(uv - center4) * 6.6 + t * 1.3);
 
     // Combine: simple average produces a smooth [0, 1] value.
     float plasma = (v1 + v2 + v3 + v4) * 0.25;

@@ -64,10 +64,8 @@ vec2 zoom_target(int idx) {
 // Main
 // ---------------------------------------------------------------------------
 void main() {
-    vec2 uv = gl_FragCoord.xy / u_resolution;
-
-    // Aspect-corrected UV in [-1, 1]² (y flipped to match math convention).
-    vec2 p = (uv * 2.0 - 1.0) * vec2(u_resolution.x / u_resolution.y, 1.0);
+    // Centered at screen midpoint, uniform scaling, aspect-ratio correct.
+    vec2 uv = (gl_FragCoord.xy - 0.5 * u_resolution.xy) / u_resolution.y;
 
     // Zoom parameters — stay well within float32 precision limits.
     float zoom_cycle  = 50.0;        // seconds per ping-pong cycle
@@ -82,7 +80,7 @@ void main() {
     vec2 center = zoom_target(target_idx);
 
     // Map screen coordinates to complex plane.
-    vec2 c = center + p / scale;
+    vec2 c = center + uv / scale;
 
     // Adaptive iteration count: 100 at widest view, 300 at maximum zoom.
     int max_iter = 100 + int(t * 200.0);
@@ -106,7 +104,7 @@ void main() {
     col *= brightness * 1.4;
 
     // Subtle vignette.
-    float vignette = 1.0 - 0.35 * dot(uv - 0.5, uv - 0.5) * 4.0;
+    float vignette = 1.0 - 0.3 * dot(uv, uv);
     col *= vignette;
 
     fragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
