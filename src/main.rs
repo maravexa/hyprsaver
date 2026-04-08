@@ -279,9 +279,14 @@ fn check_already_running() -> anyhow::Result<()> {
 /// Short descriptions for built-in shaders.
 fn shader_descriptions() -> std::collections::HashMap<&'static str, &'static str> {
     [
-        ("mandelbrot", "Mandelbrot set zoom"),
+        ("flow_field", "Curl-noise flow field with particle tracing"),
         ("julia", "Julia set with animated constant"),
+        ("kaleidoscope", "6-fold kaleidoscope with domain-warped FBM"),
+        ("lissajous", "Three overlapping Lissajous curves with glow"),
+        ("mandelbrot", "Mandelbrot set zoom"),
         ("plasma", "Classic plasma effect"),
+        ("raymarcher", "Raymarched torus with Phong lighting"),
+        ("starfield", "Three-layer parallax starfield"),
         ("tunnel", "Infinite tunnel flythrough"),
         ("voronoi", "Animated Voronoi cells"),
     ]
