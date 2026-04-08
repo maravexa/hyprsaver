@@ -108,9 +108,8 @@ float voronoi_edge(vec2 p, float t, float cell_size) {
 }
 
 void main() {
-    vec2 uv = gl_FragCoord.xy / u_resolution;
-    float ar = u_resolution.x / u_resolution.y;
-    vec2 p   = uv * vec2(ar, 1.0);
+    // Centered at screen midpoint, uniform scaling, aspect-ratio correct.
+    vec2 uv = (gl_FragCoord.xy - 0.5 * u_resolution.xy) / u_resolution.y;
 
     float t = u_time * 0.18;
 
@@ -118,10 +117,10 @@ void main() {
     float cell_lg = 0.22;  // large background cells
     float cell_sm = 0.09;  // small foreground cells
 
-    vec3  v_lg   = voronoi(p, t * 0.7, cell_lg);
-    vec3  v_sm   = voronoi(p, t * 1.3, cell_sm);
-    float edge_lg = voronoi_edge(p, t * 0.7, cell_lg);
-    float edge_sm = voronoi_edge(p, t * 1.3, cell_sm);
+    vec3  v_lg   = voronoi(uv, t * 0.7, cell_lg);
+    vec3  v_sm   = voronoi(uv, t * 1.3, cell_sm);
+    float edge_lg = voronoi_edge(uv, t * 0.7, cell_lg);
+    float edge_sm = voronoi_edge(uv, t * 1.3, cell_sm);
 
     // Colour each layer independently.
     float id_lg  = v_lg.y;
@@ -148,8 +147,7 @@ void main() {
     col *= 0.6 + 0.4 * cell_dark;
 
     // Subtle vignette.
-    vec2 centered = uv - 0.5;
-    float vignette = 1.0 - dot(centered, centered) * 1.5;
+    float vignette = 1.0 - dot(uv, uv) * 0.7;
     col *= clamp(vignette, 0.0, 1.0);
 
     fragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
