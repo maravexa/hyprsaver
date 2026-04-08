@@ -413,37 +413,50 @@ hyprsaver --quit
 
 hyprsaver is structured as four independent layers that communicate through clean interfaces:
 
+<details>
+<summary>Architecture</summary>
+
+```mermaid
+graph TD
+    subgraph core ["Core Modules"]
+        main["main.rs<br/>CLI · clap · signal-hook · PID file guard"]
+        config["config.rs<br/>TOML + serde · XDG paths · zero-config"]
+        wayland["wayland.rs<br/>layer-shell surfaces · output hotplug · input events"]
+        renderer["renderer.rs<br/>glow · fullscreen quad · uniform uploads"]
+        shaders["shaders.rs<br/>load/compile · hot-reload · Shadertoy shim"]
+        palette["palette.rs<br/>cosine gradient · 12 floats"]
+    end
+
+    subgraph ext ["External Protocols"]
+        layershell(["wlr-layer-shell"])
+        egl(["EGL / GLES2"])
+        calloop(["calloop"])
+    end
+
+    subgraph files ["User File Paths"]
+        configfile[("~/.config/hyprsaver/config.toml")]
+        shaderfiles[("~/.config/hyprsaver/shaders/*.frag")]
+        pidfile[("$XDG_RUNTIME_DIR/hyprsaver.pid")]
+    end
+
+    main --> config
+    main --> wayland
+    main --> renderer
+    config -->|SurfaceConfig| wayland
+    shaders -->|compiled program| renderer
+    palette -->|uniform vec3s| renderer
+    wayland -->|frame callbacks| renderer
+
+    wayland --- layershell
+    renderer --- egl
+    main --- calloop
+
+    configfile --> config
+    shaderfiles --> shaders
+    pidfile --> main
 ```
-+---------------------------------------------------------------+
-|  main.rs -- CLI, signal handling, PID file, event loop         |
-+----------------------------+----------------------------------+
-                             |
-         +-------------------+---------------+
-         |                                   |
-+--------v----------+           +------------v--------+
-|  wayland.rs       |           |  renderer.rs         |
-|  wlr-layer-shell  |           |  glow / OpenGL ES    |
-|  output hotplug   |           |  fullscreen quad     |
-|  input events     |           |  uniform uploads     |
-+-------------------+           +------------+---------+
-                                             |
-                                  +----------+---------+
-                                  |                    |
-                        +---------v------+   +---------v------+
-                        |  shaders.rs    |   |  palette.rs     |
-                        |  load/compile  |   |  cosine gradient |
-                        |  hot-reload    |   |  12 floats       |
-                        |  Shadertoy     |   |  uniform upload  |
-                        |  compat shim   |   +----------------+
-                        +-------+--------+
-                                |
-                        +-------v--------+
-                        |  config.rs     |
-                        |  TOML + serde  |
-                        |  XDG paths     |
-                        |  zero-config   |
-                        +----------------+
-```
+
+</details>
 
 `renderer.rs` knows nothing about Wayland. `wayland.rs` knows nothing about OpenGL. `shaders.rs` knows nothing about palettes at upload time -- it only prepends the GLSL `palette()` function. This makes each layer independently testable and replaceable (the wgpu backend in v0.4.0 only needs to replace `renderer.rs`).
 
