@@ -31,8 +31,8 @@ pub const BUILTIN_TUNNEL: &str = include_str!("../shaders/tunnel.frag");
 /// Animated Voronoi cells.
 pub const BUILTIN_VORONOI: &str = include_str!("../shaders/voronoi.frag");
 
-/// Three-layer parallax starfield with palette-colored glow and brightness pulse.
-pub const BUILTIN_STARFIELD: &str = include_str!("../shaders/starfield.frag");
+/// Five-layer parallax snowfall with palette-colored dot glow and brightness pulse.
+pub const BUILTIN_SNOWFALL: &str = include_str!("../shaders/snowfall.frag");
 
 /// N-fold kaleidoscope driven by domain-warped FBM noise.
 pub const BUILTIN_KALEIDOSCOPE: &str = include_str!("../shaders/kaleidoscope.frag");
@@ -127,7 +127,7 @@ impl ShaderManager {
             ("mandelbrot", BUILTIN_MANDELBROT),
             ("plasma", BUILTIN_PLASMA),
             ("raymarcher", BUILTIN_RAYMARCHER),
-            ("starfield", BUILTIN_STARFIELD),
+            ("snowfall", BUILTIN_SNOWFALL),
             ("tunnel", BUILTIN_TUNNEL),
             ("voronoi", BUILTIN_VORONOI),
         ];
@@ -539,7 +539,7 @@ mod tests {
             "plasma",
             "tunnel",
             "voronoi",
-            "starfield",
+            "snowfall",
             "kaleidoscope",
             "flow_field",
             "raymarcher",

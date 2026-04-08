@@ -98,7 +98,7 @@ sudo pacman -U hyprsaver-0.1.0-x86_64-linux.tar.zst
   | `plasma`        | Classic plasma effect                              |
   | `tunnel`        | Infinite tunnel flythrough                         |
   | `voronoi`       | Animated Voronoi cells                             |
-  | `starfield`     | Three-layer parallax starfield with palette glow   |
+  | `snowfall`      | Five-layer parallax snowfall with palette dot glow |
   | `kaleidoscope`  | 6-fold kaleidoscope driven by domain-warped FBM    |
   | `flow_field`    | Curl-noise flow field with 8-step particle tracing |
   | `raymarcher`    | Raymarched torus with Phong lighting and fog       |
