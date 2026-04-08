@@ -56,12 +56,12 @@ shader_cycle_interval = 300   # 5 minutes
 [behavior]
 
 # Fade-in duration in milliseconds. The overlay fades from transparent to full
-# opacity over this time when the screensaver activates.
-# NOTE: Fade is not yet implemented in v0.1.0; this value is stored for future use.
+# opacity over this time when the screensaver activates. Set to 0 to disable.
 fade_in_ms = 800
 
-# Fade-out duration when dismissed (before the surface is destroyed).
-# NOTE: Fade is not yet implemented in v0.1.0; this value is stored for future use.
+# Fade-out duration in milliseconds when dismissed (before the surface is destroyed).
+# Set to 0 to dismiss instantly. During fade-out, the render loop stays alive and
+# the alpha ramps from the current value to 0.0.
 fade_out_ms = 400
 
 # Which input events dismiss the screensaver and exit.
@@ -108,3 +108,23 @@ dismiss_on = ["key", "mouse_move", "mouse_click", "touch"]
 # b = [0.5, 0.3, 0.3]
 # c = [0.8, 0.6, 1.0]
 # d = [0.70, 0.30, 0.10]
+
+# ---------------------------------------------------------------------------
+# Per-monitor shader / palette assignment
+# ---------------------------------------------------------------------------
+# Assign different shaders and palettes to specific monitors. Each [[monitor]]
+# entry matches a Wayland output by name (run `hyprctl monitors` to see names).
+# Monitors without an entry use the global shader/palette from [general].
+#
+# Both shader and palette are optional per entry — omit either to inherit the
+# global setting.
+#
+# [[monitor]]
+# name = "DP-1"
+# shader = "raymarcher"
+# palette = "frost"
+#
+# [[monitor]]
+# name = "HDMI-A-1"
+# shader = "starfield"
+# palette = "vapor"
