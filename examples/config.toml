@@ -126,5 +126,5 @@ dismiss_on = ["key", "mouse_move", "mouse_click", "touch"]
 #
 # [[monitor]]
 # name = "HDMI-A-1"
-# shader = "starfield"
+# shader = "snowfall"
 # palette = "vapor"

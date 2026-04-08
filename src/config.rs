@@ -186,7 +186,7 @@ pub struct PaletteConfigEntry {
 ///
 /// [[monitor]]
 /// name = "HDMI-A-1"
-/// shader = "starfield"
+/// shader = "snowfall"
 /// palette = "vapor"
 /// ```
 #[derive(Debug, Clone, Deserialize)]
@@ -397,7 +397,7 @@ palette = "frost"
 
 [[monitor]]
 name = "HDMI-A-1"
-shader = "starfield"
+shader = "snowfall"
 "#;
         let cfg: Config = toml::from_str(toml_str).expect("monitor TOML must parse");
         assert_eq!(cfg.monitors.len(), 2);
@@ -405,7 +405,7 @@ shader = "starfield"
         assert_eq!(cfg.monitors[0].shader.as_deref(), Some("raymarcher"));
         assert_eq!(cfg.monitors[0].palette.as_deref(), Some("frost"));
         assert_eq!(cfg.monitors[1].name, "HDMI-A-1");
-        assert_eq!(cfg.monitors[1].shader.as_deref(), Some("starfield"));
+        assert_eq!(cfg.monitors[1].shader.as_deref(), Some("snowfall"));
         assert_eq!(cfg.monitors[1].palette, None); // falls back to global
     }
 
