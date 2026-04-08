@@ -15,19 +15,9 @@ uniform vec2  u_resolution;
 uniform vec2  u_mouse;
 uniform int   u_frame;
 
-uniform vec3  u_palette_a;
-uniform vec3  u_palette_b;
-uniform vec3  u_palette_c;
-uniform vec3  u_palette_d;
-
-out vec4 fragColor;
-
 // ---------------------------------------------------------------------------
 // Cosine gradient palette (Inigo Quilez technique)
 // ---------------------------------------------------------------------------
-vec3 palette(float t) {
-    return u_palette_a + u_palette_b * cos(6.28318530718 * (u_palette_c * t + u_palette_d));
-}
 
 // ---------------------------------------------------------------------------
 // Smooth iteration count

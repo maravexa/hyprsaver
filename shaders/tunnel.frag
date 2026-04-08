@@ -15,17 +15,6 @@ uniform vec2  u_resolution;
 uniform vec2  u_mouse;
 uniform int   u_frame;
 
-uniform vec3  u_palette_a;
-uniform vec3  u_palette_b;
-uniform vec3  u_palette_c;
-uniform vec3  u_palette_d;
-
-out vec4 fragColor;
-
-vec3 palette(float t) {
-    return u_palette_a + u_palette_b * cos(6.28318530718 * (u_palette_c * t + u_palette_d));
-}
-
 const float PI  = 3.14159265359;
 const float TAU = 6.28318530718;
 

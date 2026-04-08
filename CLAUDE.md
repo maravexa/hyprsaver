@@ -54,6 +54,27 @@ cargo build --release
 - Multi-monitor with mixed DPI: layer surfaces report scale factor. The renderer must multiply resolution by scale for crisp rendering on HiDPI outputs.
 - Shader compilation errors must never crash the process. Always fall back to a known-good built-in shader.
 
+## Palette Uniforms — v0.2.0 Migration Note
+
+**Custom shaders must be updated** after upgrading to v0.2.0. The palette uniform names changed:
+
+| Old (v0.1.x)       | New (v0.2.0+)                                     |
+|--------------------|---------------------------------------------------|
+| `u_palette_a`      | `u_palette_a_a` (brightness, palette A)           |
+| `u_palette_b`      | `u_palette_a_b` (amplitude, palette A)            |
+| `u_palette_c`      | `u_palette_a_c` (frequency, palette A)            |
+| `u_palette_d`      | `u_palette_a_d` (phase, palette A)                |
+
+New uniforms (injected by the shader pipeline):
+- `u_palette_b_{a,b,c,d}` — palette B cosine params for cross-fade
+- `u_lut_a`, `u_lut_b` — `sampler2D` for LUT-based palettes (256×1 RGBA8 on texture units 1/2)
+- `u_use_lut` — `int`; 0 = cosine, 1 = LUT
+- `u_palette_blend` — `float` blend factor 0.0→1.0 for transitions
+
+The `palette(t)` GLSL function signature is unchanged: `vec3 palette(float t)`.
+If your shader does not define `palette()`, the new multi-mode version is injected automatically.
+Built-in shaders are all updated; user shaders that define their own `palette()` are untouched.
+
 ## Roadmap Summary
 - v0.1.0: Core screensaver. Layer-shell, glow, cosine palettes, built-in shaders, hot-reload, preview mode.
 - v0.2.0: LUT + gradient palettes, per-monitor config, palette transitions.
@@ -61,12 +82,26 @@ cargo build --release
 - v0.4.0: wgpu backend, shader parameter GUI, community repo.
 - v1.0.0: Stable config format, AUR/Nix packages, full Shadertoy uniform support.
 
-## v0.1.0 Status
+## v0.2.0 Status
+
+All Palette Engine Upgrade modules implemented (Phase 3):
+- palette.rs: PaletteEntry enum (Cosine | Lut), PNG LUT loading (image crate), CSS gradient stops → LUT
+  interpolation, 3 built-in gradient palettes (sunset/aurora/midnight), PaletteManager with crossfade
+  transition state (begin_transition / advance_transition).
+- config.rs: [[palette]] table-array, PaletteConfigEntry (type = "lut" / "gradient"), GradientStopConfig,
+  general.palette_transition_duration field.
+- renderer.rs: LUT textures (256×1 RGBA8 GL_TEXTURE_2D on units 1+2), u_use_lut / u_palette_blend uniforms,
+  set_palette(PaletteEntry) / begin_transition / set_blend API.
+- shaders.rs: Updated palette() injection — cosine + LUT code paths, mix() crossfade, new uniform names.
+- wayland.rs: advance_transition() called each frame, blend factor propagated to all renderers.
+- build.rs: Generates examples/palettes/fire.png at build time (black→deep-red→orange→yellow-white).
+
+### v0.1.0 Status
 
 All core modules implemented:
 - config.rs: TOML config with full defaults, CLI overrides
-- palette.rs: Cosine gradient palettes, 7 built-ins, PaletteManager
-- shaders.rs: Shader loading, Shadertoy compat shim, hot-reload via notify, 5 built-in shaders
+- palette.rs: Cosine gradient palettes, 9 built-ins, PaletteManager
+- shaders.rs: Shader loading, Shadertoy compat shim, hot-reload via notify, 10 built-in shaders
 - renderer.rs: glow-based OpenGL ES renderer, fullscreen quad, uniform upload
 - wayland.rs: SCTK layer-shell surfaces, EGL context per output, input dismiss, calloop event loop
 - main.rs: CLI (clap), signal handling, PID file, config→manager→run pipeline

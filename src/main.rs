@@ -19,7 +19,7 @@ mod shaders;
 mod wayland;
 
 use crate::config::Config;
-use crate::palette::PaletteManager;
+use crate::palette::{GradientStop, PaletteEntry, PaletteManager};
 use crate::shaders::ShaderManager;
 
 /// hyprsaver -- Wayland-native fractal screensaver for Hyprland
@@ -127,7 +127,14 @@ fn run() -> anyhow::Result<()> {
         log::warn!("Could not start shader watcher: {e:#}");
     }
 
-    let palette_manager = PaletteManager::new(cfg.palettes.clone());
+    // Build extra (LUT / gradient) palette entries from config.
+    let extra_entries = build_palette_entries(&cfg);
+    let palette_manager = PaletteManager::new(
+        cfg.palettes.clone(),
+        extra_entries,
+        cfg.general.palette_transition_duration,
+        &cfg.general.palette,
+    );
 
     // Early-exit commands.
     if cli.list_shaders {
@@ -273,6 +280,73 @@ fn check_already_running() -> anyhow::Result<()> {
 }
 
 // ---------------------------------------------------------------------------
+// Palette entry loading
+// ---------------------------------------------------------------------------
+
+/// Resolve a `[[palette]]` config block into a `(name, PaletteEntry)` pair.
+///
+/// LUT entries open the PNG from disk; gradient entries interpolate stops.
+/// Failures are logged as warnings and the entry is skipped.
+fn build_palette_entries(cfg: &Config) -> Vec<(String, PaletteEntry)> {
+    let mut out = Vec::new();
+    for entry in &cfg.palette_entries {
+        match entry.kind.as_str() {
+            "lut" => {
+                let Some(ref raw_path) = entry.path else {
+                    log::warn!("LUT palette '{}' has no path", entry.name);
+                    continue;
+                };
+                let expanded = expand_tilde(raw_path);
+                match palette::load_lut_from_png(&expanded) {
+                    Ok(lut) => {
+                        log::info!("Loaded LUT palette '{}' from {}", entry.name, expanded.display());
+                        out.push((entry.name.clone(), PaletteEntry::Lut(lut)));
+                    }
+                    Err(e) => log::warn!("Failed to load LUT palette '{}': {e:#}", entry.name),
+                }
+            }
+            "gradient" => {
+                let Some(ref stops_cfg) = entry.stops else {
+                    log::warn!("Gradient palette '{}' has no stops", entry.name);
+                    continue;
+                };
+                let stops: Vec<GradientStop> = stops_cfg
+                    .iter()
+                    .filter_map(|s| {
+                        match palette::parse_hex_color(&s.color) {
+                            Ok(color) => Some(GradientStop { position: s.position, color }),
+                            Err(e) => {
+                                log::warn!("Gradient '{}': bad color '{}': {e}", entry.name, s.color);
+                                None
+                            }
+                        }
+                    })
+                    .collect();
+                match palette::gradient_to_lut(&stops) {
+                    Ok(lut) => {
+                        log::info!("Built gradient palette '{}'", entry.name);
+                        out.push((entry.name.clone(), PaletteEntry::Lut(lut)));
+                    }
+                    Err(e) => log::warn!("Failed to build gradient palette '{}': {e:#}", entry.name),
+                }
+            }
+            other => log::warn!("Unknown palette type '{}' for palette '{}'", other, entry.name),
+        }
+    }
+    out
+}
+
+/// Expand a leading `~` to the user's home directory.
+fn expand_tilde(path: &str) -> PathBuf {
+    if let Some(rest) = path.strip_prefix("~/") {
+        if let Some(home) = dirs::home_dir() {
+            return home.join(rest);
+        }
+    }
+    PathBuf::from(path)
+}
+
+// ---------------------------------------------------------------------------
 // --list-shaders / --list-palettes
 // ---------------------------------------------------------------------------
 
@@ -297,14 +371,17 @@ fn shader_descriptions() -> std::collections::HashMap<&'static str, &'static str
 /// Short descriptions for built-in palettes.
 fn palette_descriptions() -> std::collections::HashMap<&'static str, &'static str> {
     [
+        ("aurora", "Deep indigo → teal → mint → violet"),
         ("autumn", "Golds, rusts, deep reds"),
         ("electric", "Classic rainbow (default)"),
         ("ember", "Deep reds to bright orange"),
         ("forest", "Sage greens, deep greens, and earthy coffee browns"),
         ("frost", "Icy blues and silvers"),
         ("groovy", "Groovy 70s oranges, pinks, and warm tones"),
+        ("midnight", "Deep navy to steel blue gradient"),
         ("monochrome", "Grayscale"),
         ("ocean", "Deep navy to cyan to white"),
+        ("sunset", "Deep violet → burnt orange → warm cream"),
         ("vapor", "Vaporwave pinks, teals, purples"),
     ]
     .into_iter()
@@ -349,12 +426,20 @@ fn print_shaders(manager: &ShaderManager, shader_dir: &std::path::Path) {
 
 fn print_palettes(manager: &PaletteManager, cfg: &Config) {
     let descs = palette_descriptions();
-    let builtin_names = palette::builtin_palettes();
+    // Cosine built-ins (hardcoded in palette::builtin_palettes)
+    let cosine_builtin_names = palette::builtin_palettes();
+    // Gradient built-ins ("sunset", "aurora", "midnight")
+    let gradient_builtin_names: std::collections::HashSet<&str> = ["sunset", "aurora", "midnight"]
+        .iter()
+        .copied()
+        .collect();
     let all = manager.list();
 
     println!("Built-in palettes:");
     for name in &all {
-        if !builtin_names.contains_key(*name) {
+        let is_builtin = cosine_builtin_names.contains_key(*name)
+            || gradient_builtin_names.contains(*name);
+        if !is_builtin {
             continue;
         }
         let desc = descs.get(name).unwrap_or(&"");
@@ -367,10 +452,15 @@ fn print_palettes(manager: &PaletteManager, cfg: &Config) {
 
     println!();
     println!("Custom palettes (from config):");
-    if cfg.palettes.is_empty() {
+    let custom_cosine: Vec<&String> = cfg.palettes.keys().collect();
+    let custom_entries: Vec<&str> = cfg.palette_entries.iter().map(|e| e.name.as_str()).collect();
+    if custom_cosine.is_empty() && custom_entries.is_empty() {
         println!("  (none defined)");
     } else {
-        for name in cfg.palettes.keys() {
+        for name in &custom_cosine {
+            println!("  {name}  [cosine]");
+        }
+        for name in &custom_entries {
             println!("  {name}");
         }
     }
