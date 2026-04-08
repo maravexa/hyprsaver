@@ -1,9 +1,8 @@
 [advisories]
-vulnerability = "deny"
-unmaintained = "none"
+# Vulnerabilities are denied by default; list specific IDs here to ignore them.
+ignore = []
 
 [licenses]
-unlicensed = "deny"
 allow = [
     "MIT",
     "Apache-2.0",
