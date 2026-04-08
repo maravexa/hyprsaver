@@ -6,6 +6,7 @@ authors = ["Mara Vexa"]
 description = "A Wayland-native screensaver for Hyprland — fractal shaders on wlr-layer-shell overlays"
 license = "MIT"
 repository = "https://github.com/maravexa/hyprsaver"
+readme = "README.md"
 keywords = ["wayland", "screensaver", "glsl", "hyprland", "opengl"]
 categories = ["graphics", "rendering"]
 rust-version = "1.88"

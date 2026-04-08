@@ -1,4 +1,4 @@
-# Maintainer: Mara Vexa
+# Maintainer: Mara Vexa <me@maravexa.com>
 pkgname=hyprsaver
 pkgver=0.2.0
 pkgrel=1
