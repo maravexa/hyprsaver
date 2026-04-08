@@ -1,0 +1,99 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwayland-dev \
+            libegl-dev \
+            libgl-dev \
+            libxkbcommon-dev \
+            pkg-config \
+            rpm \
+            zstd
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Build release binary
+        run: cargo build --release
+
+      - name: Install cargo-deb
+        run: cargo install cargo-deb
+
+      - name: Build .deb package
+        run: cargo deb --no-build
+
+      - name: Install cargo-generate-rpm
+        run: cargo install cargo-generate-rpm
+
+      - name: Build .rpm package
+        run: cargo generate-rpm
+
+      - name: Derive version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Package .tar.zst archive
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          STAGING="hyprsaver-${VERSION}-x86_64-linux"
+          ARCHIVE="${STAGING}.tar.zst"
+
+          mkdir -p "${STAGING}"
+          cp target/release/hyprsaver "${STAGING}/"
+
+          if [ -d doc ]; then
+            cp -r doc "${STAGING}/"
+          fi
+
+          if [ -f examples/config.toml ]; then
+            mkdir -p "${STAGING}/examples"
+            cp examples/config.toml "${STAGING}/examples/"
+          fi
+
+          tar --zstd -cf "${ARCHIVE}" "${STAGING}"
+          echo "ARCHIVE=${ARCHIVE}" >> "$GITHUB_ENV"
+
+      - name: Locate .deb and .rpm artifacts
+        id: artifacts
+        run: |
+          echo "deb=$(find target/debian -name '*.deb' | head -1)" >> "$GITHUB_OUTPUT"
+          echo "rpm=$(find target/generate-rpm -name '*.rpm' | head -1)" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ${{ steps.artifacts.outputs.deb }}
+            ${{ steps.artifacts.outputs.rpm }}
+            ${{ env.ARCHIVE }}
