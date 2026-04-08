@@ -398,6 +398,11 @@ fn prepare_shader(raw: &str) -> String {
         out.push_str("out vec4 fragColor;\n");
     }
 
+    // Fade alpha uniform — multiplied into the final fragColor for fade in/out.
+    if !source.contains("u_alpha") {
+        out.push_str("uniform float u_alpha;\n");
+    }
+
     // ---- inject palette block (if not already present) ----
     // Guard on the palette() function signature — avoids injecting twice even if
     // the shader already declares u_palette_a_* uniforms by another name.
@@ -407,7 +412,7 @@ fn prepare_shader(raw: &str) -> String {
         out.push_str("uniform vec3 u_palette_a_b;\n"); // amplitude
         out.push_str("uniform vec3 u_palette_a_c;\n"); // frequency
         out.push_str("uniform vec3 u_palette_a_d;\n"); // phase
-        // Cosine palette B (next / cross-fade target).
+                                                       // Cosine palette B (next / cross-fade target).
         out.push_str("uniform vec3 u_palette_b_a;\n");
         out.push_str("uniform vec3 u_palette_b_b;\n");
         out.push_str("uniform vec3 u_palette_b_c;\n");
@@ -417,9 +422,9 @@ fn prepare_shader(raw: &str) -> String {
         out.push_str("uniform sampler2D u_lut_a;\n");
         out.push_str("uniform sampler2D u_lut_b;\n");
         // Control uniforms.
-        out.push_str("uniform int u_use_lut;\n");      // 0=cosine, 1=LUT
+        out.push_str("uniform int u_use_lut;\n"); // 0=cosine, 1=LUT
         out.push_str("uniform float u_palette_blend;\n"); // 0.0=A, 1.0=B
-        // palette(t) — evaluates either cosine or LUT, with optional cross-fade.
+                                                          // palette(t) — evaluates either cosine or LUT, with optional cross-fade.
         out.push_str("vec3 palette(float t) {\n");
         out.push_str("    vec3 col_a, col_b;\n");
         out.push_str("    if (u_use_lut == 1) {\n");
@@ -453,10 +458,21 @@ fn prepare_shader(raw: &str) -> String {
         out.push('\n');
     }
 
-    // ---- Shadertoy void main() wrapper ----
+    // ---- void main() wrapper with u_alpha fade multiply ----
     if is_shadertoy {
+        // Shadertoy: we generate main(), so append alpha multiply directly.
         out.push_str("void main() {\n");
         out.push_str("    mainImage(fragColor, gl_FragCoord.xy);\n");
+        out.push_str("    fragColor *= u_alpha;\n");
+        out.push_str("}\n");
+    } else {
+        // Native shader: rename void main() → _hyprsaver_main(), then wrap it
+        // so we can apply the u_alpha fade multiply after the user code runs.
+        // This correctly handles early `return;` statements in user shaders.
+        out = out.replace("void main()", "void _hyprsaver_main()");
+        out.push_str("\nvoid main() {\n");
+        out.push_str("    _hyprsaver_main();\n");
+        out.push_str("    fragColor *= u_alpha;\n");
         out.push_str("}\n");
     }
 
@@ -487,8 +503,16 @@ mod tests {
         let mgr = manager();
         let names = mgr.list();
         for expected in &[
-            "mandelbrot", "julia", "plasma", "tunnel", "voronoi",
-            "starfield", "kaleidoscope", "flow_field", "raymarcher", "lissajous",
+            "mandelbrot",
+            "julia",
+            "plasma",
+            "tunnel",
+            "voronoi",
+            "starfield",
+            "kaleidoscope",
+            "flow_field",
+            "raymarcher",
+            "lissajous",
         ] {
             assert!(
                 names.contains(expected),
@@ -534,6 +558,22 @@ mod tests {
             1,
             "uniform float u_time must appear exactly once"
         );
+
+        // u_alpha must be injected.
+        assert!(
+            compiled.contains("uniform float u_alpha"),
+            "u_alpha uniform must be present"
+        );
+
+        // Native shader gets wrapped: user main renamed, wrapper applies alpha.
+        assert!(
+            compiled.contains("void _hyprsaver_main()"),
+            "user main() must be renamed to _hyprsaver_main()"
+        );
+        assert!(
+            compiled.contains("fragColor *= u_alpha"),
+            "alpha multiply must be present"
+        );
     }
 
     #[test]
@@ -569,6 +609,15 @@ mod tests {
         assert!(
             compiled.contains("uniform vec2 u_resolution"),
             "u_resolution must be present"
+        );
+        // Alpha uniform and multiply must be present in Shadertoy wrapper.
+        assert!(
+            compiled.contains("uniform float u_alpha"),
+            "u_alpha uniform must be present"
+        );
+        assert!(
+            compiled.contains("fragColor *= u_alpha"),
+            "alpha multiply must be in main() wrapper"
         );
     }
 

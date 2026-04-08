@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::Context as _;
 use calloop::EventLoop;
@@ -97,6 +97,28 @@ impl EglState {
 }
 
 // ---------------------------------------------------------------------------
+// FadeState — per-surface fade tracking
+// ---------------------------------------------------------------------------
+
+/// Tracks the fade-in / fade-out lifecycle of a single surface.
+#[derive(Debug, Clone, Copy)]
+pub enum FadeState {
+    /// Fading from transparent → opaque. `start` is when the fade began.
+    FadingIn { start: Instant },
+
+    /// Fully opaque, normal rendering.
+    Active,
+
+    /// Fading from current alpha → transparent.
+    /// `start_alpha` captures the alpha at the moment dismiss was triggered
+    /// (handles the edge case of dismiss during fade-in).
+    FadingOut { start: Instant, start_alpha: f32 },
+
+    /// Fade-out complete. Surface can be destroyed.
+    Done,
+}
+
+// ---------------------------------------------------------------------------
 // Surface — one per monitor
 // ---------------------------------------------------------------------------
 
@@ -131,6 +153,18 @@ pub struct Surface {
 
     /// OpenGL renderer for this output.
     renderer: Option<Renderer>,
+
+    /// Per-surface fade state for fade-in / fade-out.
+    fade_state: FadeState,
+
+    /// Wayland output name (e.g. "DP-1") — used for per-monitor config lookup.
+    output_name: Option<String>,
+
+    /// Shader name resolved for this surface (per-monitor override or global).
+    shader_name: String,
+
+    /// Palette name resolved for this surface (per-monitor override or global).
+    palette_name: String,
 }
 
 impl Surface {
@@ -142,6 +176,64 @@ impl Surface {
     /// Physical pixel height (logical × scale).
     pub fn phys_height(&self) -> u32 {
         self.height * self.scale_factor.max(1) as u32
+    }
+
+    /// Compute the current alpha value based on fade state and config durations.
+    /// Also advances the state machine (FadingIn → Active, FadingOut → Done).
+    fn update_fade(&mut self, fade_in_ms: u64, fade_out_ms: u64) -> f32 {
+        let now = Instant::now();
+        match self.fade_state {
+            FadeState::FadingIn { start } => {
+                if fade_in_ms == 0 {
+                    self.fade_state = FadeState::Active;
+                    return 1.0;
+                }
+                let elapsed = now.duration_since(start).as_secs_f32();
+                let duration = fade_in_ms as f32 / 1000.0;
+                let alpha = (elapsed / duration).clamp(0.0, 1.0);
+                if alpha >= 1.0 {
+                    self.fade_state = FadeState::Active;
+                }
+                alpha
+            }
+            FadeState::Active => 1.0,
+            FadeState::FadingOut { start, start_alpha } => {
+                if fade_out_ms == 0 {
+                    self.fade_state = FadeState::Done;
+                    return 0.0;
+                }
+                let elapsed = now.duration_since(start).as_secs_f32();
+                let duration = fade_out_ms as f32 / 1000.0;
+                let progress = (elapsed / duration).clamp(0.0, 1.0);
+                let alpha = start_alpha * (1.0 - progress);
+                if progress >= 1.0 {
+                    self.fade_state = FadeState::Done;
+                }
+                alpha
+            }
+            FadeState::Done => 0.0,
+        }
+    }
+
+    /// Begin fade-out from the current alpha level. If already fading out or done, no-op.
+    fn begin_fade_out(&mut self, fade_in_ms: u64) {
+        let current_alpha = match self.fade_state {
+            FadeState::FadingIn { start } => {
+                if fade_in_ms == 0 {
+                    1.0
+                } else {
+                    let elapsed = Instant::now().duration_since(start).as_secs_f32();
+                    let duration = fade_in_ms as f32 / 1000.0;
+                    (elapsed / duration).clamp(0.0, 1.0)
+                }
+            }
+            FadeState::Active => 1.0,
+            FadeState::FadingOut { .. } | FadeState::Done => return,
+        };
+        self.fade_state = FadeState::FadingOut {
+            start: Instant::now(),
+            start_alpha: current_alpha,
+        };
     }
 
     /// Initialise EGL context + renderer for this surface, using the shared EGL state.
@@ -204,7 +296,9 @@ impl Surface {
         renderer
             .load_shader(shader_compiled)
             .context("initial shader load failed")?;
-        renderer.set_palette(palette).context("initial palette upload failed")?;
+        renderer
+            .set_palette(palette)
+            .context("initial palette upload failed")?;
 
         self.wl_egl_window = Some(wl_egl);
         self.egl_surface = Some(egl_surface);
@@ -291,8 +385,12 @@ pub struct WaylandState {
     /// Active surfaces, keyed by the `WlOutput` they cover.
     pub surfaces: HashMap<wl_output::WlOutput, Surface>,
 
-    /// Set to true when any dismiss event is received or signal arrives.
+    /// Set to false when exit is requested (after fade-out completes or immediately
+    /// if fade_out_ms == 0).
     pub running: bool,
+
+    /// True while surfaces are fading out (dismiss received, waiting for fade to finish).
+    pub fading_out: bool,
 
     pub config: Config,
     pub shader_manager: ShaderManager,
@@ -365,12 +463,59 @@ impl WaylandState {
         }
     }
 
+    /// Initiate screensaver dismissal. If fade_out_ms > 0, starts fade-out on all
+    /// surfaces; otherwise exits immediately.
+    fn dismiss(&mut self) {
+        if self.fading_out {
+            return; // Already fading out
+        }
+        let fade_out_ms = self.config.behavior.fade_out_ms;
+        if fade_out_ms == 0 {
+            self.running = false;
+            return;
+        }
+        let fade_in_ms = self.config.behavior.fade_in_ms;
+        self.fading_out = true;
+        for surf in self.surfaces.values_mut() {
+            surf.begin_fade_out(fade_in_ms);
+        }
+        log::info!(
+            "Dismiss: starting {fade_out_ms}ms fade-out on {} surfaces",
+            self.surfaces.len()
+        );
+    }
+
+    /// Resolve shader and palette names for a given output, checking per-monitor
+    /// config first and falling back to global settings.
+    fn resolve_monitor_config(&self, output_name: Option<&str>) -> (String, String) {
+        if let Some(name) = output_name {
+            if let Some(mc) = self.config.monitors.iter().find(|m| m.name == name) {
+                let shader = mc
+                    .shader
+                    .clone()
+                    .unwrap_or_else(|| self.active_shader.clone());
+                let palette = mc
+                    .palette
+                    .clone()
+                    .unwrap_or_else(|| self.active_palette.clone());
+                log::info!(
+                    "Monitor '{name}': shader={shader}, palette={palette} (per-monitor config)"
+                );
+                return (shader, palette);
+            }
+        }
+        (self.active_shader.clone(), self.active_palette.clone())
+    }
+
     /// Create a layer surface for the given output and return the Surface.
     fn make_layer_surface(
         compositor: &CompositorState,
         layer_shell: &LayerShell,
         output: Option<&wl_output::WlOutput>,
         qh: &QueueHandle<Self>,
+        output_name: Option<String>,
+        shader_name: String,
+        palette_name: String,
     ) -> Surface {
         let wl_surf = compositor.create_surface(qh);
         let layer_surface = layer_shell.create_layer_surface(
@@ -396,6 +541,12 @@ impl WaylandState {
             egl_surface: None,
             egl_context: None,
             renderer: None,
+            fade_state: FadeState::FadingIn {
+                start: Instant::now(),
+            },
+            output_name,
+            shader_name,
+            palette_name,
         }
     }
 }
@@ -446,6 +597,8 @@ pub fn run(
         }
     };
 
+    // Warn about monitor config entries that don't match any connected output.
+    // We do this after the roundtrip when we have output info available.
     let mut state = WaylandState {
         registry_state,
         output_state,
@@ -454,6 +607,7 @@ pub fn run(
         layer_shell,
         surfaces: HashMap::new(),
         running: true,
+        fading_out: false,
         config,
         shader_manager,
         palette_manager,
@@ -470,18 +624,46 @@ pub fn run(
     // Initial roundtrip to get outputs.
     let _ = conn.roundtrip();
 
-    // Create one layer surface per known output.
+    // Create one layer surface per known output, resolving per-monitor config.
     {
         let outputs: Vec<wl_output::WlOutput> = state.output_state.outputs().collect();
-        for output in outputs {
+        for output in &outputs {
+            let output_name = state
+                .output_state
+                .info(output)
+                .and_then(|info| info.name.clone());
+            let (shader_name, palette_name) = state.resolve_monitor_config(output_name.as_deref());
             let surface = WaylandState::make_layer_surface(
                 &state.compositor_state,
                 &state.layer_shell,
-                Some(&output),
+                Some(output),
                 &qh,
+                output_name,
+                shader_name,
+                palette_name,
             );
-            state.surfaces.insert(output, surface);
+            state.surfaces.insert(output.clone(), surface);
         }
+
+        // Warn about monitor config entries that don't match any connected output.
+        let connected_names: Vec<String> = outputs
+            .iter()
+            .filter_map(|o| {
+                state
+                    .output_state
+                    .info(o)
+                    .and_then(|info| info.name.clone())
+            })
+            .collect();
+        for mc in &state.config.monitors {
+            if !connected_names.iter().any(|n| n == &mc.name) {
+                log::warn!(
+                    "Monitor config for '{}' does not match any connected output; ignoring",
+                    mc.name
+                );
+            }
+        }
+
         if state.surfaces.is_empty() {
             log::info!(
                 "No outputs detected on initial roundtrip; waiting for new_output callbacks"
@@ -508,27 +690,29 @@ pub fn run(
     let render_timer = calloop::timer::Timer::from_duration(Duration::from_millis(frame_ms));
     loop_handle
         .insert_source(render_timer, move |_, _, state: &mut WaylandState| {
-            // Check signal flag.
-            if !state.signal_flag.load(Ordering::Relaxed) {
-                state.running = false;
-                return calloop::timer::TimeoutAction::Drop;
+            // Check signal flag — trigger fade-out (or immediate exit if duration==0).
+            if !state.signal_flag.load(Ordering::Relaxed) && !state.fading_out {
+                state.dismiss();
+                if !state.running {
+                    return calloop::timer::TimeoutAction::Drop;
+                }
             }
 
-            // Poll shader hot-reload changes.
+            // Poll shader hot-reload changes — update any surface using the changed shader.
             let reloaded = state.shader_manager.poll_changes();
             for name in &reloaded {
-                if name == &state.active_shader {
-                    if let Some(src) = state.shader_manager.get_compiled(name) {
-                        let src = src.to_string();
-                        for surf in state.surfaces.values_mut() {
+                if let Some(src) = state.shader_manager.get_compiled(name) {
+                    let src = src.to_string();
+                    for surf in state.surfaces.values_mut() {
+                        if surf.shader_name == *name {
                             if let Some(r) = surf.renderer.as_mut() {
                                 if let Err(e) = r.load_shader(&src) {
                                     log::warn!("Hot-reload shader compile error: {e:#}");
                                 }
                             }
                         }
-                        log::info!("Hot-reloaded active shader '{name}'");
                     }
+                    log::info!("Hot-reloaded shader '{name}'");
                 }
             }
 
@@ -551,16 +735,39 @@ pub fn run(
                 }
             }
 
-            // Render all configured surfaces.
-            // We need egl ref — take it out temporarily.
+            // Update fade state and render all configured surfaces.
+            let fade_in_ms = state.config.behavior.fade_in_ms;
+            let fade_out_ms = state.config.behavior.fade_out_ms;
+
             // SAFETY: egl is only None if init failed; surfaces won't have renderers in that case.
             let egl_ptr = state.egl.as_ref().map(|e| e as *const EglState);
             if let Some(egl_ptr) = egl_ptr {
                 let egl = unsafe { &*egl_ptr };
                 for surf in state.surfaces.values_mut() {
                     if surf.configured {
-                        surf.render_frame(egl);
+                        // Compute and upload alpha for fade in/out.
+                        let alpha = surf.update_fade(fade_in_ms, fade_out_ms);
+                        if let Some(r) = surf.renderer.as_mut() {
+                            r.set_alpha(alpha);
+                        }
+                        // Skip rendering surfaces that have fully faded out.
+                        if !matches!(surf.fade_state, FadeState::Done) {
+                            surf.render_frame(egl);
+                        }
                     }
+                }
+            }
+
+            // If fading out, check if all surfaces are done.
+            if state.fading_out {
+                let all_done = state
+                    .surfaces
+                    .values()
+                    .all(|s| matches!(s.fade_state, FadeState::Done));
+                if all_done {
+                    log::info!("Fade-out complete on all surfaces");
+                    state.running = false;
+                    return calloop::timer::TimeoutAction::Drop;
                 }
             }
 
@@ -590,15 +797,16 @@ pub fn run(
                 log::info!("Cycling to shader '{next}'");
                 if let Some(src) = state.shader_manager.get_compiled(&next) {
                     let src = src.to_string();
-                    let egl_ptr = state.egl.as_ref().map(|e| e as *const EglState);
-                    if let Some(egl_ptr) = egl_ptr {
-                        let _egl = unsafe { &*egl_ptr };
-                    }
+                    let old_active = state.active_shader.clone();
+                    // Only cycle surfaces using the global shader (not per-monitor overrides).
                     for surf in state.surfaces.values_mut() {
-                        if let Some(r) = surf.renderer.as_mut() {
-                            if let Err(e) = r.load_shader(&src) {
-                                log::warn!("Shader cycle compile error: {e:#}");
+                        if surf.shader_name == old_active {
+                            if let Some(r) = surf.renderer.as_mut() {
+                                if let Err(e) = r.load_shader(&src) {
+                                    log::warn!("Shader cycle compile error: {e:#}");
+                                }
                             }
+                            surf.shader_name = next.clone();
                         }
                     }
                     state.active_shader = next;
@@ -618,8 +826,8 @@ pub fn run(
             .context("event loop dispatch error")?;
 
         // Check signal flag after each dispatch iteration.
-        if !state.signal_flag.load(Ordering::Relaxed) {
-            state.running = false;
+        if !state.signal_flag.load(Ordering::Relaxed) && !state.fading_out {
+            state.dismiss();
         }
 
         if !state.running {
@@ -718,12 +926,23 @@ impl OutputHandler for WaylandState {
         qh: &QueueHandle<Self>,
         output: wl_output::WlOutput,
     ) {
-        log::info!("New output detected; creating layer surface");
+        let output_name = self
+            .output_state
+            .info(&output)
+            .and_then(|info| info.name.clone());
+        let (shader_name, palette_name) = self.resolve_monitor_config(output_name.as_deref());
+        log::info!(
+            "New output detected (name={:?}); creating layer surface",
+            output_name
+        );
         let surface = WaylandState::make_layer_surface(
             &self.compositor_state,
             &self.layer_shell,
             Some(&output),
             qh,
+            output_name,
+            shader_name,
+            palette_name,
         );
         self.surfaces.insert(output, surface);
     }
@@ -787,11 +1006,11 @@ impl LayerShellHandler for WaylandState {
         if !was_configured {
             surf.configured = true;
 
-            // First configure: initialise EGL + GL.
+            // First configure: initialise EGL + GL using per-surface shader/palette.
             if let Some(egl) = &self.egl {
                 let egl_ptr = egl as *const EglState;
-                let palette_name = self.active_palette.clone();
-                let shader_name = self.active_shader.clone();
+                let palette_name = surf.palette_name.clone();
+                let shader_name = surf.shader_name.clone();
                 let palette = self
                     .palette_manager
                     .get(&palette_name)
@@ -910,7 +1129,7 @@ impl KeyboardHandler for WaylandState {
     ) {
         if self.config.behavior.dismiss_on.contains(&DismissEvent::Key) {
             log::info!("Key press detected; dismissing screensaver");
-            self.running = false;
+            self.dismiss();
         }
     }
 
@@ -954,7 +1173,7 @@ impl PointerHandler for WaylandState {
                         .contains(&DismissEvent::MouseMove)
                     {
                         log::info!("Mouse motion detected; dismissing screensaver");
-                        self.running = false;
+                        self.dismiss();
                         return;
                     }
                 }
@@ -966,7 +1185,7 @@ impl PointerHandler for WaylandState {
                         .contains(&DismissEvent::MouseClick)
                     {
                         log::info!("Mouse button press detected; dismissing screensaver");
-                        self.running = false;
+                        self.dismiss();
                         return;
                     }
                 }

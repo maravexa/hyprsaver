@@ -36,6 +36,12 @@ pub struct Config {
     /// Supports `type = "lut"` (PNG file) and `type = "gradient"` (CSS stops).
     #[serde(default, rename = "palette")]
     pub palette_entries: Vec<PaletteConfigEntry>,
+
+    /// Per-monitor shader and palette overrides using `[[monitor]]` table-array syntax.
+    /// Each entry matches a Wayland output by name (from `hyprctl monitors`).
+    /// Monitors without an entry use the global `[general]` shader/palette.
+    #[serde(default, rename = "monitor")]
+    pub monitors: Vec<MonitorConfig>,
 }
 
 // ---------------------------------------------------------------------------
@@ -166,6 +172,37 @@ pub struct PaletteConfigEntry {
 }
 
 // ---------------------------------------------------------------------------
+// Per-monitor config — [[monitor]] table-array
+// ---------------------------------------------------------------------------
+
+/// Per-monitor shader and palette override.
+///
+/// Example TOML:
+/// ```toml
+/// [[monitor]]
+/// name = "DP-1"
+/// shader = "raymarcher"
+/// palette = "frost"
+///
+/// [[monitor]]
+/// name = "HDMI-A-1"
+/// shader = "starfield"
+/// palette = "vapor"
+/// ```
+#[derive(Debug, Clone, Deserialize)]
+pub struct MonitorConfig {
+    /// Wayland output name (e.g. `"DP-1"`, `"HDMI-A-1"`). Must match the
+    /// `wl_output.name` reported by the compositor (`hyprctl monitors`).
+    pub name: String,
+
+    /// Shader override for this monitor. `None` = use global `[general].shader`.
+    pub shader: Option<String>,
+
+    /// Palette override for this monitor. `None` = use global `[general].palette`.
+    pub palette: Option<String>,
+}
+
+// ---------------------------------------------------------------------------
 // Config loading
 // ---------------------------------------------------------------------------
 
@@ -246,6 +283,7 @@ mod tests {
         assert!(cfg.behavior.dismiss_on.contains(&DismissEvent::Key));
         assert!(cfg.palettes.is_empty());
         assert!(cfg.palette_entries.is_empty());
+        assert!(cfg.monitors.is_empty());
     }
 
     #[test]
@@ -320,7 +358,10 @@ path = "~/.config/hyprsaver/palettes/fire.png"
         let entry = &cfg.palette_entries[0];
         assert_eq!(entry.name, "fire");
         assert_eq!(entry.kind, "lut");
-        assert_eq!(entry.path.as_deref(), Some("~/.config/hyprsaver/palettes/fire.png"));
+        assert_eq!(
+            entry.path.as_deref(),
+            Some("~/.config/hyprsaver/palettes/fire.png")
+        );
     }
 
     #[test]
@@ -344,6 +385,34 @@ stops = [
         let stops = entry.stops.as_ref().expect("stops must be present");
         assert_eq!(stops.len(), 3);
         assert_eq!(stops[0].color, "#0d0221");
+    }
+
+    #[test]
+    fn test_parse_monitor_config() {
+        let toml_str = r#"
+[[monitor]]
+name = "DP-1"
+shader = "raymarcher"
+palette = "frost"
+
+[[monitor]]
+name = "HDMI-A-1"
+shader = "starfield"
+"#;
+        let cfg: Config = toml::from_str(toml_str).expect("monitor TOML must parse");
+        assert_eq!(cfg.monitors.len(), 2);
+        assert_eq!(cfg.monitors[0].name, "DP-1");
+        assert_eq!(cfg.monitors[0].shader.as_deref(), Some("raymarcher"));
+        assert_eq!(cfg.monitors[0].palette.as_deref(), Some("frost"));
+        assert_eq!(cfg.monitors[1].name, "HDMI-A-1");
+        assert_eq!(cfg.monitors[1].shader.as_deref(), Some("starfield"));
+        assert_eq!(cfg.monitors[1].palette, None); // falls back to global
+    }
+
+    #[test]
+    fn test_default_has_no_monitors() {
+        let cfg = Config::default();
+        assert!(cfg.monitors.is_empty());
     }
 
     #[test]
