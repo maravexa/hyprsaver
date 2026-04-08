@@ -1,6 +1,7 @@
 [advisories]
-# Vulnerabilities are denied by default; list specific IDs here to ignore them.
-ignore = []
+# instant is unmaintained (RUSTSEC-2024-0384); pulled by notify-types -> notify.
+# No safe upgrade is available upstream.
+ignore = ["RUSTSEC-2024-0384"]
 
 [licenses]
 allow = [
@@ -10,11 +11,35 @@ allow = [
     "BSD-2-Clause",
     "BSD-3-Clause",
     "Zlib",
+    "CC0-1.0",     # notify
+    "MPL-2.0",     # option-ext, via dirs-sys -> dirs
+    "Unicode-3.0", # unicode-ident
 ]
 
 [bans]
 multiple-versions = "deny"
 highlight = "all"
+skip = [
+    # bitflags 1.x (inotify/kqueue via notify) vs 2.x (rest of ecosystem)
+    { name = "bitflags" },
+    # linux-raw-sys 0.4 (rustix 0.38) vs 0.12 (rustix 1.x)
+    { name = "linux-raw-sys" },
+    # memmap2 0.8 (xkbcommon) vs 0.9 (smithay-client-toolkit)
+    { name = "memmap2" },
+    # rustix 0.38 (calloop / sctk) vs 1.x (wayland-backend / polling)
+    { name = "rustix" },
+    # windows-sys: 0.48 (dirs-sys), 0.52 (glutin/notify), 0.59 (rustix 0.38), 0.61 (clap/anstream)
+    { name = "windows-sys" },
+    { name = "windows-targets" },
+    { name = "windows_aarch64_gnullvm" },
+    { name = "windows_aarch64_msvc" },
+    { name = "windows_i686_gnu" },
+    { name = "windows_i686_gnullvm" },
+    { name = "windows_i686_msvc" },
+    { name = "windows_x86_64_gnu" },
+    { name = "windows_x86_64_gnullvm" },
+    { name = "windows_x86_64_msvc" },
+]
 
 [sources]
 unknown-registry = "deny"
