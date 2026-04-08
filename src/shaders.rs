@@ -263,6 +263,37 @@ impl ShaderManager {
         Ok(())
     }
 
+    /// Load a shader from an arbitrary file path (e.g. `~/my.frag` for preview mode).
+    ///
+    /// The shader is registered under its file stem (e.g. `"my"`). Returns the name
+    /// on success. On failure, no entry is added or modified.
+    pub fn load_from_path(&mut self, path: &std::path::Path) -> anyhow::Result<String> {
+        use anyhow::Context;
+        let name = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .ok_or_else(|| anyhow::anyhow!("path '{}' has no file stem", path.display()))?
+            .to_string();
+        let content = std::fs::read_to_string(path)
+            .with_context(|| format!("cannot read shader file: {}", path.display()))?;
+        let raw = content
+            .strip_prefix('\u{FEFF}')
+            .unwrap_or(&content)
+            .to_string();
+        let compiled = prepare_shader(&raw);
+        log::info!("Loaded shader '{}' from {}", name, path.display());
+        self.shaders.insert(
+            name.clone(),
+            ShaderSource {
+                name: name.clone(),
+                raw,
+                compiled,
+                builtin: false,
+            },
+        );
+        Ok(name)
+    }
+
     /// Start watching `shader_dir` for `.frag` file creation and modification events.
     ///
     /// Returns `Ok(())` and logs an info message if the directory does not exist or
