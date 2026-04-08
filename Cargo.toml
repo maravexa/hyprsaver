@@ -6,9 +6,17 @@ authors = ["Mara Vexa"]
 description = "A Wayland-native screensaver for Hyprland — fractal shaders on wlr-layer-shell overlays"
 license = "MIT"
 repository = "https://github.com/maravexa/hyprsaver"
-keywords = ["wayland", "hyprland", "screensaver", "opengl", "fractals"]
+keywords = ["wayland", "screensaver", "glsl", "hyprland", "opengl"]
 categories = ["graphics", "rendering"]
 rust-version = "1.88"
+exclude = [
+    ".github/**",
+    "examples/config.toml",
+    "examples/hypridle.conf",
+    "examples/hyprland.conf",
+    "hyprsaver-0.1.0.tar.gz",
+    "CLAUDE.md",
+]
 
 [dependencies]
 smithay-client-toolkit = "0.19"
@@ -40,6 +48,14 @@ image = { version = "0.25", default-features = false, features = ["png"] }
 [profile.release]
 opt-level = 2
 lto = "thin"
+
+# Cross-reference for the AUR PKGBUILD maintainer.
+# crate source URL pattern:
+#   https://crates.io/api/v1/crates/hyprsaver/${pkgver}/download
+[package.metadata.aur]
+package = "hyprsaver"
+aur-url = "https://aur.archlinux.org/packages/hyprsaver"
+crates-io = "https://crates.io/crates/hyprsaver"
 
 [package.metadata.generate-rpm]
 assets = [
