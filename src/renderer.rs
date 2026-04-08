@@ -45,6 +45,9 @@ pub struct UniformLocations {
     pub u_palette_blend: Option<glow::UniformLocation>,
     // Fade alpha
     pub u_alpha: Option<glow::UniformLocation>,
+    // Preview speed/zoom multipliers (uploaded every frame; default 1.0 in daemon mode)
+    pub u_speed_scale: Option<glow::UniformLocation>,
+    pub u_zoom_scale: Option<glow::UniformLocation>,
 }
 
 // ---------------------------------------------------------------------------
@@ -99,6 +102,11 @@ pub struct Renderer {
     /// Fade alpha: 0.0 = fully transparent, 1.0 = fully opaque.
     /// Multiplied into the final fragColor for fade in/out.
     alpha: f32,
+
+    /// Preview speed multiplier (u_speed_scale). Default 1.0; no effect in daemon mode.
+    speed_scale: f32,
+    /// Preview zoom multiplier (u_zoom_scale). Default 1.0; no effect in daemon mode.
+    zoom_scale: f32,
 }
 
 /// Hardcoded GLSL ES 3.20 vertex shader source. Passes UV coordinates (0..1) to the fragment
@@ -178,6 +186,8 @@ impl Renderer {
             lut_texture_b: None,
             palette_blend: 0.0,
             alpha: 1.0,
+            speed_scale: 1.0,
+            zoom_scale: 1.0,
         })
     }
 
@@ -301,6 +311,18 @@ impl Renderer {
         self.alpha = alpha.clamp(0.0, 1.0);
     }
 
+    /// Set the speed multiplier forwarded to `u_speed_scale` each frame.
+    /// Values below 0.01 are clamped. Pass 1.0 to disable (daemon mode default).
+    pub fn set_speed_scale(&mut self, s: f32) {
+        self.speed_scale = s.max(0.01);
+    }
+
+    /// Set the zoom multiplier forwarded to `u_zoom_scale` each frame.
+    /// Values below 0.01 are clamped. Pass 1.0 to disable (daemon mode default).
+    pub fn set_zoom_scale(&mut self, z: f32) {
+        self.zoom_scale = z.max(0.01);
+    }
+
     /// Update the last known mouse position (window-space pixels, origin top-left).
     pub fn set_mouse(&mut self, x: f32, y: f32) {
         self.mouse_pos = [x, y];
@@ -350,6 +372,14 @@ impl Renderer {
             // Fade alpha (always uploaded)
             if let Some(ref loc) = self.uniforms.u_alpha {
                 self.gl.uniform_1_f32(Some(loc), self.alpha);
+            }
+
+            // Speed / zoom multipliers (default 1.0 — no behavioral change in daemon mode)
+            if let Some(ref loc) = self.uniforms.u_speed_scale {
+                self.gl.uniform_1_f32(Some(loc), self.speed_scale);
+            }
+            if let Some(ref loc) = self.uniforms.u_zoom_scale {
+                self.gl.uniform_1_f32(Some(loc), self.zoom_scale);
             }
 
             if self.palette_is_lut {
@@ -543,6 +573,8 @@ impl Renderer {
                 u_use_lut: self.gl.get_uniform_location(prog, "u_use_lut"),
                 u_palette_blend: self.gl.get_uniform_location(prog, "u_palette_blend"),
                 u_alpha: self.gl.get_uniform_location(prog, "u_alpha"),
+                u_speed_scale: self.gl.get_uniform_location(prog, "u_speed_scale"),
+                u_zoom_scale: self.gl.get_uniform_location(prog, "u_zoom_scale"),
             };
         }
     }

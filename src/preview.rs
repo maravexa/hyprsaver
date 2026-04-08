@@ -1,8 +1,9 @@
-//! `preview.rs` — Windowed preview mode using an xdg-toplevel desktop window.
+//! `preview.rs` — Windowed preview mode with egui control panel.
 //!
-//! Renders the selected shader in a resizable 800×600 window instead of the
-//! wlr-layer-shell fullscreen overlay. Intended for shader and palette
-//! authoring without triggering the actual screensaver.
+//! Renders the selected shader in a resizable window split into two regions:
+//! - Left: shader viewport (fullscreen sans panel)
+//! - Right: 280-px egui control panel (shader/palette ComboBox, speed/zoom sliders,
+//!   ▶ Preview button to apply changes live)
 //!
 //! Keyboard shortcuts (the window must have keyboard focus):
 //!   Q / Escape — quit
@@ -15,15 +16,17 @@ use std::time::{Duration, Instant};
 use anyhow::Context as _;
 use calloop::EventLoop;
 use calloop_wayland_source::WaylandSource;
+use glow::HasContext as _;
 use smithay_client_toolkit::{
     compositor::{CompositorHandler, CompositorState},
-    delegate_compositor, delegate_keyboard, delegate_output, delegate_registry, delegate_seat,
-    delegate_xdg_shell, delegate_xdg_window,
+    delegate_compositor, delegate_keyboard, delegate_output, delegate_pointer, delegate_registry,
+    delegate_seat, delegate_xdg_shell, delegate_xdg_window,
     output::{OutputHandler, OutputState},
     registry::{ProvidesRegistryState, RegistryState},
     registry_handlers,
     seat::{
         keyboard::{KeyEvent, KeyboardHandler, Keysym, Modifiers},
+        pointer::{PointerEvent, PointerEventKind, PointerHandler},
         Capability, SeatHandler, SeatState,
     },
     shell::{
@@ -36,11 +39,14 @@ use smithay_client_toolkit::{
 };
 use wayland_client::{
     globals::registry_queue_init,
-    protocol::{wl_keyboard, wl_output, wl_seat, wl_surface},
+    protocol::{wl_keyboard, wl_output, wl_pointer, wl_seat, wl_surface},
     Connection, QueueHandle,
 };
 
 use crate::{config::Config, palette::PaletteManager, renderer::Renderer, shaders::ShaderManager};
+
+// Width of the right-side egui control panel in logical pixels.
+const PANEL_WIDTH: u32 = 280;
 
 // ---------------------------------------------------------------------------
 // EGL state (mirrors wayland.rs — preview and daemon paths are kept separate)
@@ -94,6 +100,32 @@ impl EglState {
 }
 
 // ---------------------------------------------------------------------------
+// egui panel state
+// ---------------------------------------------------------------------------
+
+/// Persistent UI state for the right-side egui control panel.
+struct PreviewPanelState {
+    selected_shader: String,
+    selected_palette: String,
+    speed: f32,
+    zoom: f32,
+    status_message: String,
+    /// Set to true by the ▶ Preview button; cleared after applying changes.
+    preview_requested: bool,
+}
+
+/// egui resources bundled together so they can be `.take()`n out of
+/// `PreviewState` during rendering without borrow-checker conflicts.
+struct EguiBundle {
+    ctx: egui::Context,
+    painter: egui_glow::Painter,
+    /// Second `glow::Context` sharing function pointers with the renderer's GL
+    /// context; used to reset the GL viewport before egui paints.
+    gl_arc: Arc<glow::Context>,
+    state: PreviewPanelState,
+}
+
+// ---------------------------------------------------------------------------
 // PreviewState — central state for the xdg-toplevel preview window
 // ---------------------------------------------------------------------------
 
@@ -133,7 +165,14 @@ struct PreviewState {
     // Infrastructure
     egl: Option<EglState>,
     keyboard: Option<wl_keyboard::WlKeyboard>,
+    pointer: Option<wl_pointer::WlPointer>,
     signal_flag: Arc<AtomicBool>,
+
+    // egui control panel
+    egui_bundle: Option<EguiBundle>,
+    cursor_pos: (f32, f32),
+    /// Accumulates egui::Events from pointer/keyboard callbacks between frames.
+    egui_events: Vec<egui::Event>,
 }
 
 impl PreviewState {
@@ -212,6 +251,45 @@ impl PreviewState {
         self.egl_surface = Some(egl_surface);
         self.egl_context = Some(egl_context);
         self.renderer = Some(renderer);
+
+        // Create a second glow::Context from the same EGL loader for egui_glow.
+        // Both contexts hold function pointers into the same underlying OpenGL
+        // context — only one is ever active at a time, so this is safe.
+        let gl_arc = Arc::new(unsafe {
+            glow::Context::from_loader_function(|sym| {
+                egl.egl
+                    .get_proc_address(sym)
+                    .map(|f| f as *const _)
+                    .unwrap_or(std::ptr::null())
+            })
+        });
+
+        let egui_ctx = egui::Context::default();
+        let mut visuals = egui::Visuals::dark();
+        visuals.panel_fill = egui::Color32::from_rgba_unmultiplied(18, 18, 24, 240);
+        egui_ctx.set_visuals(visuals);
+
+        match egui_glow::Painter::new(Arc::clone(&gl_arc), "", None, false) {
+            Ok(painter) => {
+                self.egui_bundle = Some(EguiBundle {
+                    ctx: egui_ctx,
+                    painter,
+                    gl_arc,
+                    state: PreviewPanelState {
+                        selected_shader: self.active_shader.clone(),
+                        selected_palette: self.active_palette.clone(),
+                        speed: 1.0,
+                        zoom: 1.0,
+                        status_message: String::new(),
+                        preview_requested: false,
+                    },
+                });
+            }
+            Err(e) => {
+                log::warn!("preview: egui_glow::Painter::new failed: {e}; panel disabled");
+            }
+        }
+
         Ok(())
     }
 
@@ -233,12 +311,128 @@ impl PreviewState {
             return;
         }
 
-        let resolution = [self.phys_width() as f32, self.phys_height() as f32];
-        self.renderer.as_mut().unwrap().render(resolution);
+        let phys_w = self.phys_width();
+        let phys_h = self.phys_height();
+        let scale = self.scale_factor.max(1) as u32;
+        let panel_w_phys = PANEL_WIDTH * scale;
+        let shader_w_phys = phys_w.saturating_sub(panel_w_phys).max(1);
+
+        // Render shader in the left portion of the window.
+        self.renderer
+            .as_mut()
+            .unwrap()
+            .render([shader_w_phys as f32, phys_h as f32]);
+
+        // Drain accumulated egui input events, then paint the control panel.
+        let events = std::mem::take(&mut self.egui_events);
+        self.render_panel(phys_w, phys_h, events);
 
         if let Err(e) = egl.egl.swap_buffers(egl.display, es) {
             log::warn!("preview: swap_buffers failed: {e:?}");
         }
+    }
+
+    /// Run one egui frame and paint the right-side control panel.
+    ///
+    /// Takes `EguiBundle` out of `self` to avoid borrow conflicts while
+    /// mutating other fields (renderer, shader_manager, etc.) inside the
+    /// "apply preview" block.
+    fn render_panel(&mut self, phys_w: u32, phys_h: u32, events: Vec<egui::Event>) {
+        let mut bundle = match self.egui_bundle.take() {
+            Some(b) => b,
+            None => return,
+        };
+
+        let scale = self.scale_factor.max(1) as f32;
+        let logical_w = phys_w as f32 / scale;
+        let logical_h = phys_h as f32 / scale;
+
+        bundle.ctx.set_pixels_per_point(scale);
+
+        let raw_input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::Vec2::new(logical_w, logical_h),
+            )),
+            events,
+            ..Default::default()
+        };
+
+        let mut shader_list: Vec<String> = self
+            .shader_manager
+            .list()
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        shader_list.sort();
+        let mut palette_list: Vec<String> = self
+            .palette_manager
+            .list()
+            .iter()
+            .map(|p| p.to_string())
+            .collect();
+        palette_list.sort();
+
+        let full_output = bundle.ctx.run(raw_input, |ctx| {
+            draw_panel(ctx, &mut bundle.state, &shader_list, &palette_list);
+        });
+
+        let clipped = bundle.ctx.tessellate(full_output.shapes, scale);
+
+        // Reset the GL viewport to the full window before egui paints.
+        unsafe {
+            (*bundle.gl_arc).viewport(0, 0, phys_w as i32, phys_h as i32);
+        }
+        bundle.painter.paint_and_update_textures(
+            [phys_w, phys_h],
+            scale,
+            &clipped,
+            &full_output.textures_delta,
+        );
+
+        // Apply selections when the ▶ Preview button is pressed.
+        if bundle.state.preview_requested {
+            bundle.state.preview_requested = false;
+            let sel_shader = bundle.state.selected_shader.clone();
+            let sel_palette = bundle.state.selected_palette.clone();
+            let speed = bundle.state.speed;
+            let zoom = bundle.state.zoom;
+
+            if let Some(src) = self.shader_manager.get_compiled(&sel_shader) {
+                let src = src.to_string();
+                if let Some(r) = self.renderer.as_mut() {
+                    match r.load_shader(&src) {
+                        Ok(()) => {
+                            self.active_shader = sel_shader.clone();
+                            bundle.state.status_message = format!("Loaded '{sel_shader}'");
+                            log::info!("panel: shader → '{sel_shader}'");
+                        }
+                        Err(e) => {
+                            bundle.state.status_message = "Compile error (see log)".to_string();
+                            log::warn!("panel: compile error for '{sel_shader}': {e:#}");
+                        }
+                    }
+                }
+            }
+
+            if let Some(palette) = self.palette_manager.get(&sel_palette).cloned() {
+                self.active_palette = sel_palette.clone();
+                if let Some(r) = self.renderer.as_mut() {
+                    r.set_palette(&palette).ok();
+                }
+            }
+
+            if let Some(r) = self.renderer.as_mut() {
+                r.set_speed_scale(speed);
+                r.set_zoom_scale(zoom);
+            }
+
+            if let Some(win) = &self.window {
+                win.set_title(format!("hyprsaver preview — {sel_shader}"));
+            }
+        }
+
+        self.egui_bundle = Some(bundle);
     }
 
     /// Resize the EGL surface after a configure event.
@@ -263,6 +457,8 @@ impl PreviewState {
                 .egl
                 .make_current(egl.display, Some(es), Some(es), Some(ec));
         }
+        // Drop egui FIRST: its Painter deletes GL objects while the context is current.
+        self.egui_bundle = None;
         self.renderer = None;
         if let Some(ec) = self.egl_context.take() {
             let _ = egl.egl.destroy_context(egl.display, ec);
@@ -346,7 +542,7 @@ pub fn run(
     let window = xdg_shell.create_window(wl_surf, WindowDecorations::ServerDefault, &qh);
     window.set_title(format!("hyprsaver preview — {active_shader}"));
     window.set_app_id("hyprsaver");
-    window.set_min_size(Some((400, 300)));
+    window.set_min_size(Some((PANEL_WIDTH + 400, 300)));
     // Commit to request the initial configure from the compositor.
     window.wl_surface().commit();
 
@@ -375,7 +571,11 @@ pub fn run(
         active_palette,
         egl,
         keyboard: None,
+        pointer: None,
         signal_flag,
+        egui_bundle: None,
+        cursor_pos: (0.0, 0.0),
+        egui_events: Vec::new(),
     };
 
     // Calloop event loop.
@@ -618,8 +818,8 @@ impl WindowHandler for PreviewState {
         _serial: u32,
     ) {
         let (new_w, new_h) = configure.new_size;
-        // Use compositor suggestion or default to 800×600.
-        let w = new_w.map(|v| v.get()).unwrap_or(800);
+        // Use compositor suggestion but enforce minimum width for the panel.
+        let w = new_w.map(|v| v.get()).unwrap_or(800).max(PANEL_WIDTH + 400);
         let h = new_h.map(|v| v.get()).unwrap_or(600);
 
         let was_configured = self.configured;
@@ -687,6 +887,12 @@ impl SeatHandler for PreviewState {
                 Err(e) => log::warn!("preview: failed to get keyboard: {e:?}"),
             }
         }
+        if capability == Capability::Pointer && self.pointer.is_none() {
+            match self.seat_state.get_pointer(qh, &seat) {
+                Ok(ptr) => self.pointer = Some(ptr),
+                Err(e) => log::warn!("preview: failed to get pointer: {e:?}"),
+            }
+        }
     }
 
     fn remove_capability(
@@ -699,6 +905,11 @@ impl SeatHandler for PreviewState {
         if capability == Capability::Keyboard {
             if let Some(kb) = self.keyboard.take() {
                 kb.release();
+            }
+        }
+        if capability == Capability::Pointer {
+            if let Some(ptr) = self.pointer.take() {
+                ptr.release();
             }
         }
     }
@@ -738,6 +949,30 @@ impl KeyboardHandler for PreviewState {
         _serial: u32,
         event: KeyEvent,
     ) {
+        // Forward to egui when a text field or widget has keyboard focus.
+        let wants_kb = self
+            .egui_bundle
+            .as_ref()
+            .map(|b| b.ctx.wants_keyboard_input())
+            .unwrap_or(false);
+        if wants_kb {
+            if let Some(key) = keysym_to_egui(event.keysym) {
+                self.egui_events.push(egui::Event::Key {
+                    key,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers: egui::Modifiers::default(),
+                });
+            }
+            if let Some(utf8) = event.utf8 {
+                if !utf8.is_empty() && !utf8.chars().any(|c| c.is_control()) {
+                    self.egui_events.push(egui::Event::Text(utf8));
+                }
+            }
+        }
+
+        // App-level shortcuts are always active regardless of egui focus.
         match event.keysym {
             Keysym::q | Keysym::Q | Keysym::Escape => {
                 log::info!("preview: quit key pressed");
@@ -773,11 +1008,196 @@ impl KeyboardHandler for PreviewState {
     }
 }
 
+impl PointerHandler for PreviewState {
+    fn pointer_frame(
+        &mut self,
+        _conn: &Connection,
+        _qh: &QueueHandle<Self>,
+        _pointer: &wl_pointer::WlPointer,
+        events: &[PointerEvent],
+    ) {
+        // Route mouse events to egui only when the cursor is in the panel area.
+        let panel_left = self.width as f32 - PANEL_WIDTH as f32;
+
+        for event in events {
+            match event.kind {
+                PointerEventKind::Motion { .. } => {
+                    let (x, y) = event.position;
+                    self.cursor_pos = (x as f32, y as f32);
+                    if x as f32 >= panel_left {
+                        self.egui_events
+                            .push(egui::Event::PointerMoved(egui::Pos2::new(
+                                x as f32, y as f32,
+                            )));
+                    } else {
+                        // Cursor moved into shader area — let egui know it's gone.
+                        self.egui_events.push(egui::Event::PointerGone);
+                    }
+                }
+                PointerEventKind::Press { button, .. } => {
+                    if self.cursor_pos.0 >= panel_left {
+                        if let Some(btn) = linux_btn_to_egui(button) {
+                            self.egui_events.push(egui::Event::PointerButton {
+                                pos: egui::Pos2::new(self.cursor_pos.0, self.cursor_pos.1),
+                                button: btn,
+                                pressed: true,
+                                modifiers: egui::Modifiers::default(),
+                            });
+                        }
+                    }
+                }
+                PointerEventKind::Release { button, .. } => {
+                    if self.cursor_pos.0 >= panel_left {
+                        if let Some(btn) = linux_btn_to_egui(button) {
+                            self.egui_events.push(egui::Event::PointerButton {
+                                pos: egui::Pos2::new(self.cursor_pos.0, self.cursor_pos.1),
+                                button: btn,
+                                pressed: false,
+                                modifiers: egui::Modifiers::default(),
+                            });
+                        }
+                    }
+                }
+                PointerEventKind::Leave { .. } => {
+                    self.egui_events.push(egui::Event::PointerGone);
+                }
+                _ => {}
+            }
+        }
+    }
+}
+
 impl ProvidesRegistryState for PreviewState {
     fn registry(&mut self) -> &mut RegistryState {
         &mut self.registry_state
     }
     registry_handlers![OutputState, SeatState];
+}
+
+// ---------------------------------------------------------------------------
+// egui panel drawing (free function — no access to PreviewState)
+// ---------------------------------------------------------------------------
+
+fn draw_panel(
+    ctx: &egui::Context,
+    state: &mut PreviewPanelState,
+    shader_list: &[String],
+    palette_list: &[String],
+) {
+    egui::SidePanel::right("control_panel")
+        .exact_width(PANEL_WIDTH as f32)
+        .resizable(false)
+        .show(ctx, |ui| {
+            ui.add_space(8.0);
+            ui.heading("hyprsaver");
+            ui.add_space(2.0);
+            ui.separator();
+            ui.add_space(8.0);
+
+            ui.label("Shader");
+            egui::ComboBox::from_id_salt("shader_combo")
+                .width(PANEL_WIDTH as f32 - 24.0)
+                .selected_text(&state.selected_shader)
+                .show_ui(ui, |ui| {
+                    for name in shader_list {
+                        ui.selectable_value(&mut state.selected_shader, name.clone(), name);
+                    }
+                });
+
+            ui.add_space(6.0);
+            ui.label("Palette");
+            egui::ComboBox::from_id_salt("palette_combo")
+                .width(PANEL_WIDTH as f32 - 24.0)
+                .selected_text(&state.selected_palette)
+                .show_ui(ui, |ui| {
+                    for name in palette_list {
+                        ui.selectable_value(&mut state.selected_palette, name.clone(), name);
+                    }
+                });
+
+            ui.add_space(10.0);
+            ui.label(format!("Speed  {:.2}×", state.speed));
+            ui.add(
+                egui::Slider::new(&mut state.speed, 0.1_f32..=3.0)
+                    .step_by(0.05f64)
+                    .show_value(false),
+            );
+
+            ui.add_space(6.0);
+            ui.label(format!("Zoom  {:.2}×", state.zoom));
+            ui.add(
+                egui::Slider::new(&mut state.zoom, 0.1_f32..=3.0)
+                    .step_by(0.05f64)
+                    .show_value(false),
+            );
+
+            ui.add_space(14.0);
+
+            let accent = egui::Color32::from_rgb(0x5e, 0x81, 0xf4);
+            if ui
+                .add(
+                    egui::Button::new(
+                        egui::RichText::new("▶  Preview").color(egui::Color32::WHITE),
+                    )
+                    .fill(accent)
+                    .min_size(egui::Vec2::new(PANEL_WIDTH as f32 - 24.0, 32.0)),
+                )
+                .clicked()
+            {
+                state.preview_requested = true;
+            }
+
+            ui.add_space(8.0);
+            if !state.status_message.is_empty() {
+                ui.label(
+                    egui::RichText::new(&state.status_message)
+                        .small()
+                        .color(egui::Color32::from_gray(160)),
+                );
+            }
+
+            ui.add_space(16.0);
+            ui.separator();
+            ui.add_space(6.0);
+            ui.label(egui::RichText::new("Keyboard shortcuts").small().strong());
+            ui.label(
+                egui::RichText::new("Q / Esc  quit\nR           reload shader")
+                    .small()
+                    .monospace(),
+            );
+        });
+}
+
+// ---------------------------------------------------------------------------
+// Input conversion helpers
+// ---------------------------------------------------------------------------
+
+fn keysym_to_egui(sym: Keysym) -> Option<egui::Key> {
+    Some(match sym {
+        Keysym::Return | Keysym::KP_Enter => egui::Key::Enter,
+        Keysym::Tab => egui::Key::Tab,
+        Keysym::BackSpace => egui::Key::Backspace,
+        Keysym::Delete => egui::Key::Delete,
+        Keysym::Escape => egui::Key::Escape,
+        Keysym::Home => egui::Key::Home,
+        Keysym::End => egui::Key::End,
+        Keysym::Page_Up => egui::Key::PageUp,
+        Keysym::Page_Down => egui::Key::PageDown,
+        Keysym::Left => egui::Key::ArrowLeft,
+        Keysym::Right => egui::Key::ArrowRight,
+        Keysym::Up => egui::Key::ArrowUp,
+        Keysym::Down => egui::Key::ArrowDown,
+        _ => return None,
+    })
+}
+
+fn linux_btn_to_egui(button: u32) -> Option<egui::PointerButton> {
+    match button {
+        0x110 => Some(egui::PointerButton::Primary), // BTN_LEFT
+        0x111 => Some(egui::PointerButton::Secondary), // BTN_RIGHT
+        0x112 => Some(egui::PointerButton::Middle),  // BTN_MIDDLE
+        _ => None,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -790,4 +1210,5 @@ delegate_xdg_shell!(PreviewState);
 delegate_xdg_window!(PreviewState);
 delegate_seat!(PreviewState);
 delegate_keyboard!(PreviewState);
+delegate_pointer!(PreviewState);
 delegate_registry!(PreviewState);

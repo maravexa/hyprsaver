@@ -46,7 +46,7 @@ float julia(vec2 z, vec2 c, int max_iter, out float trap) {
 }
 
 void main() {
-    float t = u_time * 0.5;  // half speed
+    float t = u_time * u_speed_scale * 0.5;
     // Centered at screen midpoint, uniform scaling, aspect-ratio correct.
     vec2 uv = (gl_FragCoord.xy - 0.5 * u_resolution.xy) / u_resolution.y;
 

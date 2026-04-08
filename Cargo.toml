@@ -41,6 +41,8 @@ bytemuck = "1"
 khronos-egl = { version = "6", features = ["dynamic"] }
 wayland-egl = "0.32"
 image = { version = "0.25", default-features = false, features = ["png"] }
+egui = "0.29"
+egui_glow = "0.29"
 
 [build-dependencies]
 image = { version = "0.25", default-features = false, features = ["png"] }
