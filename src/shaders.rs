@@ -31,6 +31,21 @@ pub const BUILTIN_TUNNEL: &str = include_str!("../shaders/tunnel.frag");
 /// Animated Voronoi cells.
 pub const BUILTIN_VORONOI: &str = include_str!("../shaders/voronoi.frag");
 
+/// Three-layer parallax starfield with palette-colored glow and brightness pulse.
+pub const BUILTIN_STARFIELD: &str = include_str!("../shaders/starfield.frag");
+
+/// N-fold kaleidoscope driven by domain-warped FBM noise.
+pub const BUILTIN_KALEIDOSCOPE: &str = include_str!("../shaders/kaleidoscope.frag");
+
+/// Curl-noise flow field with 8-step particle tracing and palette-colored glow.
+pub const BUILTIN_FLOW_FIELD: &str = include_str!("../shaders/flow_field.frag");
+
+/// Raymarched torus with Phong lighting and palette-mapped surface color.
+pub const BUILTIN_RAYMARCHER: &str = include_str!("../shaders/raymarcher.frag");
+
+/// Three overlapping Lissajous curves with smooth glow and drifting hue.
+pub const BUILTIN_LISSAJOUS: &str = include_str!("../shaders/lissajous.frag");
+
 // ---------------------------------------------------------------------------
 // Vertex shader for the fullscreen quad (triangle-strip, no VBO needed)
 // ---------------------------------------------------------------------------
@@ -105,9 +120,14 @@ impl ShaderManager {
 
         // Register built-in shaders.
         let builtins: &[(&str, &str)] = &[
-            ("mandelbrot", BUILTIN_MANDELBROT),
+            ("flow_field", BUILTIN_FLOW_FIELD),
             ("julia", BUILTIN_JULIA),
+            ("kaleidoscope", BUILTIN_KALEIDOSCOPE),
+            ("lissajous", BUILTIN_LISSAJOUS),
+            ("mandelbrot", BUILTIN_MANDELBROT),
             ("plasma", BUILTIN_PLASMA),
+            ("raymarcher", BUILTIN_RAYMARCHER),
+            ("starfield", BUILTIN_STARFIELD),
             ("tunnel", BUILTIN_TUNNEL),
             ("voronoi", BUILTIN_VORONOI),
         ];
@@ -433,14 +453,17 @@ mod tests {
 
     #[test]
     fn test_builtin_shader_count() {
-        assert_eq!(manager().list().len(), 5);
+        assert_eq!(manager().list().len(), 10);
     }
 
     #[test]
     fn test_builtin_names() {
         let mgr = manager();
         let names = mgr.list();
-        for expected in &["mandelbrot", "julia", "plasma", "tunnel", "voronoi"] {
+        for expected in &[
+            "mandelbrot", "julia", "plasma", "tunnel", "voronoi",
+            "starfield", "kaleidoscope", "flow_field", "raymarcher", "lissajous",
+        ] {
             assert!(
                 names.contains(expected),
                 "missing built-in shader: {expected}"
