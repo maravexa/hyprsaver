@@ -8,7 +8,7 @@ license = "MIT"
 repository = "https://github.com/maravexa/hyprsaver"
 keywords = ["wayland", "hyprland", "screensaver", "opengl", "fractals"]
 categories = ["graphics", "rendering"]
-rust-version = "1.85"
+rust-version = "1.88"
 
 [dependencies]
 smithay-client-toolkit = "0.19"
