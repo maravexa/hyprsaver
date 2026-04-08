@@ -26,10 +26,10 @@ void main() {
         float t = uv.x + u_time * 0.05;
         fragColor = vec4(palette(t), 1.0);
     } else {
-        // Preview pattern: concentric rings to simulate how the palette
-        // looks on actual fractal-like geometry
-        vec2 center = vec2(0.5, 0.15);
-        float dist = length(uv - center) * 8.0;
+        // Preview pattern: concentric rings centered with aspect correction
+        vec2 ring_uv = (gl_FragCoord.xy - 0.5 * u_resolution.xy) / u_resolution.y;
+        ring_uv.y += 0.35;  // shift center to the middle of the bottom 30%
+        float dist = length(ring_uv) * 8.0;
         float t = dist + u_time * 0.2;
         fragColor = vec4(palette(t), 1.0);
     }
