@@ -43,6 +43,8 @@ pub struct UniformLocations {
     // Control
     pub u_use_lut: Option<glow::UniformLocation>,
     pub u_palette_blend: Option<glow::UniformLocation>,
+    // Fade alpha
+    pub u_alpha: Option<glow::UniformLocation>,
 }
 
 // ---------------------------------------------------------------------------
@@ -78,7 +80,6 @@ pub struct Renderer {
     // ------------------------------------------------------------------
     // Palette state
     // ------------------------------------------------------------------
-
     /// Whether the active palette is a LUT (true) or cosine (false).
     palette_is_lut: bool,
 
@@ -94,6 +95,10 @@ pub struct Renderer {
 
     /// Blend factor: 0.0 = pure A, 1.0 = pure B.
     palette_blend: f32,
+
+    /// Fade alpha: 0.0 = fully transparent, 1.0 = fully opaque.
+    /// Multiplied into the final fragColor for fade in/out.
+    alpha: f32,
 }
 
 /// Hardcoded GLSL ES 3.20 vertex shader source. Passes UV coordinates (0..1) to the fragment
@@ -172,6 +177,7 @@ impl Renderer {
             lut_texture_a: None,
             lut_texture_b: None,
             palette_blend: 0.0,
+            alpha: 1.0,
         })
     }
 
@@ -290,6 +296,11 @@ impl Renderer {
         self.palette_blend = blend.clamp(0.0, 1.0);
     }
 
+    /// Update the fade alpha. 0.0 = fully transparent, 1.0 = fully opaque.
+    pub fn set_alpha(&mut self, alpha: f32) {
+        self.alpha = alpha.clamp(0.0, 1.0);
+    }
+
     /// Update the last known mouse position (window-space pixels, origin top-left).
     pub fn set_mouse(&mut self, x: f32, y: f32) {
         self.mouse_pos = [x, y];
@@ -320,18 +331,25 @@ impl Renderer {
                 self.gl.uniform_1_f32(Some(loc), elapsed);
             }
             if let Some(ref loc) = self.uniforms.u_resolution {
-                self.gl.uniform_2_f32(Some(loc), resolution[0], resolution[1]);
+                self.gl
+                    .uniform_2_f32(Some(loc), resolution[0], resolution[1]);
             }
             if let Some(ref loc) = self.uniforms.u_frame {
                 self.gl.uniform_1_i32(Some(loc), self.frame as i32);
             }
             if let Some(ref loc) = self.uniforms.u_mouse {
-                self.gl.uniform_2_f32(Some(loc), self.mouse_pos[0], self.mouse_pos[1]);
+                self.gl
+                    .uniform_2_f32(Some(loc), self.mouse_pos[0], self.mouse_pos[1]);
             }
 
             // Palette blend factor (always uploaded)
             if let Some(ref loc) = self.uniforms.u_palette_blend {
                 self.gl.uniform_1_f32(Some(loc), self.palette_blend);
+            }
+
+            // Fade alpha (always uploaded)
+            if let Some(ref loc) = self.uniforms.u_alpha {
+                self.gl.uniform_1_f32(Some(loc), self.alpha);
             }
 
             if self.palette_is_lut {
@@ -443,16 +461,24 @@ impl Renderer {
                 Some(&pixels),
             );
             self.gl.tex_parameter_i32(
-                glow::TEXTURE_2D, glow::TEXTURE_MIN_FILTER, glow::LINEAR as i32,
+                glow::TEXTURE_2D,
+                glow::TEXTURE_MIN_FILTER,
+                glow::LINEAR as i32,
             );
             self.gl.tex_parameter_i32(
-                glow::TEXTURE_2D, glow::TEXTURE_MAG_FILTER, glow::LINEAR as i32,
+                glow::TEXTURE_2D,
+                glow::TEXTURE_MAG_FILTER,
+                glow::LINEAR as i32,
             );
             self.gl.tex_parameter_i32(
-                glow::TEXTURE_2D, glow::TEXTURE_WRAP_S, glow::CLAMP_TO_EDGE as i32,
+                glow::TEXTURE_2D,
+                glow::TEXTURE_WRAP_S,
+                glow::CLAMP_TO_EDGE as i32,
             );
             self.gl.tex_parameter_i32(
-                glow::TEXTURE_2D, glow::TEXTURE_WRAP_T, glow::CLAMP_TO_EDGE as i32,
+                glow::TEXTURE_2D,
+                glow::TEXTURE_WRAP_T,
+                glow::CLAMP_TO_EDGE as i32,
             );
             self.gl.bind_texture(glow::TEXTURE_2D, None);
             tex
@@ -480,7 +506,11 @@ impl Renderer {
             if !self.gl.get_shader_compile_status(shader) {
                 let log = self.gl.get_shader_info_log(shader);
                 self.gl.delete_shader(shader);
-                let stage_name = if stage == glow::VERTEX_SHADER { "vertex" } else { "fragment" };
+                let stage_name = if stage == glow::VERTEX_SHADER {
+                    "vertex"
+                } else {
+                    "fragment"
+                };
                 return Err(anyhow::anyhow!("{stage_name} shader compile error: {log}"));
             }
 
@@ -512,6 +542,7 @@ impl Renderer {
                 u_lut_b: self.gl.get_uniform_location(prog, "u_lut_b"),
                 u_use_lut: self.gl.get_uniform_location(prog, "u_use_lut"),
                 u_palette_blend: self.gl.get_uniform_location(prog, "u_palette_blend"),
+                u_alpha: self.gl.get_uniform_location(prog, "u_alpha"),
             };
         }
     }
@@ -542,7 +573,9 @@ mod tests {
     #[test]
     fn test_fps_to_interval_ms() {
         fn fps_to_interval_ms(fps: u32) -> u64 {
-            if fps == 0 { return 33; }
+            if fps == 0 {
+                return 33;
+            }
             1000u64 / fps as u64
         }
         assert_eq!(fps_to_interval_ms(30), 33);
@@ -557,7 +590,10 @@ mod tests {
 
     #[test]
     fn test_vert_src_has_a_pos() {
-        assert!(VERT_SRC.contains("a_pos"), "vertex shader must reference a_pos attribute");
+        assert!(
+            VERT_SRC.contains("a_pos"),
+            "vertex shader must reference a_pos attribute"
+        );
         assert!(
             VERT_SRC.contains("layout(location = 0)"),
             "a_pos must be at location 0"
