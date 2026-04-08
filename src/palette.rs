@@ -601,7 +601,7 @@ mod tests {
         };
         for i in 0..=100 {
             for ch in extreme.color_at(i as f32 / 100.0) {
-                assert!(ch >= 0.0 && ch <= 1.0, "channel out of range: {ch}");
+                assert!((0.0..=1.0).contains(&ch), "channel out of range: {ch}");
             }
         }
     }
