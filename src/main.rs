@@ -160,8 +160,14 @@ fn run() -> anyhow::Result<()> {
         let shader_override = resolve_preview_shader(&cli, &mut shader_manager, &cfg);
 
         println!("Preview mode: press Q or Escape to quit, R to reload shader");
-        preview::run(cfg, shader_manager, palette_manager, running, shader_override.as_deref())
-            .context("preview exited with error")?;
+        preview::run(
+            cfg,
+            shader_manager,
+            palette_manager,
+            running,
+            shader_override.as_deref(),
+        )
+        .context("preview exited with error")?;
     } else {
         // Screensaver daemon mode.
         check_already_running()?;
