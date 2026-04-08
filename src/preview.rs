@@ -16,6 +16,7 @@ use std::time::{Duration, Instant};
 use anyhow::Context as _;
 use calloop::EventLoop;
 use calloop_wayland_source::WaylandSource;
+use glow::HasContext as _;
 use smithay_client_toolkit::{
     compositor::{CompositorHandler, CompositorState},
     delegate_compositor, delegate_keyboard, delegate_output, delegate_pointer, delegate_registry,
@@ -268,7 +269,7 @@ impl PreviewState {
         visuals.panel_fill = egui::Color32::from_rgba_unmultiplied(18, 18, 24, 240);
         egui_ctx.set_visuals(visuals);
 
-        match egui_glow::Painter::new(Arc::clone(&gl_arc), "", None) {
+        match egui_glow::Painter::new(Arc::clone(&gl_arc), "", None, false) {
             Ok(painter) => {
                 self.egui_bundle = Some(EguiBundle {
                     ctx: egui_ctx,
@@ -346,21 +347,30 @@ impl PreviewState {
         let logical_w = phys_w as f32 / scale;
         let logical_h = phys_h as f32 / scale;
 
+        bundle.ctx.set_pixels_per_point(scale);
+
         let raw_input = egui::RawInput {
             screen_rect: Some(egui::Rect::from_min_size(
                 egui::Pos2::ZERO,
                 egui::Vec2::new(logical_w, logical_h),
             )),
-            pixels_per_point: Some(scale),
             events,
             ..Default::default()
         };
 
-        let mut shader_list: Vec<String> =
-            self.shader_manager.list().iter().map(|s| s.to_string()).collect();
+        let mut shader_list: Vec<String> = self
+            .shader_manager
+            .list()
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
         shader_list.sort();
-        let mut palette_list: Vec<String> =
-            self.palette_manager.list().iter().map(|p| p.to_string()).collect();
+        let mut palette_list: Vec<String> = self
+            .palette_manager
+            .list()
+            .iter()
+            .map(|p| p.to_string())
+            .collect();
         palette_list.sort();
 
         let full_output = bundle.ctx.run(raw_input, |ctx| {
@@ -371,7 +381,7 @@ impl PreviewState {
 
         // Reset the GL viewport to the full window before egui paints.
         unsafe {
-            bundle.gl_arc.viewport(0, 0, phys_w as i32, phys_h as i32);
+            (*bundle.gl_arc).viewport(0, 0, phys_w as i32, phys_h as i32);
         }
         bundle.painter.paint_and_update_textures(
             [phys_w, phys_h],
@@ -394,16 +404,12 @@ impl PreviewState {
                     match r.load_shader(&src) {
                         Ok(()) => {
                             self.active_shader = sel_shader.clone();
-                            bundle.state.status_message =
-                                format!("Loaded '{sel_shader}'");
+                            bundle.state.status_message = format!("Loaded '{sel_shader}'");
                             log::info!("panel: shader → '{sel_shader}'");
                         }
                         Err(e) => {
-                            bundle.state.status_message =
-                                format!("Compile error (see log)");
-                            log::warn!(
-                                "panel: compile error for '{sel_shader}': {e:#}"
-                            );
+                            bundle.state.status_message = format!("Compile error (see log)");
+                            log::warn!("panel: compile error for '{sel_shader}': {e:#}");
                         }
                     }
                 }
@@ -813,10 +819,7 @@ impl WindowHandler for PreviewState {
     ) {
         let (new_w, new_h) = configure.new_size;
         // Use compositor suggestion but enforce minimum width for the panel.
-        let w = new_w
-            .map(|v| v.get())
-            .unwrap_or(800)
-            .max(PANEL_WIDTH + 400);
+        let w = new_w.map(|v| v.get()).unwrap_or(800).max(PANEL_WIDTH + 400);
         let h = new_h.map(|v| v.get()).unwrap_or(600);
 
         let was_configured = self.configured;
@@ -1022,9 +1025,10 @@ impl PointerHandler for PreviewState {
                     let (x, y) = event.position;
                     self.cursor_pos = (x as f32, y as f32);
                     if x as f32 >= panel_left {
-                        self.egui_events.push(egui::Event::PointerMoved(
-                            egui::Pos2::new(x as f32, y as f32),
-                        ));
+                        self.egui_events
+                            .push(egui::Event::PointerMoved(egui::Pos2::new(
+                                x as f32, y as f32,
+                            )));
                     } else {
                         // Cursor moved into shader area — let egui know it's gone.
                         self.egui_events.push(egui::Event::PointerGone);
@@ -1034,10 +1038,7 @@ impl PointerHandler for PreviewState {
                     if self.cursor_pos.0 >= panel_left {
                         if let Some(btn) = linux_btn_to_egui(button) {
                             self.egui_events.push(egui::Event::PointerButton {
-                                pos: egui::Pos2::new(
-                                    self.cursor_pos.0,
-                                    self.cursor_pos.1,
-                                ),
+                                pos: egui::Pos2::new(self.cursor_pos.0, self.cursor_pos.1),
                                 button: btn,
                                 pressed: true,
                                 modifiers: egui::Modifiers::default(),
@@ -1049,10 +1050,7 @@ impl PointerHandler for PreviewState {
                     if self.cursor_pos.0 >= panel_left {
                         if let Some(btn) = linux_btn_to_egui(button) {
                             self.egui_events.push(egui::Event::PointerButton {
-                                pos: egui::Pos2::new(
-                                    self.cursor_pos.0,
-                                    self.cursor_pos.1,
-                                ),
+                                pos: egui::Pos2::new(self.cursor_pos.0, self.cursor_pos.1),
                                 button: btn,
                                 pressed: false,
                                 modifiers: egui::Modifiers::default(),
@@ -1097,31 +1095,23 @@ fn draw_panel(
             ui.add_space(8.0);
 
             ui.label("Shader");
-            egui::ComboBox::from_id_source("shader_combo")
+            egui::ComboBox::from_id_salt("shader_combo")
                 .width(PANEL_WIDTH as f32 - 24.0)
                 .selected_text(&state.selected_shader)
                 .show_ui(ui, |ui| {
                     for name in shader_list {
-                        ui.selectable_value(
-                            &mut state.selected_shader,
-                            name.clone(),
-                            name,
-                        );
+                        ui.selectable_value(&mut state.selected_shader, name.clone(), name);
                     }
                 });
 
             ui.add_space(6.0);
             ui.label("Palette");
-            egui::ComboBox::from_id_source("palette_combo")
+            egui::ComboBox::from_id_salt("palette_combo")
                 .width(PANEL_WIDTH as f32 - 24.0)
                 .selected_text(&state.selected_palette)
                 .show_ui(ui, |ui| {
                     for name in palette_list {
-                        ui.selectable_value(
-                            &mut state.selected_palette,
-                            name.clone(),
-                            name,
-                        );
+                        ui.selectable_value(&mut state.selected_palette, name.clone(), name);
                     }
                 });
 
@@ -1130,7 +1120,6 @@ fn draw_panel(
             ui.add(
                 egui::Slider::new(&mut state.speed, 0.1_f32..=3.0)
                     .step_by(0.05f64)
-                    .clamp_to_range(true)
                     .show_value(false),
             );
 
@@ -1139,7 +1128,6 @@ fn draw_panel(
             ui.add(
                 egui::Slider::new(&mut state.zoom, 0.1_f32..=3.0)
                     .step_by(0.05f64)
-                    .clamp_to_range(true)
                     .show_value(false),
             );
 
@@ -1149,8 +1137,7 @@ fn draw_panel(
             if ui
                 .add(
                     egui::Button::new(
-                        egui::RichText::new("▶  Preview")
-                            .color(egui::Color32::WHITE),
+                        egui::RichText::new("▶  Preview").color(egui::Color32::WHITE),
                     )
                     .fill(accent)
                     .min_size(egui::Vec2::new(PANEL_WIDTH as f32 - 24.0, 32.0)),
@@ -1206,9 +1193,9 @@ fn keysym_to_egui(sym: Keysym) -> Option<egui::Key> {
 
 fn linux_btn_to_egui(button: u32) -> Option<egui::PointerButton> {
     match button {
-        0x110 => Some(egui::PointerButton::Primary),   // BTN_LEFT
+        0x110 => Some(egui::PointerButton::Primary), // BTN_LEFT
         0x111 => Some(egui::PointerButton::Secondary), // BTN_RIGHT
-        0x112 => Some(egui::PointerButton::Middle),    // BTN_MIDDLE
+        0x112 => Some(egui::PointerButton::Middle),  // BTN_MIDDLE
         _ => None,
     }
 }
