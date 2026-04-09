@@ -873,7 +873,10 @@ mod tests {
     fn test_random_selection_unchanged() {
         let mgr = manager();
         let (name, _src) = mgr.random();
-        assert!(mgr.get(name).is_some(), "random() must return a known shader");
+        assert!(
+            mgr.get(name).is_some(),
+            "random() must return a known shader"
+        );
     }
 
     #[test]

@@ -511,13 +511,19 @@ palettes = ["frost", "ocean", "vapor"]
         assert_eq!(cfg.general.palette_playlist.as_deref(), Some("warm_tones"));
 
         assert_eq!(cfg.shader_playlists.len(), 2);
-        let fav = cfg.shader_playlists.get("my_favorites").expect("my_favorites must exist");
+        let fav = cfg
+            .shader_playlists
+            .get("my_favorites")
+            .expect("my_favorites must exist");
         assert_eq!(fav.shaders, vec!["mandelbrot", "julia", "plasma"]);
         let chill = cfg.shader_playlists.get("chill").expect("chill must exist");
         assert_eq!(chill.shaders, vec!["plasma", "tunnel"]);
 
         assert_eq!(cfg.palette_playlists.len(), 2);
-        let warm = cfg.palette_playlists.get("warm_tones").expect("warm_tones must exist");
+        let warm = cfg
+            .palette_playlists
+            .get("warm_tones")
+            .expect("warm_tones must exist");
         assert_eq!(warm.palettes, vec!["ember", "autumn", "groovy"]);
     }
 
