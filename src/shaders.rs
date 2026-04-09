@@ -305,12 +305,24 @@ impl ShaderManager {
             );
         }
 
+        // Randomize starting cycle index so each session feels different.
+        let count = shaders.len();
+        let cycle_index = if count > 1 {
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .subsec_nanos() as usize
+                % count
+        } else {
+            0
+        };
+
         Ok(Self {
             shader_dir,
             shaders,
             watcher: None,
             change_rx: None,
-            cycle_index: 0,
+            cycle_index,
             playlist: None,
         })
     }
@@ -369,15 +381,50 @@ impl ShaderManager {
         Some(names[self.cycle_index].clone())
     }
 
+    /// Return the name of the shader at the current cycle index, without advancing.
+    ///
+    /// Uses the playlist if set, otherwise all shaders alphabetically.
+    /// Returns `None` if the collection is empty.
+    pub fn current_cycle_name(&self) -> Option<&str> {
+        let names: Vec<&str> = match &self.playlist {
+            Some(pl) => pl
+                .iter()
+                .filter(|n| self.shaders.contains_key(*n))
+                .map(String::as_str)
+                .collect(),
+            None => {
+                let mut ns: Vec<&str> = self.shaders.keys().map(String::as_str).collect();
+                ns.sort_unstable();
+                ns
+            }
+        };
+        if names.is_empty() {
+            return None;
+        }
+        Some(names[self.cycle_index % names.len()])
+    }
+
     /// Set a playlist so that `cycle_next()` iterates only the given names.
     /// Pass an empty vec or call without a playlist to reset to "cycle all".
+    /// Randomizes the starting index so sessions begin at different points.
     pub fn set_playlist(&mut self, names: Vec<String>) {
+        let count;
         if names.is_empty() {
             self.playlist = None;
+            count = self.shaders.len();
         } else {
+            count = names.len();
             self.playlist = Some(names);
         }
-        self.cycle_index = 0;
+        self.cycle_index = if count > 1 {
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .subsec_nanos() as usize
+                % count
+        } else {
+            0
+        };
     }
 
     /// Convenience shortcut: return just the compiled GLSL source string.
