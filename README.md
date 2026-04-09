@@ -34,8 +34,12 @@ sudo rpm -i hyprsaver-0.3.0-1.x86_64.rpm
 
 ### Arch Linux
 ```bash
-# Download the .tar.zst from the latest release
-sudo pacman -U hyprsaver-0.3.0-x86_64-linux.tar.zst
+yay -S hyprsaver
+```
+
+### Cargo Install
+```bash
+cargo install hyprsaver
 ```
 
 ## Manual Installation
@@ -265,7 +269,7 @@ A full annotated example is provided at [`examples/hyprsaver.toml`](examples/hyp
 [general]
 shader = "julia"
 palette = "vapor"
-fps = 60
+fps = 30
 ```
 
 ### Full Reference
@@ -638,7 +642,7 @@ graph TD
 - Palette crossfade transitions on cycle
 
 ### v1.0.0
-- AUR and Nix packages, stable install story
+- Stable install story
 - Stable config format -- no breaking changes after this
 - Comprehensive curated shader library (20+ shaders)
 - Full Shadertoy uniform support: `iChannel` textures, `iDate`, `iSampleRate`
