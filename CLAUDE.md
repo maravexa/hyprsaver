@@ -43,7 +43,7 @@ cargo build --release
 - Built-in shaders: compiled into binary via `include_str!()`
 - Logs: stderr (journalctl if launched by hypridle)
 
-## Built-in Shaders (v0.3.0 — 17 total)
+## Built-in Shaders (v0.3.0 — 18 total)
 
 | Name          | Description                                              |
 |---------------|----------------------------------------------------------|
@@ -64,6 +64,7 @@ cargo build --release
 | matrix        | Classic Matrix digital rain with procedural glyphs       |
 | fire          | Roiling procedural flames with ember particles           |
 | caustics      | Underwater caustic light patterns                        |
+| bezier        | Five animated Bézier curves with additive palette glow   |
 
 ## Playlist / Cycle System (v0.3.0)
 
