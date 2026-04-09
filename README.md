@@ -23,19 +23,19 @@ It is designed to complement [hyprlock](https://github.com/hyprwm/hyprlock) and 
 ### Debian / Ubuntu
 ```bash
 # Download the .deb from the latest release
-sudo dpkg -i hyprsaver_0.2.0_amd64.deb
+sudo dpkg -i hyprsaver_0.3.0_amd64.deb
 ```
 
 ### Fedora / RHEL / openSUSE
 ```bash
 # Download the .rpm from the latest release
-sudo rpm -i hyprsaver-0.2.0-1.x86_64.rpm
+sudo rpm -i hyprsaver-0.3.0-1.x86_64.rpm
 ```
 
 ### Arch Linux
 ```bash
 # Download the .tar.zst from the latest release
-sudo pacman -U hyprsaver-0.2.0-x86_64-linux.tar.zst
+sudo pacman -U hyprsaver-0.3.0-x86_64-linux.tar.zst
 ```
 
 ## Manual Installation
@@ -81,7 +81,7 @@ sudo pacman -U hyprsaver-0.2.0-x86_64-linux.tar.zst
 
 ---
 
-## Features (v0.2.0)
+## Features (v0.3.0)
 
 - **Wayland-native** via wlr-layer-shell -- not a window, a proper overlay surface
 - **GPU-accelerated GLSL** fragment shaders via OpenGL ES (glow crate)
@@ -89,24 +89,31 @@ sudo pacman -U hyprsaver-0.2.0-x86_64-linux.tar.zst
 - **Cosine gradient palettes** -- 12 floats define smooth, infinite color ramps. Any shader x any palette
 - **Shadertoy-compatible** shader format -- paste Shadertoy code with minimal edits, it just works
 - **Hot-reload** shaders from `~/.config/hypr/hyprsaver/shaders/` -- edit, save, see the change instantly
-- **Built-in shader collection** (10 shaders):
+- **Cycle mode** for shaders and palettes -- rotate through all or a named playlist on a configurable interval
+- **Built-in shader collection** (17 shaders):
 
-  | Name            | Description                                        |
-  |-----------------|----------------------------------------------------|
-  | `mandelbrot`    | Mandelbrot set with animated zoom                  |
-  | `julia`         | Julia set with animated parameter                  |
-  | `plasma`        | Classic plasma effect                              |
-  | `tunnel`        | Infinite tunnel flythrough                         |
-  | `voronoi`       | Animated Voronoi cells                             |
-  | `snowfall`      | Five-layer parallax snowfall with palette dot glow |
-  | `starfield`     | Hyperspace zoom tunnel with motion-blur tracers    |
-  | `kaleidoscope`  | 6-fold kaleidoscope driven by domain-warped FBM    |
-  | `flow_field`    | Curl-noise flow field with 8-step particle tracing |
-  | `raymarcher`    | Raymarched torus with Phong lighting and fog       |
-  | `lissajous`     | Three overlapping Lissajous curves with glow       |
-- **Built-in palette collection**: electric, autumn, vapor, frost, ember, ocean, monochrome
+  | Name            | Description                                          |
+  |-----------------|------------------------------------------------------|
+  | `mandelbrot`    | Mandelbrot set with animated zoom                    |
+  | `julia`         | Julia set with animated parameter                    |
+  | `plasma`        | Classic plasma effect                                |
+  | `tunnel`        | Infinite tunnel flythrough                           |
+  | `voronoi`       | Animated Voronoi cells                               |
+  | `snowfall`      | Five-layer parallax snowfall with palette dot glow   |
+  | `starfield`     | Hyperspace zoom tunnel with motion-blur tracers      |
+  | `kaleidoscope`  | 6-fold kaleidoscope driven by domain-warped FBM      |
+  | `flow_field`    | Curl-noise flow field with 8-step particle tracing   |
+  | `raymarcher`    | Raymarched torus with Phong lighting and fog         |
+  | `lissajous`     | Three overlapping Lissajous curves with glow         |
+  | `geometry`      | Wireframe polyhedron morphing (cube→icosahedron→...) |
+  | `hypercube`     | Rotating 4D tesseract projected to 2D, neon glow     |
+  | `network`       | Neural network node graph with glowing connections   |
+  | `matrix`        | Classic Matrix digital rain with procedural glyphs   |
+  | `fire`          | Roiling procedural flames with ember particles       |
+  | `caustics`      | Underwater caustic light patterns                    |
+- **Built-in palette collection**: electric, autumn, vapor, frost, ember, ocean, monochrome, sunset, aurora, midnight
 - Configurable FPS and dismiss triggers
-- **Preview mode** for shader authoring (`--preview <shader>`)
+- **Preview mode** for shader authoring (`--preview <shader>`) with speed/zoom control panel
 - **PID file based instance management** (`--quit` to signal a running instance)
 - Zero-config: works with no config file, sensible defaults throughout
 - Clean integration with hypridle and hyprlock
@@ -245,12 +252,12 @@ bind = , escape, exec, hyprsaver --quit
 
 The config file lives at `~/.config/hypr/hyprsaver.toml`. It is entirely optional -- hyprsaver runs with built-in defaults if no file exists.
 
-> **Upgrading from v0.2.x?** The config path moved from `~/.config/hyprsaver/config.toml` to
+> **Upgrading from v0.1.x?** The config path moved from `~/.config/hyprsaver/config.toml` to
 > `~/.config/hypr/hyprsaver.toml` and the shader directory from `~/.config/hyprsaver/shaders/`
 > to `~/.config/hypr/hyprsaver/shaders/`. The old paths are still recognised with a deprecation
 > warning — move your files at your convenience.
 
-A full annotated example is provided at [`config.example.toml`](config.example.toml) and [`examples/hyprsaver.toml`](examples/hyprsaver.toml).
+A full annotated example is provided at [`examples/hyprsaver.toml`](examples/hyprsaver.toml).
 
 ### Minimal Config
 
@@ -265,11 +272,13 @@ fps = 60
 
 ```toml
 [general]
-fps = 30                       # render frame rate
-shader = "mandelbrot"          # or "random", "cycle", or a custom name
-palette = "electric"           # or "random", "cycle", or a custom name
-shader_cycle_interval = 300    # seconds per shader when shader = "cycle"
-palette_cycle = ["frost", "ocean", "electric", "ember"]  # month-indexed
+fps = 30                          # render frame rate
+shader = "mandelbrot"             # a shader name, "random", or "cycle"
+palette = "electric"              # a palette name, "random", or "cycle"
+shader_cycle_interval = 300       # seconds per shader when shader = "cycle"
+palette_cycle_interval = 60       # seconds per palette when palette = "cycle"
+# shader_playlist = "my_favorites"  # restrict cycle to a named playlist
+# palette_playlist = "warm_tones"   # restrict palette cycle to a named playlist
 
 [behavior]
 fade_in_ms = 800               # fade-in duration
@@ -283,6 +292,54 @@ b = [0.5, 0.5, 0.5]
 c = [1.0, 1.0, 1.0]
 d = [0.00, 0.33, 0.67]
 ```
+
+### Cycle Mode
+
+Set `shader = "cycle"` (or `palette = "cycle"`) to rotate through shaders automatically:
+
+```toml
+[general]
+shader = "cycle"
+shader_cycle_interval = 300   # advance every 5 minutes
+
+palette = "cycle"
+palette_cycle_interval = 60   # advance every minute
+```
+
+To cycle only a subset, define a playlist and reference it:
+
+```toml
+[general]
+shader = "cycle"
+shader_playlist = "chill"
+
+[shader_playlists.chill]
+shaders = ["snowfall", "starfield", "tunnel", "plasma"]
+```
+
+On startup, cycle mode begins at a random position in the playlist so each session looks different. Use `--list-shader-playlists` or `--list-palette-playlists` to inspect defined playlists.
+
+### Playlists
+
+Playlists are named subsets used with cycle mode. Define them in the config and reference by name in `[general]`:
+
+```toml
+# Shader playlists
+[shader_playlists.my_favorites]
+shaders = ["mandelbrot", "julia", "fire", "caustics"]
+
+[shader_playlists.chill]
+shaders = ["snowfall", "starfield", "tunnel", "plasma"]
+
+# Palette playlists
+[palette_playlists.warm_tones]
+palettes = ["ember", "autumn", "sunset"]
+
+[palette_playlists.cool_vibes]
+palettes = ["frost", "ocean", "vapor"]
+```
+
+Unknown shader or palette names in a playlist are skipped with a warning. If a playlist resolves to empty, all available shaders/palettes are cycled instead.
 
 ### Cosine Gradient Palettes
 
@@ -438,24 +495,14 @@ Palettes are tiny and easy to share -- post them as four TOML lines.
 
 ### Palette Tuning Workflow
 
-For fast iteration when designing or tweaking palettes, use the included test shader:
+For fast iteration when designing or tweaking palettes:
 
-1. Copy the test shader to your user shader directory:
+1. Launch hyprsaver in preview mode with any shader and your target palette:
    ```bash
-   mkdir -p ~/.config/hypr/hyprsaver/shaders
-   cp examples/palette_test.frag ~/.config/hypr/hyprsaver/shaders/
+   hyprsaver --preview julia --palette autumn
    ```
 
-2. Launch hyprsaver with the test shader and your target palette:
-   ```bash
-   hyprsaver --shader palette_test --palette autumn
-   ```
-
-   The top portion of the screen shows the full palette as a horizontal gradient.
-   The bottom shows the palette applied to a ring pattern, simulating how it
-   looks on fractal geometry.
-
-3. Edit your palette values in `~/.config/hypr/hyprsaver.toml`:
+2. Edit your palette values in `~/.config/hypr/hyprsaver.toml`:
    ```toml
    [palettes.my_custom_palette]
    a = [0.5, 0.3, 0.2]
@@ -464,7 +511,7 @@ For fast iteration when designing or tweaking palettes, use the included test sh
    d = [0.0, 0.1, 0.2]
    ```
 
-4. Hot-reload picks up config changes automatically — save the file and the
+3. Hot-reload picks up config changes automatically — save the file and the
    palette updates live on screen. No restart needed.
 
 The cosine palette formula is `color(t) = a + b × cos(2π × (c × t + d))`.
@@ -481,16 +528,20 @@ For a deeper explanation, see
 hyprsaver [OPTIONS]
 
 OPTIONS:
-    -c, --config <PATH>       Path to config file (overrides XDG default)
-    -s, --shader <NAME>       Shader to use (name, "random", or "cycle")
-    -p, --palette <NAME>      Palette to use (name, "random", or "cycle")
-        --list-shaders        Print all available shader names and exit
-        --list-palettes       Print all available palette names and exit
-        --quit                Send SIGTERM to the running hyprsaver instance
-        --preview <SHADER>    Open a windowed preview of the named shader
-    -v, --verbose             Enable debug logging (RUST_LOG=hyprsaver=debug)
-    -h, --help                Print help
-    -V, --version             Print version
+    -c, --config <PATH>              Path to config file (overrides XDG default)
+    -s, --shader <NAME>              Shader to use (name, "random", or "cycle")
+    -p, --palette <NAME>             Palette to use (name, "random", or "cycle")
+        --shader-cycle-interval <N>  Override shader cycle interval (seconds)
+        --palette-cycle-interval <N> Override palette cycle interval (seconds)
+        --list-shaders               Print all available shader names and exit
+        --list-palettes              Print all available palette names and exit
+        --list-shader-playlists      Print all defined shader playlists and exit
+        --list-palette-playlists     Print all defined palette playlists and exit
+        --quit                       Send SIGTERM to the running hyprsaver instance
+        --preview <SHADER>           Open a windowed preview of the named shader
+    -v, --verbose                    Enable debug logging (RUST_LOG=hyprsaver=debug)
+    -h, --help                       Print help
+    -V, --version                    Print version
 ```
 
 **Examples:**
@@ -499,12 +550,16 @@ OPTIONS:
 # Start with a specific shader and palette
 hyprsaver --shader julia --palette vapor
 
+# Cycle through all shaders every 2 minutes
+hyprsaver --shader cycle --shader-cycle-interval 120
+
 # Preview a custom shader while editing it
 hyprsaver --preview my_shader
 
 # See what's available
 hyprsaver --list-shaders
 hyprsaver --list-palettes
+hyprsaver --list-shader-playlists
 
 # Dismiss the running screensaver (e.g. from a hotkey)
 hyprsaver --quit
@@ -567,15 +622,20 @@ graph TD
 
 ## Roadmap
 
-### v0.3.0
-- Audio reactivity via PipeWire (FFT frequency bands -> shader uniforms)
-- Interactive mode: mouse position -> shader uniforms (for ambient desktop use, not just screensaver)
-- MPRIS integration: album art dominant color extraction -> automatic palette
+### Shipped in v0.3.0
+
+- 6 new built-in shaders: geometry, hypercube, network, matrix, fire, caustics
+- Cycle mode for shaders and palettes with configurable intervals (`shader_cycle_interval`, `palette_cycle_interval`)
+- Named playlists for shader and palette cycling (`[shader_playlists.*]`, `[palette_playlists.*]`)
+- CLI flags: `--shader-cycle-interval`, `--palette-cycle-interval`, `--list-shader-playlists`, `--list-palette-playlists`
+- Shader descriptions in `--list-shaders` output
+- Cycle mode starts at a random position; both monitors stay in sync during transitions
 
 ### v0.4.0
-- wgpu backend option (Vulkan via wgpu for broader GPU compatibility and future-proofing)
-- Shader parameter GUI (small GTK4 or Slint panel for live-tuning palette vectors)
-- Community shader and palette repository integration
+- Per-monitor shader/palette assignment
+- Screencopy texture pipeline (sample the desktop as a shader input)
+- Rain-on-glass shader with real blurred desktop background
+- Palette crossfade transitions on cycle
 
 ### v1.0.0
 - AUR and Nix packages, stable install story
