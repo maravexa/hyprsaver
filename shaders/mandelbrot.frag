@@ -5,9 +5,11 @@ precision highp float;
 // hyprsaver — mandelbrot.frag
 //
 // Animated ping-pong zoom into Mandelbrot boundary regions.
-// Cycles through 4 targets every 50 s; max zoom ~268x (1.5^14) — safely
-// within float32 precision limits. Smooth (continuous) iteration count
-// coloring eliminates band artifacts and feeds into the cosine palette.
+// Randomly cycles through 12 targets every 50 s; max zoom ~268x (1.5^14) —
+// safely within float32 precision limits. Target is chosen via a hash of the
+// cycle index so selection is stateless (pure GLSL, no CPU state) and avoids
+// consecutive repeats. Smooth (continuous) iteration count coloring eliminates
+// band artifacts and feeds into the cosine palette.
 // ---------------------------------------------------------------------------
 
 uniform float u_time;
@@ -39,15 +41,31 @@ float mandelbrot(vec2 c, int max_iter) {
 }
 
 // ---------------------------------------------------------------------------
-// Zoom targets — four Mandelbrot boundary regions with rich detail
+// Pseudo-random hash — maps a float seed to [0, 1)
+// ---------------------------------------------------------------------------
+float hash(float n) {
+    return fract(sin(n) * 43758.5453123);
+}
+
+// ---------------------------------------------------------------------------
+// Zoom targets — 12 Mandelbrot boundary regions with rich detail
 // ---------------------------------------------------------------------------
 // GLSL ES 3.2 requires constant-index access on arrays declared as const.
 // Declare as a function returning the appropriate vec2 to stay compatible.
+#define NUM_TARGETS 12
 vec2 zoom_target(int idx) {
-    if (idx == 0) return vec2(-0.743643887037158, 0.131825904205330); // seahorse valley
-    if (idx == 1) return vec2(-0.1015,            0.9658);            // elephant valley
-    if (idx == 2) return vec2(-0.749,             0.1);               // spiral arm
-                  return vec2(-1.25066,            0.02012);           // deep spiral
+    if (idx ==  0) return vec2(-.747,         .1      );  // Seahorse Valley
+    if (idx ==  1) return vec2( .282,         .007    );  // Elephant Valley
+    if (idx ==  2) return vec2(-.0452,       -.9868   );  // Double Spiral
+    if (idx ==  3) return vec2(-1.749,        .0      );  // Mini-brot Valley
+    if (idx ==  4) return vec2(-1.4011552,    .0      );  // Antenna Tip
+    if (idx ==  5) return vec2(-.748,         .102    );  // Seahorse Tail
+    if (idx ==  6) return vec2(-.1015,        .6333   );  // Triple Spiral
+    if (idx ==  7) return vec2( .3245,        .04855  );  // Lightning
+    if (idx ==  8) return vec2(-.77568377,    .13646737); // Dendrite
+    if (idx ==  9) return vec2(-.3523,        .6062   );  // Starfish
+    if (idx == 10) return vec2(-.1592,       -1.0318  );  // Feather
+                   return vec2(-.3905407,     .5867879);  // Fibonacci Spiral (idx 11)
 }
 
 // ---------------------------------------------------------------------------
@@ -65,8 +83,15 @@ void main() {
     float t = 0.5 - 0.5 * cos(u_time * u_speed_scale * 6.28318 / zoom_cycle);  // [0, 1]
     float scale = pow(1.5, t * max_zoom_exp);
 
-    // Switch target region each time the sine wave completes a full cycle.
-    int target_idx = int(floor(u_time * u_speed_scale / zoom_cycle)) % 4;
+    // Pick a random target each zoom cycle using a hash of the cycle index.
+    // Targets transition at the fully-zoomed-out point (t == 0) so there is
+    // no visible jump. Consecutive-repeat avoidance nudges the index by 1.
+    float cycle_id  = floor(u_time * u_speed_scale / zoom_cycle);
+    int target_idx  = int(hash(cycle_id)        * float(NUM_TARGETS));
+    int prev_idx    = int(hash(cycle_id - 1.0)  * float(NUM_TARGETS));
+    if (target_idx == prev_idx) {
+        target_idx = (target_idx + 1) % NUM_TARGETS;
+    }
     vec2 center = zoom_target(target_idx);
 
     // Map screen coordinates to complex plane.
