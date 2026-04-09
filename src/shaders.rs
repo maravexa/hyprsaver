@@ -49,6 +49,9 @@ pub const BUILTIN_RAYMARCHER: &str = include_str!("../shaders/raymarcher.frag");
 /// Three overlapping Lissajous curves with smooth glow and drifting hue.
 pub const BUILTIN_LISSAJOUS: &str = include_str!("../shaders/lissajous.frag");
 
+/// Neural network node graph with parallax depth, glowing connections, and data packets.
+pub const BUILTIN_NETWORK: &str = include_str!("../shaders/network.frag");
+
 /// Classic 3D Pipes screensaver — glossy cylinders with sphere joints on a dark grid.
 pub const BUILTIN_PIPES: &str = include_str!("../shaders/pipes.frag");
 
@@ -214,6 +217,7 @@ impl ShaderManager {
             ("kaleidoscope", BUILTIN_KALEIDOSCOPE),
             ("lissajous", BUILTIN_LISSAJOUS),
             ("mandelbrot", BUILTIN_MANDELBROT),
+            ("network", BUILTIN_NETWORK),
             ("pipes", BUILTIN_PIPES),
             ("plasma", BUILTIN_PLASMA),
             ("raymarcher", BUILTIN_RAYMARCHER),
@@ -726,7 +730,7 @@ mod tests {
 
     #[test]
     fn test_builtin_shader_count() {
-        assert_eq!(manager().list().len(), 14);
+        assert_eq!(manager().list().len(), 15);
     }
 
     #[test]
@@ -745,6 +749,7 @@ mod tests {
             "flow_field",
             "raymarcher",
             "lissajous",
+            "network",
             "pipes",
             "hypercube",
             "geometry",
