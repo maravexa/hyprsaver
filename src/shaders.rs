@@ -49,6 +49,9 @@ pub const BUILTIN_RAYMARCHER: &str = include_str!("../shaders/raymarcher.frag");
 /// Three overlapping Lissajous curves with smooth glow and drifting hue.
 pub const BUILTIN_LISSAJOUS: &str = include_str!("../shaders/lissajous.frag");
 
+/// Classic 3D Pipes screensaver — glossy cylinders with sphere joints on a dark grid.
+pub const BUILTIN_PIPES: &str = include_str!("../shaders/pipes.frag");
+
 // ---------------------------------------------------------------------------
 // Vertex shader for the fullscreen quad (triangle-strip, no VBO needed)
 // ---------------------------------------------------------------------------
@@ -204,6 +207,7 @@ impl ShaderManager {
             ("kaleidoscope", BUILTIN_KALEIDOSCOPE),
             ("lissajous", BUILTIN_LISSAJOUS),
             ("mandelbrot", BUILTIN_MANDELBROT),
+            ("pipes", BUILTIN_PIPES),
             ("plasma", BUILTIN_PLASMA),
             ("raymarcher", BUILTIN_RAYMARCHER),
             ("snowfall", BUILTIN_SNOWFALL),
