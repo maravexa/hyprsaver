@@ -625,6 +625,10 @@ impl TransitionRenderer {
 // Renderer
 // ---------------------------------------------------------------------------
 
+/// Default crossfade duration, in seconds, used when `start_shader_transition`
+/// is called without an explicit duration. Can be overridden per-call.
+pub const DEFAULT_SHADER_TRANSITION_SECONDS: f32 = 2.0;
+
 /// Owns all GL state for rendering fractal shaders onto a fullscreen quad.
 pub struct Renderer {
     /// The glow OpenGL context. Not Send — must stay on the GL thread.
@@ -678,6 +682,22 @@ pub struct Renderer {
     speed_scale: f32,
     /// Preview zoom multiplier (u_zoom_scale). Default 1.0; no effect in daemon mode.
     zoom_scale: f32,
+
+    // ------------------------------------------------------------------
+    // Shader crossfade state (integrated TransitionRenderer)
+    // ------------------------------------------------------------------
+    /// Offscreen render targets + composite pass used during shader crossfades.
+    /// Wrapped in `Option` so `destroy()` can move it out (its own `destroy`
+    /// method consumes `self`). In practice this is always `Some` between
+    /// `Renderer::new()` and `Renderer::destroy()`.
+    transition: Option<TransitionRenderer>,
+
+    /// Uniform locations cached for the outgoing shader program during a
+    /// crossfade. GLSL uniform locations are per-program, so the incoming
+    /// program's locations in `self.uniforms` are NOT usable for the outgoing
+    /// draw pass — this snapshot is populated by `start_shader_transition()`
+    /// from `self.uniforms` at the moment of the swap.
+    outgoing_uniforms: UniformLocations,
 }
 
 /// Hardcoded GLSL ES 3.20 vertex shader source. Passes UV coordinates (0..1) to the fragment
@@ -745,6 +765,12 @@ impl Renderer {
         // surface early, before we care about frame timing.
         Self::debug_sanity_check_fbo(&gl);
 
+        // Allocate the shader crossfade infrastructure with placeholder
+        // dimensions. `render()` calls `TransitionRenderer::resize()` every
+        // frame, which is a no-op when dimensions are unchanged, so the FBOs
+        // will snap to the real surface size on the first frame.
+        let transition = TransitionRenderer::new(&gl, 1, 1, DEFAULT_SHADER_TRANSITION_SECONDS);
+
         Ok(Self {
             gl,
             program: None,
@@ -763,6 +789,8 @@ impl Renderer {
             alpha: 1.0,
             speed_scale: 1.0,
             zoom_scale: 1.0,
+            transition: Some(transition),
+            outgoing_uniforms: UniformLocations::default(),
         })
     }
 
@@ -806,6 +834,119 @@ impl Renderer {
         self.refresh_uniform_locations();
 
         log::debug!("Shader loaded successfully");
+        Ok(())
+    }
+
+    /// Begin a crossfade transition from the currently-loaded shader to a new
+    /// one compiled from `frag_src`.
+    ///
+    /// Compilation and linking are attempted **before** any state mutation.
+    /// On compile/link failure the current program, uniform cache, and
+    /// transition state are left untouched and `Err` is returned — the caller
+    /// can keep rendering the old shader unchanged.
+    ///
+    /// On success:
+    /// 1. The previous program is preserved as the transition's outgoing
+    ///    shader (rendered into `fbo_a` until `tick()` completes).
+    /// 2. The current uniform location cache is snapshotted into
+    ///    `outgoing_uniforms` — GLSL uniform locations are per-program, so
+    ///    the incoming program's locations (refreshed in the next step)
+    ///    are NOT valid for the outgoing draw pass.
+    /// 3. The new program is installed and its uniform locations are cached.
+    /// 4. [`TransitionRenderer::start_transition`] is invoked; `tick()` drives
+    ///    the crossfade to completion on subsequent frames.
+    ///
+    /// When a transition is already in flight, its previous outgoing program
+    /// is deleted here rather than leaking — `TransitionRenderer` intentionally
+    /// does not own program handles.
+    ///
+    /// `duration` overrides the default crossfade length in seconds; when
+    /// `None`, the transition renderer's configured default is used
+    /// ([`DEFAULT_SHADER_TRANSITION_SECONDS`]).
+    ///
+    /// If no program is currently loaded, or the transition renderer failed
+    /// to initialise, this falls back to the normal [`Renderer::load_shader`]
+    /// path (instant swap, no crossfade).
+    pub fn start_shader_transition(
+        &mut self,
+        frag_src: &str,
+        duration: Option<f32>,
+    ) -> anyhow::Result<()> {
+        // Nothing to cross-fade from → fall back to the normal swap.
+        let Some(outgoing_program) = self.program else {
+            return self.load_shader(frag_src);
+        };
+        if self.transition.is_none() {
+            return self.load_shader(frag_src);
+        }
+
+        // --- Compile + link the incoming shader ---
+        // Done first so a compile error leaves all state untouched.
+        let vert = self.compile_shader(glow::VERTEX_SHADER, VERT_SRC)?;
+        let frag = match self.compile_shader(glow::FRAGMENT_SHADER, frag_src) {
+            Ok(s) => s,
+            Err(e) => {
+                unsafe { self.gl.delete_shader(vert) };
+                return Err(e);
+            }
+        };
+        let new_program = unsafe {
+            let prog = self
+                .gl
+                .create_program()
+                .map_err(|e| anyhow::anyhow!("create program: {e}"))?;
+            self.gl.attach_shader(prog, vert);
+            self.gl.attach_shader(prog, frag);
+            self.gl.link_program(prog);
+            self.gl.delete_shader(vert);
+            self.gl.delete_shader(frag);
+            if !self.gl.get_program_link_status(prog) {
+                let log = self.gl.get_program_info_log(prog);
+                self.gl.delete_program(prog);
+                return Err(anyhow::anyhow!("shader link error: {log}"));
+            }
+            prog
+        };
+
+        // If a transition was already in-flight, release its outgoing program
+        // before it gets overwritten — TransitionRenderer does not own program
+        // handles, so dropping the enum variant on the floor would leak.
+        let prev_outgoing = self.transition.as_ref().and_then(|t| {
+            if let TransitionState::Crossfading {
+                outgoing_program, ..
+            } = &t.state
+            {
+                Some(*outgoing_program)
+            } else {
+                None
+            }
+        });
+        if let Some(prev) = prev_outgoing {
+            unsafe { self.gl.delete_program(prev) };
+            log::debug!("start_shader_transition: released previous outgoing program");
+        }
+
+        // Snapshot the current (soon-to-be outgoing) uniform locations and
+        // install the new program + its uniform locations. The outgoing
+        // snapshot must happen BEFORE refresh_uniform_locations overwrites
+        // self.uniforms with the incoming program's locations.
+        self.outgoing_uniforms = std::mem::take(&mut self.uniforms);
+        self.program = Some(new_program);
+        self.refresh_uniform_locations();
+
+        // Kick off the transition state machine. The outgoing program handle
+        // stays alive inside `TransitionState::Crossfading` until `tick()`
+        // completes it in `render()`.
+        if let Some(t) = self.transition.as_mut() {
+            t.start_transition(outgoing_program, duration);
+        }
+
+        log::info!(
+            "Shader transition started ({})",
+            duration
+                .map(|d| format!("{d:.2}s"))
+                .unwrap_or_else(|| "default duration".to_string())
+        );
         Ok(())
     }
 
@@ -906,80 +1047,208 @@ impl Renderer {
     /// Render one frame. Uploads all uniforms and calls `glDrawArrays`.
     ///
     /// * `resolution` — physical pixel dimensions `[width, height]` of the target surface.
+    ///
+    /// Two render paths:
+    /// - **No transition active**: identical to the pre-0.4 single-pass path —
+    ///   viewport → clear → draw shader to the default framebuffer. Zero FBO
+    ///   overhead, which matters because this is the hot path.
+    /// - **Transition active** (set by [`Renderer::start_shader_transition`]):
+    ///   render the outgoing shader to `fbo_a`, the incoming shader to
+    ///   `fbo_b`, then composite both onto the default framebuffer with the
+    ///   eased crossfade alpha.
     pub fn render(&mut self, resolution: [f32; 2]) {
-        unsafe {
-            self.gl
-                .viewport(0, 0, resolution[0] as i32, resolution[1] as i32);
-            self.gl.clear(glow::COLOR_BUFFER_BIT);
+        let width = (resolution[0] as u32).max(1);
+        let height = (resolution[1] as u32).max(1);
+
+        // Resize FBOs to match the current surface. Both calls are no-ops if
+        // dimensions are unchanged, so this is cheap on the hot path.
+        if let Some(t) = self.transition.as_mut() {
+            t.resize(&self.gl, width, height);
         }
 
-        let program = match self.program {
-            Some(p) => p,
-            None => return,
-        };
+        // Snapshot the outgoing program handle BEFORE tick(): if tick()
+        // completes the transition on this frame, it moves state back to Idle
+        // and the handle would otherwise be lost here.
+        let outgoing_before_tick = self.transition.as_ref().and_then(|t| {
+            if let TransitionState::Crossfading {
+                outgoing_program, ..
+            } = &t.state
+            {
+                Some(*outgoing_program)
+            } else {
+                None
+            }
+        });
+        let transitioning = self.transition.as_mut().map(|t| t.tick()).unwrap_or(false);
+
+        // Transition just completed on this frame: release the outgoing
+        // program and drop its cached uniform locations. Logged so the manual
+        // debug trigger is visible in RUST_LOG=hyprsaver=info.
+        if outgoing_before_tick.is_some() && !transitioning {
+            if let Some(prev) = outgoing_before_tick {
+                unsafe { self.gl.delete_program(prev) };
+            }
+            self.outgoing_uniforms = UniformLocations::default();
+            log::info!("Shader transition complete (outgoing program released)");
+        }
 
         let elapsed = self.start_time.elapsed().as_secs_f32();
+        let frame = self.frame;
 
+        if transitioning {
+            self.render_with_transition(resolution, elapsed, frame);
+        } else {
+            unsafe {
+                self.gl
+                    .viewport(0, 0, resolution[0] as i32, resolution[1] as i32);
+                self.gl.clear(glow::COLOR_BUFFER_BIT);
+            }
+            if let Some(program) = self.program {
+                // Clone because draw_program_with takes &UniformLocations by
+                // reference and we're inside &mut self — the borrow checker
+                // won't let us pass &self.uniforms while also needing &self
+                // to call the helper on. UniformLocations is a small struct
+                // of Options so the clone is cheap.
+                let uniforms = self.uniforms.clone();
+                self.draw_program_with(program, &uniforms, resolution, elapsed, frame);
+            }
+        }
+
+        self.frame += 1;
+    }
+
+    /// Dual-FBO render path, used only when a shader crossfade is active.
+    ///
+    /// Renders the outgoing shader into `fbo_a`, the incoming shader into
+    /// `fbo_b`, then composites both onto the default framebuffer via
+    /// [`TransitionRenderer::render_composite`]. Both passes upload the same
+    /// time/resolution/palette/etc. uniforms — per-shader palette during a
+    /// transition is a future enhancement (see docs/0.1d prompt).
+    fn render_with_transition(&self, resolution: [f32; 2], elapsed: f32, frame: u64) {
+        let Some(incoming_program) = self.program else {
+            return;
+        };
+        let Some(transition) = self.transition.as_ref() else {
+            return;
+        };
+        let outgoing_program = match &transition.state {
+            TransitionState::Crossfading {
+                outgoing_program, ..
+            } => *outgoing_program,
+            TransitionState::Idle => return,
+        };
+
+        // ---- Outgoing → fbo_a ----
+        transition.fbo_a.bind(&self.gl);
+        unsafe {
+            self.gl.clear(glow::COLOR_BUFFER_BIT);
+        }
+        // outgoing_uniforms was captured from self.uniforms at the moment
+        // start_shader_transition() was called; those locations are the only
+        // ones valid for the outgoing program.
+        let out_uniforms = self.outgoing_uniforms.clone();
+        self.draw_program_with(outgoing_program, &out_uniforms, resolution, elapsed, frame);
+
+        // ---- Incoming → fbo_b ----
+        transition.fbo_b.bind(&self.gl);
+        unsafe {
+            self.gl.clear(glow::COLOR_BUFFER_BIT);
+        }
+        let in_uniforms = self.uniforms.clone();
+        self.draw_program_with(incoming_program, &in_uniforms, resolution, elapsed, frame);
+
+        // ---- Composite to default framebuffer ----
+        // render_composite internally unbinds the FBO and sets the viewport
+        // to `width × height` before drawing the blend pass. It requires a
+        // VAO to be bound even though the composite vertex shader is
+        // attribute-less (GLES 3.20 does not allow an unbound VAO for draw
+        // calls) — draw_program_with left `self.vao` unbound on exit, so we
+        // re-bind it here.
+        unsafe {
+            self.gl.bind_vertex_array(self.vao);
+        }
+        transition.render_composite(&self.gl, resolution[0] as u32, resolution[1] as u32);
+        unsafe {
+            self.gl.bind_vertex_array(None);
+        }
+    }
+
+    /// Upload all per-frame uniforms and issue the fullscreen-quad draw for
+    /// the given program, using the given cached uniform location set.
+    ///
+    /// Factored out of `render()` so both the single-pass path and the
+    /// dual-FBO transition path can share the exact same uniform upload and
+    /// draw logic. Takes an explicit `&UniformLocations` parameter because
+    /// locations are per-program: during a transition the outgoing shader
+    /// must use `self.outgoing_uniforms` rather than `self.uniforms`.
+    fn draw_program_with(
+        &self,
+        program: glow::Program,
+        uniforms: &UniformLocations,
+        resolution: [f32; 2],
+        elapsed: f32,
+        frame: u64,
+    ) {
         unsafe {
             self.gl.use_program(Some(program));
 
             // Time / resolution / frame / mouse
-            if let Some(ref loc) = self.uniforms.u_time {
+            if let Some(ref loc) = uniforms.u_time {
                 self.gl.uniform_1_f32(Some(loc), elapsed);
             }
-            if let Some(ref loc) = self.uniforms.u_resolution {
+            if let Some(ref loc) = uniforms.u_resolution {
                 self.gl
                     .uniform_2_f32(Some(loc), resolution[0], resolution[1]);
             }
-            if let Some(ref loc) = self.uniforms.u_frame {
-                self.gl.uniform_1_i32(Some(loc), self.frame as i32);
+            if let Some(ref loc) = uniforms.u_frame {
+                self.gl.uniform_1_i32(Some(loc), frame as i32);
             }
-            if let Some(ref loc) = self.uniforms.u_mouse {
+            if let Some(ref loc) = uniforms.u_mouse {
                 self.gl
                     .uniform_2_f32(Some(loc), self.mouse_pos[0], self.mouse_pos[1]);
             }
 
             // Palette blend factor (always uploaded)
-            if let Some(ref loc) = self.uniforms.u_palette_blend {
+            if let Some(ref loc) = uniforms.u_palette_blend {
                 self.gl.uniform_1_f32(Some(loc), self.palette_blend);
             }
 
             // Fade alpha (always uploaded)
-            if let Some(ref loc) = self.uniforms.u_alpha {
+            if let Some(ref loc) = uniforms.u_alpha {
                 self.gl.uniform_1_f32(Some(loc), self.alpha);
             }
 
             // Speed / zoom multipliers (default 1.0 — no behavioral change in daemon mode)
-            if let Some(ref loc) = self.uniforms.u_speed_scale {
+            if let Some(ref loc) = uniforms.u_speed_scale {
                 self.gl.uniform_1_f32(Some(loc), self.speed_scale);
             }
-            if let Some(ref loc) = self.uniforms.u_zoom_scale {
+            if let Some(ref loc) = uniforms.u_zoom_scale {
                 self.gl.uniform_1_f32(Some(loc), self.zoom_scale);
             }
 
             if self.palette_is_lut {
                 // --- LUT path ---
-                if let Some(ref loc) = self.uniforms.u_use_lut {
+                if let Some(ref loc) = uniforms.u_use_lut {
                     self.gl.uniform_1_i32(Some(loc), 1);
                 }
                 // Texture unit 1 → u_lut_a
                 self.gl.active_texture(glow::TEXTURE1);
                 self.gl.bind_texture(glow::TEXTURE_2D, self.lut_texture_a);
-                if let Some(ref loc) = self.uniforms.u_lut_a {
+                if let Some(ref loc) = uniforms.u_lut_a {
                     self.gl.uniform_1_i32(Some(loc), 1);
                 }
                 // Texture unit 2 → u_lut_b (fall back to A when not transitioning)
                 self.gl.active_texture(glow::TEXTURE2);
                 let tex_b = self.lut_texture_b.or(self.lut_texture_a);
                 self.gl.bind_texture(glow::TEXTURE_2D, tex_b);
-                if let Some(ref loc) = self.uniforms.u_lut_b {
+                if let Some(ref loc) = uniforms.u_lut_b {
                     self.gl.uniform_1_i32(Some(loc), 2);
                 }
                 // Reset active texture unit to 0
                 self.gl.active_texture(glow::TEXTURE0);
             } else {
                 // --- Cosine path ---
-                if let Some(ref loc) = self.uniforms.u_use_lut {
+                if let Some(ref loc) = uniforms.u_use_lut {
                     self.gl.uniform_1_i32(Some(loc), 0);
                 }
                 // Unbind texture slots (prevents spurious sampler warnings)
@@ -990,24 +1259,22 @@ impl Renderer {
                 self.gl.active_texture(glow::TEXTURE0);
 
                 // Upload palette A params
-                self.set_uniform_vec3(&self.uniforms.u_palette_a_a.clone(), self.pal_a.a);
-                self.set_uniform_vec3(&self.uniforms.u_palette_a_b.clone(), self.pal_a.b);
-                self.set_uniform_vec3(&self.uniforms.u_palette_a_c.clone(), self.pal_a.c);
-                self.set_uniform_vec3(&self.uniforms.u_palette_a_d.clone(), self.pal_a.d);
+                self.set_uniform_vec3(&uniforms.u_palette_a_a, self.pal_a.a);
+                self.set_uniform_vec3(&uniforms.u_palette_a_b, self.pal_a.b);
+                self.set_uniform_vec3(&uniforms.u_palette_a_c, self.pal_a.c);
+                self.set_uniform_vec3(&uniforms.u_palette_a_d, self.pal_a.d);
 
                 // Upload palette B params (same as A when not transitioning → blend=0 no-op)
-                self.set_uniform_vec3(&self.uniforms.u_palette_b_a.clone(), self.pal_b.a);
-                self.set_uniform_vec3(&self.uniforms.u_palette_b_b.clone(), self.pal_b.b);
-                self.set_uniform_vec3(&self.uniforms.u_palette_b_c.clone(), self.pal_b.c);
-                self.set_uniform_vec3(&self.uniforms.u_palette_b_d.clone(), self.pal_b.d);
+                self.set_uniform_vec3(&uniforms.u_palette_b_a, self.pal_b.a);
+                self.set_uniform_vec3(&uniforms.u_palette_b_b, self.pal_b.b);
+                self.set_uniform_vec3(&uniforms.u_palette_b_c, self.pal_b.c);
+                self.set_uniform_vec3(&uniforms.u_palette_b_d, self.pal_b.d);
             }
 
             self.gl.bind_vertex_array(self.vao);
             self.gl.draw_arrays(glow::TRIANGLES, 0, 6);
             self.gl.bind_vertex_array(None);
         }
-
-        self.frame += 1;
     }
 
     /// Release all GPU resources. Must be called before the GL context is destroyed.
@@ -1029,6 +1296,23 @@ impl Renderer {
                 self.gl.delete_texture(tex);
             }
         }
+
+        // If a crossfade was still in flight at teardown, release the
+        // outgoing program handle ourselves — TransitionRenderer does not
+        // own program lifecycles. Then consume the transition renderer
+        // itself (its `destroy` method takes `self` by value).
+        if let Some(t) = self.transition.as_ref() {
+            if let TransitionState::Crossfading {
+                outgoing_program, ..
+            } = &t.state
+            {
+                unsafe { self.gl.delete_program(*outgoing_program) };
+            }
+        }
+        if let Some(t) = self.transition.take() {
+            t.destroy(&self.gl);
+        }
+        self.outgoing_uniforms = UniformLocations::default();
     }
 
     // ------------------------------------------------------------------
