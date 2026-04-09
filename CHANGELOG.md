@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-04-09
+
+### Added
+
+- **Shaders**: geometry, hypercube, network, matrix, fire, caustics (6 new built-ins)
+- **Cycle mode** for shaders and palettes with configurable intervals
+  (`shader_cycle_interval`, `palette_cycle_interval` in `[general]` config)
+- **Named playlists** for shader and palette cycling:
+  `[shader_playlists.<name>]` and `[palette_playlists.<name>]` config sections;
+  reference with `shader_playlist` / `palette_playlist` in `[general]`
+- **CLI flags**: `--shader-cycle-interval`, `--palette-cycle-interval`,
+  `--list-shader-playlists`, `--list-palette-playlists`
+- **Shader descriptions** shown in `--list-shaders` output
+
+### Changed
+
+- Cycle mode now starts at a random position instead of alphabetically first
+- Both monitors stay in sync during cycle transitions
+
+### Removed
+
+- `pipes` shader (visual artifacts on some GPU/driver combinations)
+- `palette_test` example shader (use `--preview` mode instead)
+
+### Fixed
+
+- Cycle mode only updating one monitor when multi-monitor was configured
+- Palette cycle not triggering at all (timer was registered but handler was incomplete)
+- Shader and palette cycling not synchronized across monitors
+
 ## [0.2.0] - 2026-04-08
 
 ### Added
@@ -61,6 +91,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Zero-config mode with sensible built-in defaults
 - hypridle integration via `on-timeout` / `on-resume`
 
+[0.3.0]: https://github.com/maravexa/hyprsaver/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/maravexa/hyprsaver/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/maravexa/hyprsaver/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/maravexa/hyprsaver/releases/tag/v0.1.0

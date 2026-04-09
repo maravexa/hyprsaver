@@ -32,7 +32,7 @@ src/
   shaders.rs    — load/compile, hot-reload, Shadertoy shim
   palette.rs    — cosine gradients, LUT palettes, PaletteManager
 shaders/        — built-in GLSL fragment shaders (embedded via include_str!)
-examples/       — palette_test.frag, examples/palettes/
+examples/       — hyprsaver.toml example config, examples/palettes/
 build.rs        — generates examples/palettes/fire.png at build time
 ```
 

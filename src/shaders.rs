@@ -52,9 +52,6 @@ pub const BUILTIN_LISSAJOUS: &str = include_str!("../shaders/lissajous.frag");
 /// Neural network node graph with parallax depth, glowing connections, and data packets.
 pub const BUILTIN_NETWORK: &str = include_str!("../shaders/network.frag");
 
-/// Classic 3D Pipes screensaver — glossy cylinders with sphere joints on a dark grid.
-pub const BUILTIN_PIPES: &str = include_str!("../shaders/pipes.frag");
-
 /// Rotating 4D hypercube (tesseract) projected to 2D with neon glow wireframe.
 pub const BUILTIN_HYPERCUBE: &str = include_str!("../shaders/hypercube.frag");
 /// Wireframe polyhedron morphing screensaver — cube → octahedron → icosahedron → dodecahedron.
@@ -230,7 +227,6 @@ impl ShaderManager {
             ("mandelbrot", BUILTIN_MANDELBROT),
             ("matrix", BUILTIN_MATRIX),
             ("network", BUILTIN_NETWORK),
-            ("pipes", BUILTIN_PIPES),
             ("plasma", BUILTIN_PLASMA),
             ("raymarcher", BUILTIN_RAYMARCHER),
             ("snowfall", BUILTIN_SNOWFALL),
@@ -786,7 +782,7 @@ mod tests {
 
     #[test]
     fn test_builtin_shader_count() {
-        assert_eq!(manager().list().len(), 18);
+        assert_eq!(manager().list().len(), 17);
     }
 
     #[test]
@@ -805,7 +801,6 @@ mod tests {
             "mandelbrot",
             "matrix",
             "network",
-            "pipes",
             "plasma",
             "raymarcher",
             "snowfall",
