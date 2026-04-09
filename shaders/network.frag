@@ -4,14 +4,13 @@ precision highp float;
 // ---------------------------------------------------------------------------
 // hyprsaver — network.frag
 //
-// Neural network / node graph visualization with parallax depth.  Five layers
-// of glowing nodes drift across the screen with organic floating motion.
-// Thin lines connect nearby nodes within and across adjacent layers.  Small
-// bright data packets travel along connections with comet tails, creating a
-// living neural network with visible signal propagation.  Back layers (0)
-// are small, dim, and slow; front layers (4) are large, bright, and faster.
-// 40 nodes total (5 layers x 8), additive compositing over black.  Fully
-// stateless GLSL — no per-frame CPU work.
+// Network monitoring dashboard: 4 parallax layers of glowing nodes with
+// always-visible translucent connection lines that pulse in brightness to
+// simulate network activity.  ~35 % of lines pulse at any moment, rotating
+// slowly on a per-layer cycle.  Back layers (0) are small, dim, and slow;
+// front layers (3) are large, bright, and faster.
+// 40 nodes total (4 layers × 10), additive compositing over black.
+// Fully stateless GLSL — no per-frame CPU work.
 // ---------------------------------------------------------------------------
 
 uniform float u_time;
@@ -19,10 +18,10 @@ uniform vec2  u_resolution;
 uniform vec2  u_mouse;
 uniform int   u_frame;
 
-const int   LAYERS          = 5;
-const int   NODES_PER_LAYER = 8;
-const float CONN_THRESH     = 0.35;   // max distance for same-layer connection
-const float CROSS_THRESH    = 0.28;   // max distance for cross-layer connection
+const int   LAYERS          = 4;
+const int   NODES_PER_LAYER = 10;
+const float CONN_THRESH     = 0.55;   // generous same-layer cutoff (~1/3 screen width)
+const float CROSS_THRESH    = 0.42;   // cross-layer cutoff
 
 // ---------------------------------------------------------------------------
 // Hash — float -> float in [0, 1)
@@ -82,14 +81,18 @@ void main() {
         }
     }
 
-    // ---- Render connections + data packets (behind nodes) ----
+    // ---- Render connection lines (behind nodes) ----
 
     for (int L = 0; L < LAYERS; L++) {
         float fL   = float(L);
         int   base = L * NODES_PER_LAYER;
 
-        float lineW     = 0.0012 + fL * 0.0004;
-        float connAlpha = 0.10 + fL * 0.06;
+        float lineW    = 0.0012 + fL * 0.0004;
+        float baseAlph = 0.12 + fL * 0.03;   // slightly brighter on front layers
+
+        // Activity rotation: different cycle length per layer keeps layers de-synced
+        float cycleDur  = 8.0 + fL * 2.0;
+        float cycleSeed = floor(t / cycleDur);
 
         // Same-layer connections
         for (int a = 0; a < NODES_PER_LAYER; a++) {
@@ -97,91 +100,67 @@ void main() {
 
             for (int b = a + 1; b < NODES_PER_LAYER; b++) {
                 vec2  pB = np[base + b];
-                float d  = length(pA - pB);
-                if (d > CONN_THRESH) continue;
+                if (length(pA - pB) > CONN_THRESH) continue;
 
-                float ld   = segDist(uv, pA, pB);
-                float lg   = smoothstep(lineW, 0.0, ld);
-                float fade = 1.0 - d / CONN_THRESH;
-                fade *= fade;   // quadratic falloff
+                float ld = segDist(uv, pA, pB);
+                float lg = smoothstep(lineW, 0.0, ld);
+                if (lg < 0.001) continue;   // skip heavy work for off-line pixels
 
-                float ct = fract(hash11(float(base + a) * 7.77) * 0.5
-                                + hash11(float(base + b) * 7.77) * 0.5);
-                col += palette(ct) * lg * fade * connAlpha;
+                // Color: average palette t of the two endpoint nodes
+                float tA = hash11(float(base + a) * 7.77 + 0.5);
+                float tB = hash11(float(base + b) * 7.77 + 0.5);
+                float ct = (tA + tB) * 0.5;
 
-                // ---- Data packet ----
-                float cid  = hash11(float(base + a) * 13.37
-                                   + float(base + b) * 7.13);
-                float dur  = 2.5 + cid * 3.0;        // 2.5–5.5 s per trip
-                float cyc  = floor(t / dur);
+                // Per-connection pulse (speed 0.3–1.5, staggered phase)
+                float connId   = hash11(float(base + a) * 13.37 + float(base + b) * 7.13);
+                float pulseSpd = 0.3 + hash11(connId * 1.23) * 1.2;
+                float pulsePh  = hash11(connId * 4.56) * 6.28318;
+                float pulse    = sin(t * pulseSpd + pulsePh) * 0.5 + 0.5;
 
-                if (hash11(cid * 100.0 + cyc) > 0.35) {
-                    float prog = fract(t / dur);
-                    // Alternate direction per cycle
-                    float dirH = hash11(cid * 200.0 + cyc);
-                    vec2 src = (dirH > 0.5) ? pA : pB;
-                    vec2 dst = (dirH > 0.5) ? pB : pA;
+                // ~35 % of connections active per cycle window
+                float actHash = hash11(connId + cycleSeed * 17.11);
+                float active  = step(actHash, 0.35);
 
-                    float pkR = 0.0025 + fL * 0.0008;
+                float lineAlph = baseAlph + active * (0.50 - baseAlph) * pulse;
+                vec3  lineCol  = mix(palette(ct), vec3(1.0), 0.2 * pulse * active);
 
-                    // Head — bright white dot
-                    vec2  pkP = mix(src, dst, prog);
-                    float pkD = length(uv - pkP);
-                    col += vec3(1.0) * exp(-pkD * pkD / (pkR * pkR))
-                           * connAlpha * 3.5;
-
-                    // Comet tail — 3 trailing samples
-                    for (int s = 1; s <= 3; s++) {
-                        float tp = prog - float(s) * 0.04;
-                        if (tp < 0.0) continue;
-                        vec2  tP = mix(src, dst, tp);
-                        float tD = length(uv - tP);
-                        float tf = 1.0 - float(s) / 4.0;
-                        col += palette(ct)
-                             * exp(-tD * tD / (pkR * pkR * 0.7))
-                             * connAlpha * 2.0 * tf;
-                    }
-                }
+                col += lineCol * lg * lineAlph;
             }
         }
 
         // Cross-layer connections (L -> L+1)
         if (L < LAYERS - 1) {
             int   baseN  = (L + 1) * NODES_PER_LAYER;
-            float crossA = connAlpha * 0.45;
-            float crossW = lineW * 0.65;
+            float crossA = baseAlph * 0.55;
+            float crossW = lineW * 0.70;
 
             for (int a = 0; a < NODES_PER_LAYER; a++) {
                 vec2 pA = np[base + a];
 
                 for (int b = 0; b < NODES_PER_LAYER; b++) {
                     vec2  pB = np[baseN + b];
-                    float d  = length(pA - pB);
-                    if (d > CROSS_THRESH) continue;
+                    if (length(pA - pB) > CROSS_THRESH) continue;
 
-                    float ld   = segDist(uv, pA, pB);
-                    float lg   = smoothstep(crossW, 0.0, ld);
-                    float fade = 1.0 - d / CROSS_THRESH;
-                    fade *= fade;
+                    float ld = segDist(uv, pA, pB);
+                    float lg = smoothstep(crossW, 0.0, ld);
+                    if (lg < 0.001) continue;
 
-                    float ct = hash11(float(base + a) * 11.11
-                                     + float(baseN + b) * 3.33);
-                    col += palette(ct) * lg * fade * crossA;
+                    float tA = hash11(float(base + a) * 7.77 + 0.5);
+                    float tB = hash11(float(baseN + b) * 7.77 + 0.5);
+                    float ct = (tA + tB) * 0.5;
 
-                    // Cross-layer packet (head only — no tail for perf)
-                    float cid = hash11(float(base + a) * 23.37
-                                      + float(baseN + b) * 5.13);
-                    float dur = 3.0 + cid * 3.0;
-                    float cyc = floor(t / dur);
-                    if (hash11(cid * 100.0 + cyc) > 0.50) {
-                        float prog = fract(t / dur);
-                        vec2  pkP  = mix(pA, pB, prog);
-                        float pkD  = length(uv - pkP);
-                        float pkR  = 0.002 + fL * 0.0006;
-                        col += vec3(1.0)
-                             * exp(-pkD * pkD / (pkR * pkR))
-                             * crossA * 3.0;
-                    }
+                    float connId   = hash11(float(base + a) * 23.37 + float(baseN + b) * 5.13);
+                    float pulseSpd = 0.3 + hash11(connId * 1.23) * 1.2;
+                    float pulsePh  = hash11(connId * 4.56) * 6.28318;
+                    float pulse    = sin(t * pulseSpd + pulsePh) * 0.5 + 0.5;
+
+                    float actHash = hash11(connId + cycleSeed * 17.11);
+                    float active  = step(actHash, 0.35);
+
+                    float lineAlph = crossA + active * (0.35 - crossA) * pulse;
+                    vec3  lineCol  = mix(palette(ct), vec3(1.0), 0.2 * pulse * active);
+
+                    col += lineCol * lg * lineAlph;
                 }
             }
         }
@@ -194,7 +173,7 @@ void main() {
         int   base = L * NODES_PER_LAYER;
 
         float minDim = min(u_resolution.x, u_resolution.y);
-        float nodeR  = (2.5 + fL * 1.8) / minDim;    // ~2.5 px back, ~9.7 px front
+        float nodeR  = (2.5 + fL * 1.8) / minDim;    // ~2.5 px back, ~7.9 px front
         float bright = 0.45 + fL * 0.18;
 
         for (int j = 0; j < NODES_PER_LAYER; j++) {
