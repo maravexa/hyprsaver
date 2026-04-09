@@ -263,6 +263,87 @@ impl OffscreenTarget {
 }
 
 // ---------------------------------------------------------------------------
+// Composite blend shader (used by TransitionRenderer::render_composite)
+// ---------------------------------------------------------------------------
+
+/// GLSL ES 3.20 fragment shader that samples two FBO color textures and
+/// linearly blends them using `u_blend` ∈ \[0, 1\]. Paired with
+/// [`crate::shaders::VERTEX_SHADER`] (an attribute-less, `gl_VertexID`-driven
+/// fullscreen-quad vertex shader) so the composite pass needs no VBO and only
+/// an empty VAO bound on the caller's side.
+///
+/// Sampling uses `gl_FragCoord.xy / u_resolution` rather than a varying so the
+/// shader is independent of the vertex shader's UV layout.
+pub const COMPOSITE_FRAGMENT_SHADER: &str = r#"#version 320 es
+precision mediump float;
+
+uniform sampler2D u_tex_a;
+uniform sampler2D u_tex_b;
+uniform float u_blend;
+uniform vec2 u_resolution;
+
+out vec4 fragColor;
+
+void main() {
+    vec2 uv = gl_FragCoord.xy / u_resolution;
+    vec4 color_a = texture(u_tex_a, uv);
+    vec4 color_b = texture(u_tex_b, uv);
+    fragColor = mix(color_a, color_b, u_blend);
+}
+"#;
+
+/// Compile + link the composite blend program from
+/// [`crate::shaders::VERTEX_SHADER`] and [`COMPOSITE_FRAGMENT_SHADER`].
+///
+/// Panics with a descriptive message on any GL error. The composite shader is
+/// a built-in (compiled into the binary), so a failure here indicates a driver
+/// bug or a build-time regression in the shader source — not a recoverable
+/// runtime condition.
+fn compile_composite_program(gl: &glow::Context) -> glow::Program {
+    unsafe {
+        let vert = gl
+            .create_shader(glow::VERTEX_SHADER)
+            .expect("composite: create vertex shader failed");
+        gl.shader_source(vert, crate::shaders::VERTEX_SHADER);
+        gl.compile_shader(vert);
+        if !gl.get_shader_compile_status(vert) {
+            let log = gl.get_shader_info_log(vert);
+            gl.delete_shader(vert);
+            panic!("composite: vertex shader compile error: {log}");
+        }
+
+        let frag = gl
+            .create_shader(glow::FRAGMENT_SHADER)
+            .expect("composite: create fragment shader failed");
+        gl.shader_source(frag, COMPOSITE_FRAGMENT_SHADER);
+        gl.compile_shader(frag);
+        if !gl.get_shader_compile_status(frag) {
+            let log = gl.get_shader_info_log(frag);
+            gl.delete_shader(vert);
+            gl.delete_shader(frag);
+            panic!("composite: fragment shader compile error: {log}");
+        }
+
+        let program = gl
+            .create_program()
+            .expect("composite: create program failed");
+        gl.attach_shader(program, vert);
+        gl.attach_shader(program, frag);
+        gl.link_program(program);
+        gl.delete_shader(vert);
+        gl.delete_shader(frag);
+
+        if !gl.get_program_link_status(program) {
+            let log = gl.get_program_info_log(program);
+            gl.delete_program(program);
+            panic!("composite: program link error: {log}");
+        }
+
+        program
+    }
+}
+
+// ---------------------------------------------------------------------------
 // TransitionRenderer — shader-to-shader crossfade state machine
 // ---------------------------------------------------------------------------
 
@@ -323,6 +404,17 @@ pub struct TransitionRenderer {
     /// Default transition duration in seconds (from config). Used when
     /// `start_transition()` is called without an explicit override.
     pub default_duration: f32,
+    /// Compiled + linked composite blend program. Owned by this renderer and
+    /// released by [`TransitionRenderer::destroy`].
+    pub composite_program: glow::Program,
+    /// `u_tex_a` (sampler2D, unit 0 — `fbo_a` color texture).
+    pub loc_tex_a: glow::UniformLocation,
+    /// `u_tex_b` (sampler2D, unit 1 — `fbo_b` color texture).
+    pub loc_tex_b: glow::UniformLocation,
+    /// `u_blend` (float, current eased crossfade alpha).
+    pub loc_blend: glow::UniformLocation,
+    /// `u_resolution` (vec2, target framebuffer pixel dimensions).
+    pub loc_resolution: glow::UniformLocation,
 }
 
 impl TransitionRenderer {
@@ -333,11 +425,37 @@ impl TransitionRenderer {
     /// The caller must ensure a current GL context is bound on the calling
     /// thread.
     pub fn new(gl: &glow::Context, width: u32, height: u32, default_duration: f32) -> Self {
+        let composite_program = compile_composite_program(gl);
+
+        // Look up all four uniform locations. The composite shader uses every
+        // uniform unconditionally, so a missing location indicates a driver
+        // bug rather than a recoverable condition — panic with a clear name.
+        let (loc_tex_a, loc_tex_b, loc_blend, loc_resolution) = unsafe {
+            let tex_a = gl
+                .get_uniform_location(composite_program, "u_tex_a")
+                .expect("composite: u_tex_a uniform location missing");
+            let tex_b = gl
+                .get_uniform_location(composite_program, "u_tex_b")
+                .expect("composite: u_tex_b uniform location missing");
+            let blend = gl
+                .get_uniform_location(composite_program, "u_blend")
+                .expect("composite: u_blend uniform location missing");
+            let resolution = gl
+                .get_uniform_location(composite_program, "u_resolution")
+                .expect("composite: u_resolution uniform location missing");
+            (tex_a, tex_b, blend, resolution)
+        };
+
         Self {
             state: TransitionState::Idle,
             fbo_a: OffscreenTarget::new(gl, width, height),
             fbo_b: OffscreenTarget::new(gl, width, height),
             default_duration,
+            composite_program,
+            loc_tex_a,
+            loc_tex_b,
+            loc_blend,
+            loc_resolution,
         }
     }
 
@@ -421,13 +539,18 @@ impl TransitionRenderer {
         self.fbo_b.resize(gl, width, height);
     }
 
-    /// Release both offscreen targets. Consumes `self`.
+    /// Release both offscreen targets and the composite blend program.
+    /// Consumes `self`.
     ///
-    /// Does NOT delete any shader program. If the renderer is still in
+    /// Does NOT delete any *content* shader program (the user-facing fractal
+    /// shaders are owned by `ShaderManager`). If the renderer is still in
     /// `Crossfading`, the caller is responsible for flagging the outgoing
     /// program for cleanup via `ShaderManager` — this method simply drops
     /// the enum variant and forgets the handle.
     pub fn destroy(self, gl: &glow::Context) {
+        unsafe {
+            gl.delete_program(self.composite_program);
+        }
         self.fbo_a.destroy(gl);
         self.fbo_b.destroy(gl);
     }
@@ -445,6 +568,55 @@ impl TransitionRenderer {
         match self.state {
             TransitionState::Idle => 0.0,
             TransitionState::Crossfading { progress, .. } => progress,
+        }
+    }
+
+    /// Composite `fbo_a` and `fbo_b` onto the default framebuffer using the
+    /// linear blend program. Uses `blend_alpha()` as the mix factor: `0.0`
+    /// outputs purely `fbo_a`, `1.0` outputs purely `fbo_b`.
+    ///
+    /// The caller must have a VAO bound that supplies four vertices for a
+    /// `TRIANGLE_STRIP` draw — the composite shader is paired with
+    /// [`crate::shaders::VERTEX_SHADER`], which is attribute-less and uses
+    /// `gl_VertexID`, so an empty VAO is sufficient.
+    ///
+    /// Leaves the active texture unit at `TEXTURE0` and the default
+    /// framebuffer bound when it returns.
+    ///
+    /// # Safety
+    /// The caller must ensure a current GL context is bound on the calling
+    /// thread.
+    pub fn render_composite(&self, gl: &glow::Context, width: u32, height: u32) {
+        unsafe {
+            // Bind default framebuffer (screen) and set viewport.
+            OffscreenTarget::unbind(gl);
+            gl.viewport(0, 0, width as i32, height as i32);
+
+            gl.use_program(Some(self.composite_program));
+
+            // Bind fbo_a texture to unit 0.
+            gl.active_texture(glow::TEXTURE0);
+            gl.bind_texture(glow::TEXTURE_2D, Some(self.fbo_a.texture));
+            gl.uniform_1_i32(Some(&self.loc_tex_a), 0);
+
+            // Bind fbo_b texture to unit 1.
+            gl.active_texture(glow::TEXTURE1);
+            gl.bind_texture(glow::TEXTURE_2D, Some(self.fbo_b.texture));
+            gl.uniform_1_i32(Some(&self.loc_tex_b), 1);
+
+            // Set blend alpha (eased crossfade progress).
+            gl.uniform_1_f32(Some(&self.loc_blend), self.blend_alpha());
+
+            // Set target resolution.
+            gl.uniform_2_f32(Some(&self.loc_resolution), width as f32, height as f32);
+
+            // Draw fullscreen quad — paired vertex shader is attribute-less
+            // and uses gl_VertexID with TRIANGLE_STRIP / 4 verts.
+            gl.draw_arrays(glow::TRIANGLE_STRIP, 0, 4);
+
+            // Reset active texture unit so subsequent passes start from a
+            // known state.
+            gl.active_texture(glow::TEXTURE0);
         }
     }
 }
@@ -1089,6 +1261,33 @@ mod tests {
         assert!((smoothstep(0.0) - 0.0).abs() < 1e-6);
         assert!((smoothstep(0.5) - 0.5).abs() < 1e-6);
         assert!((smoothstep(1.0) - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_composite_fragment_shader_uniforms() {
+        // All four uniforms must be declared — render_composite uploads each
+        // every frame, so a missing one would silently corrupt the blend.
+        for name in ["u_tex_a", "u_tex_b", "u_blend", "u_resolution", "fragColor"] {
+            assert!(
+                COMPOSITE_FRAGMENT_SHADER.contains(name),
+                "composite shader missing identifier `{name}`"
+            );
+        }
+    }
+
+    #[test]
+    fn test_composite_fragment_shader_version_matches_vertex() {
+        // The composite fragment shader is linked against
+        // `crate::shaders::VERTEX_SHADER`, so both stages must declare the
+        // same GLSL ES version directive or linking will fail.
+        assert!(
+            COMPOSITE_FRAGMENT_SHADER.starts_with("#version 320 es"),
+            "composite fragment shader must be GLSL ES 3.20 to match VERTEX_SHADER"
+        );
+        assert!(
+            crate::shaders::VERTEX_SHADER.starts_with("#version 320 es"),
+            "shaders::VERTEX_SHADER must remain GLSL ES 3.20"
+        );
     }
 
     #[test]
