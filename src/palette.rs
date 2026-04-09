@@ -398,6 +398,11 @@ pub struct PaletteManager {
     next_name: Option<String>,
     /// Wall-clock time when the current transition started.
     transition_start: Option<Instant>,
+    /// Current position in the cycle. Advances on each `cycle_next()` call.
+    cycle_index: usize,
+    /// If `Some`, `cycle_next()` iterates only these names (in order).
+    /// If `None`, iterates all palettes sorted by name.
+    cycle_playlist: Option<Vec<String>>,
 }
 
 impl PaletteManager {
@@ -446,6 +451,8 @@ impl PaletteManager {
             current_name,
             next_name: None,
             transition_start: None,
+            cycle_index: 0,
+            cycle_playlist: None,
         }
     }
 
@@ -509,6 +516,44 @@ impl PaletteManager {
             self.next_name = Some(to_name.to_string());
             self.transition_start = Some(now);
         }
+    }
+
+    /// Advance the palette cycle index and return the name of the next palette.
+    ///
+    /// If a playlist is set, iterates only playlist items in definition order.
+    /// Otherwise iterates all available palettes alphabetically.
+    /// Wraps around when it reaches the end. Returns `None` if there are no palettes.
+    ///
+    /// Call `get()` with the returned name to access the palette entry.
+    pub fn cycle_next(&mut self) -> Option<String> {
+        let names: Vec<String> = match &self.cycle_playlist {
+            Some(pl) => pl
+                .iter()
+                .filter(|n| self.palettes.contains_key(*n))
+                .cloned()
+                .collect(),
+            None => {
+                let mut ns: Vec<String> = self.palettes.keys().cloned().collect();
+                ns.sort_unstable();
+                ns
+            }
+        };
+        if names.is_empty() {
+            return None;
+        }
+        self.cycle_index = self.cycle_index.wrapping_add(1) % names.len();
+        Some(names[self.cycle_index].clone())
+    }
+
+    /// Set a playlist so that `cycle_next()` iterates only the given names.
+    /// Pass an empty vec to reset to "cycle all".
+    pub fn set_playlist(&mut self, names: Vec<String>) {
+        if names.is_empty() {
+            self.cycle_playlist = None;
+        } else {
+            self.cycle_playlist = Some(names);
+        }
+        self.cycle_index = 0;
     }
 
     /// Advance the transition and return the current blend factor in `[0.0, 1.0]`.
@@ -824,6 +869,76 @@ mod tests {
         assert!(
             mgr.next_palette().is_none(),
             "next should be None after completion"
+        );
+    }
+
+    // --- cycle_next / set_playlist ---
+
+    #[test]
+    fn test_cycle_next_iterates_all_sorted() {
+        let mut mgr = PaletteManager::default();
+        let sorted = mgr.list().iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let n = sorted.len();
+        let mut seen = Vec::new();
+        for _ in 0..n {
+            let name = mgr.cycle_next().expect("must return Some");
+            seen.push(name);
+        }
+        let mut seen_sorted = seen.clone();
+        seen_sorted.sort_unstable();
+        assert_eq!(seen_sorted, sorted, "cycle_next must visit all palettes");
+    }
+
+    #[test]
+    fn test_cycle_next_wraps_around() {
+        let mut mgr = PaletteManager::default();
+        let n = mgr.list().len();
+        let first_name = mgr.cycle_next().expect("must return Some");
+        for _ in 0..(n - 1) {
+            mgr.cycle_next().expect("must return Some");
+        }
+        let after_full_rotation = mgr.cycle_next().expect("must return Some");
+        assert_eq!(
+            after_full_rotation, first_name,
+            "cycle_next must wrap back after n calls"
+        );
+    }
+
+    #[test]
+    fn test_set_playlist_restricts_cycle() {
+        let mut mgr = PaletteManager::default();
+        // cycle_index starts at 0; first call increments to 1.
+        // Playlist = ["electric", "frost"], so: call1→"frost", call2→"electric", call3→"frost".
+        mgr.set_playlist(vec!["electric".to_string(), "frost".to_string()]);
+        let name1 = mgr.cycle_next().expect("must return Some");
+        let name2 = mgr.cycle_next().expect("must return Some");
+        let name3 = mgr.cycle_next().expect("must return Some"); // wraps
+        assert_eq!(name1, "frost");
+        assert_eq!(name2, "electric");
+        assert_eq!(name3, "frost", "must wrap around within playlist");
+    }
+
+    #[test]
+    fn test_set_playlist_empty_resets_to_all() {
+        let mut mgr = PaletteManager::default();
+        mgr.set_playlist(vec!["electric".to_string()]);
+        mgr.set_playlist(vec![]); // reset
+        let n = mgr.list().len();
+        let mut seen = std::collections::HashSet::new();
+        for _ in 0..n {
+            let name = mgr.cycle_next().expect("must return Some");
+            seen.insert(name);
+        }
+        assert_eq!(seen.len(), n, "after reset, all palettes should be visited");
+    }
+
+    #[test]
+    fn test_random_selection_unchanged() {
+        let mgr = PaletteManager::default();
+        let (name, _entry) = mgr.random();
+        assert!(
+            mgr.get(name).is_some(),
+            "random() must return a known palette"
         );
     }
 }
