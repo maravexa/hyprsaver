@@ -469,6 +469,65 @@ impl PreviewState {
         self.wl_egl_window = None;
     }
 
+    /// Debug trigger for the Phase 0.1 shader crossfade integration (T key).
+    ///
+    /// Advances to the next shader in the sorted shader list and starts a
+    /// 2-second crossfade transition via [`Renderer::start_shader_transition`].
+    /// On compile/link error, the renderer keeps the current shader
+    /// unchanged and the error is logged — the keybind is purely for manual
+    /// testing of the dual-FBO render path until the cycle manager lands.
+    fn trigger_debug_transition(&mut self) {
+        let mut shader_list: Vec<String> = self
+            .shader_manager
+            .list()
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        shader_list.sort();
+        if shader_list.is_empty() {
+            log::warn!("preview: no shaders available for transition");
+            return;
+        }
+
+        let current_idx = shader_list
+            .iter()
+            .position(|s| s == &self.active_shader)
+            .unwrap_or(0);
+        let next_idx = (current_idx + 1) % shader_list.len();
+        let next_name = shader_list[next_idx].clone();
+        let prev_name = self.active_shader.clone();
+
+        let Some(src) = self.shader_manager.get_compiled(&next_name) else {
+            log::warn!("preview: compiled source missing for '{next_name}'");
+            return;
+        };
+        let src = src.to_string();
+
+        // GL operations below need the preview window's EGL context current.
+        if let (Some(es), Some(ec), Some(egl)) =
+            (self.egl_surface, self.egl_context, self.egl.as_ref())
+        {
+            let _ = egl
+                .egl
+                .make_current(egl.display, Some(es), Some(es), Some(ec));
+        }
+        let Some(r) = self.renderer.as_mut() else {
+            return;
+        };
+        match r.start_shader_transition(&src, Some(2.0)) {
+            Ok(()) => {
+                log::info!("preview: shader transition: {prev_name} → {next_name}");
+                self.active_shader = next_name.clone();
+                if let Some(win) = &self.window {
+                    win.set_title(format!("hyprsaver preview — {next_name}"));
+                }
+            }
+            Err(e) => {
+                log::warn!("preview: start_shader_transition failed: {e:#}");
+            }
+        }
+    }
+
     /// Handle a force-reload of the current shader (R key).
     fn reload_current_shader(&mut self) {
         let name = self.active_shader.clone();
@@ -982,6 +1041,14 @@ impl KeyboardHandler for PreviewState {
                 log::info!("preview: reload key pressed");
                 self.force_reload = true;
             }
+            Keysym::t | Keysym::T => {
+                // Debug: trigger a 2-second shader crossfade to the next
+                // shader in the list. This is a placeholder for the cycle
+                // manager that will drive transitions automatically once
+                // the Phase 1 prompts land.
+                log::info!("preview: transition key pressed");
+                self.trigger_debug_transition();
+            }
             _ => {}
         }
     }
@@ -1179,9 +1246,11 @@ fn draw_panel(
             ui.add_space(6.0);
             ui.label(egui::RichText::new("Keyboard shortcuts").small().strong());
             ui.label(
-                egui::RichText::new("Q / Esc  quit\nR           reload shader")
-                    .small()
-                    .monospace(),
+                egui::RichText::new(
+                    "Q / Esc  quit\nR           reload shader\nT           next shader (crossfade)",
+                )
+                .small()
+                .monospace(),
             );
         });
 }
