@@ -567,8 +567,8 @@ impl WaylandState {
 /// Run the screensaver event loop. Blocks until exit.
 pub fn run(
     config: Config,
-    shader_manager: ShaderManager,
-    palette_manager: PaletteManager,
+    mut shader_manager: ShaderManager,
+    mut palette_manager: PaletteManager,
     signal_flag: Arc<AtomicBool>,
 ) -> anyhow::Result<()> {
     let conn = Connection::connect_to_env()
@@ -584,6 +584,15 @@ pub fn run(
     let seat_state = SeatState::new(&globals, &qh);
     let output_state = OutputState::new(&globals, &qh);
     let registry_state = RegistryState::new(&globals);
+
+    // Randomize the cycle starting position once at startup so every session
+    // begins at a different shader/palette regardless of playlist order.
+    if config.general.shader == "cycle" {
+        shader_manager.randomize_cycle_start();
+    }
+    if config.general.palette == "cycle" {
+        palette_manager.randomize_cycle_start();
+    }
 
     let active_shader = WaylandState::resolve_shader(&config, &shader_manager);
     let active_palette = WaylandState::resolve_palette(&config, &palette_manager);
