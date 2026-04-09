@@ -29,8 +29,8 @@ use crate::shaders::ShaderManager;
 /// monitor using the wlr-layer-shell Wayland protocol. Designed to work with
 /// hypridle (timeout orchestration) and hyprlock (lock screen).
 ///
-/// Configuration: ~/.config/hyprsaver/config.toml
-/// User shaders:  ~/.config/hyprsaver/shaders/*.frag
+/// Configuration: ~/.config/hypr/hyprsaver.toml
+/// User shaders:  ~/.config/hypr/hyprsaver/shaders/*.frag
 #[derive(Parser, Debug)]
 #[command(
     name = "hyprsaver",
@@ -51,8 +51,8 @@ use crate::shaders::ShaderManager;
                   hyprsaver --preview --shader kaleidoscope  (specific shader)\n  \
                   hyprsaver --preview --shader ~/my.frag     (custom shader from path)\n\n\
                   Press Q/Escape to quit the preview window, R to reload the shader.\n\n\
-                  Configuration: ~/.config/hyprsaver/config.toml\n\
-                  User shaders:  ~/.config/hyprsaver/shaders/*.frag"
+                  Configuration: ~/.config/hypr/hyprsaver.toml\n\
+                  User shaders:  ~/.config/hypr/hyprsaver/shaders/*.frag"
 )]
 struct Cli {
     /// Path to config file (overrides XDG default)
@@ -130,15 +130,42 @@ fn run() -> anyhow::Result<()> {
     let cfg = load_config(&cli).context("failed to load config")?;
     debug!("Loaded config: {:?}", cfg);
 
-    // Build managers (needed for --list-* subcommands too).
-    let shader_dir = dirs::config_dir()
-        .unwrap_or_else(|| PathBuf::from(".config"))
-        .join("hyprsaver")
-        .join("shaders");
+    // Resolve user shader directory with new/legacy fallback.
+    // TODO: Remove legacy path fallback in v0.5.0
+    let shader_dir_outcome = shaders::resolve_shader_dir();
+    let shader_dir = match &shader_dir_outcome {
+        shaders::ShaderDirOutcome::New(p) => p.clone(),
+        shaders::ShaderDirOutcome::Legacy(p) => {
+            log::warn!(
+                "User shaders found at {} — this path is deprecated. \
+                 Please move your shaders to ~/.config/hypr/hyprsaver/shaders/",
+                p.display()
+            );
+            p.clone()
+        }
+        shaders::ShaderDirOutcome::Both { new, legacy } => {
+            log::warn!(
+                "User shaders found at both {} and {} — loading from both. \
+                 Please move your shaders from {} to {} to silence this warning.",
+                new.display(),
+                legacy.display(),
+                legacy.display(),
+                new.display()
+            );
+            new.clone()
+        }
+        shaders::ShaderDirOutcome::NotFound(p) => p.clone(),
+    };
+
     let mut shader_manager =
         ShaderManager::new(shader_dir.clone()).context("failed to initialise ShaderManager")?;
 
-    // Start hot-reload watcher (silently skipped if dir doesn't exist).
+    // If both dirs exist, also load from the legacy dir (without overwriting new-path shaders).
+    if let shaders::ShaderDirOutcome::Both { legacy, .. } = &shader_dir_outcome {
+        shader_manager.load_from_dir_no_overwrite(legacy);
+    }
+
+    // Start hot-reload watcher on the primary dir (silently skipped if dir doesn't exist).
     if let Err(e) = shader_manager.watch_for_changes() {
         log::warn!("Could not start shader watcher: {e:#}");
     }

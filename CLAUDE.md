@@ -9,7 +9,7 @@ Four layers, each a module in `src/`:
 - `renderer.rs` — OpenGL via glow. Fullscreen quad, uploads uniforms (time, resolution, palette vectors), calls draw. Doesn't know about Wayland.
 - `shaders.rs` — Loads `.frag` files from config dir and built-ins. Handles compilation, hot-reload (notify crate), Shadertoy uniform remapping. Prepends palette function to all shaders.
 - `palette.rs` — Cosine gradient palettes (Inigo Quilez technique). Four vec3 params (a,b,c,d) → 12 floats. Loaded from config TOML.
-- `config.rs` — TOML config with serde. Every field has a default. Config path: CLI flag → XDG_CONFIG_HOME → ~/.config/hyprsaver/config.toml → built-in defaults.
+- `config.rs` — TOML config with serde. Every field has a default. Config path: CLI flag → `$XDG_CONFIG_HOME/hypr/hyprsaver.toml` (new) → `$XDG_CONFIG_HOME/hyprsaver/config.toml` (legacy, deprecated) → built-in defaults.
 
 Entry point: `main.rs` — CLI (clap), signal handling (signal-hook), config load, then either preview mode (xdg-toplevel window) or screensaver mode (layer-shell overlay). Event loop is calloop.
 
@@ -37,8 +37,8 @@ cargo build --release
 - Config: all fields optional with serde defaults. Zero-config must work.
 
 ## File Locations at Runtime
-- Config: `~/.config/hyprsaver/config.toml`
-- User shaders: `~/.config/hyprsaver/shaders/*.frag`
+- Config: `~/.config/hypr/hyprsaver.toml` (legacy: `~/.config/hyprsaver/config.toml`, deprecated)
+- User shaders: `~/.config/hypr/hyprsaver/shaders/*.frag` (legacy: `~/.config/hyprsaver/shaders/`, deprecated)
 - Built-in shaders: compiled into binary via `include_str!()`
 - Logs: stderr (journalctl if launched by hypridle)
 
