@@ -305,24 +305,12 @@ impl ShaderManager {
             );
         }
 
-        // Randomize starting cycle index so each session feels different.
-        let count = shaders.len();
-        let cycle_index = if count > 1 {
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .subsec_nanos() as usize
-                % count
-        } else {
-            0
-        };
-
         Ok(Self {
             shader_dir,
             shaders,
             watcher: None,
             change_rx: None,
-            cycle_index,
+            cycle_index: 0,
             playlist: None,
         })
     }
@@ -406,16 +394,25 @@ impl ShaderManager {
 
     /// Set a playlist so that `cycle_next()` iterates only the given names.
     /// Pass an empty vec or call without a playlist to reset to "cycle all".
-    /// Randomizes the starting index so sessions begin at different points.
+    /// Always resets `cycle_index` to 0; call `randomize_cycle_start()` afterward
+    /// if a random starting position is desired (e.g. at screensaver startup).
     pub fn set_playlist(&mut self, names: Vec<String>) {
-        let count;
         if names.is_empty() {
             self.playlist = None;
-            count = self.shaders.len();
         } else {
-            count = names.len();
             self.playlist = Some(names);
         }
+        self.cycle_index = 0;
+    }
+
+    /// Randomize the starting cycle index within the current playlist (or all shaders
+    /// if no playlist is set). Call this once at screensaver startup so every session
+    /// begins at a different point in the rotation.
+    pub fn randomize_cycle_start(&mut self) {
+        let count = match &self.playlist {
+            Some(pl) => pl.iter().filter(|n| self.shaders.contains_key(*n)).count(),
+            None => self.shaders.len(),
+        };
         self.cycle_index = if count > 1 {
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)

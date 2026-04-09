@@ -445,25 +445,13 @@ impl PaletteManager {
             "electric".to_string()
         };
 
-        // Randomize starting cycle index so each session feels different.
-        let count = palettes.len();
-        let cycle_index = if count > 1 {
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .subsec_nanos() as usize
-                % count
-        } else {
-            0
-        };
-
         Self {
             palettes,
             transition_duration,
             current_name,
             next_name: None,
             transition_start: None,
-            cycle_index,
+            cycle_index: 0,
             cycle_playlist: None,
         }
     }
@@ -582,16 +570,25 @@ impl PaletteManager {
 
     /// Set a playlist so that `cycle_next()` iterates only the given names.
     /// Pass an empty vec to reset to "cycle all".
-    /// Randomizes the starting index so sessions begin at different points.
+    /// Always resets `cycle_index` to 0; call `randomize_cycle_start()` afterward
+    /// if a random starting position is desired (e.g. at screensaver startup).
     pub fn set_playlist(&mut self, names: Vec<String>) {
-        let count;
         if names.is_empty() {
             self.cycle_playlist = None;
-            count = self.palettes.len();
         } else {
-            count = names.len();
             self.cycle_playlist = Some(names);
         }
+        self.cycle_index = 0;
+    }
+
+    /// Randomize the starting cycle index within the current playlist (or all palettes
+    /// if no playlist is set). Call this once at screensaver startup so every session
+    /// begins at a different point in the rotation.
+    pub fn randomize_cycle_start(&mut self) {
+        let count = match &self.cycle_playlist {
+            Some(pl) => pl.iter().filter(|n| self.palettes.contains_key(*n)).count(),
+            None => self.palettes.len(),
+        };
         self.cycle_index = if count > 1 {
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
