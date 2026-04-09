@@ -936,6 +936,9 @@ mod tests {
     fn test_random_selection_unchanged() {
         let mgr = PaletteManager::default();
         let (name, _entry) = mgr.random();
-        assert!(mgr.get(name).is_some(), "random() must return a known palette");
+        assert!(
+            mgr.get(name).is_some(),
+            "random() must return a known palette"
+        );
     }
 }
