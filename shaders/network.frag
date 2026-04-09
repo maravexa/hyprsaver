@@ -173,7 +173,9 @@ void main() {
         int   base = L * NODES_PER_LAYER;
 
         float minDim = min(u_resolution.x, u_resolution.y);
-        float nodeR  = (2.5 + fL * 1.8) / minDim;    // ~2.5 px back, ~7.9 px front
+        // Layer size multipliers: back=1×, L1=1.5×, L2=2.25×, front=3× — deepens parallax.
+        float lscale = (L == 3) ? 3.00 : (L == 2) ? 2.25 : (L == 1) ? 1.50 : 1.00;
+        float nodeR  = (2.5 + fL * 1.8) / minDim * lscale;
         float bright = 0.45 + fL * 0.18;
 
         for (int j = 0; j < NODES_PER_LAYER; j++) {

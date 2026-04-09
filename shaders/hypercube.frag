@@ -59,9 +59,10 @@ void main() {
     // Centered, aspect-corrected UV; y ∈ [−0.5, 0.5] = full screen height.
     vec2 uv = (gl_FragCoord.xy - 0.5 * u_resolution.xy) / u_resolution.y;
 
-    // Rotation angles: XW and YZ planes at incommensurable speeds.
-    float ta = u_time * u_speed_scale;                // XW plane
-    float tb = u_time * u_speed_scale * 0.6180339887; // YZ plane (1/φ)
+    // Rotation angles: XW and YZ planes at incommensurable speeds (halved for a
+    // relaxed pace — 0.5 and 0.5/φ ≈ 0.309 rad/s).
+    float ta = u_time * u_speed_scale * 0.5;                 // XW plane
+    float tb = u_time * u_speed_scale * 0.3090169944;        // YZ plane (1/φ, halved)
 
     // ------------------------------------------------------------------
     // 16 tesseract vertices — all ±1 combinations in 4D.
