@@ -7,7 +7,7 @@
 //!   → `~/.config/hyprsaver/config.toml` → built-in defaults (zero-config must work)
 //! - Parse TOML via the `toml` crate
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use crate::palette::Palette;
@@ -42,6 +42,16 @@ pub struct Config {
     /// Monitors without an entry use the global `[general]` shader/palette.
     #[serde(default, rename = "monitor")]
     pub monitors: Vec<MonitorConfig>,
+
+    /// Named shader playlists (`[shader_playlists.name]` TOML syntax).
+    /// Used when `general.shader_playlist` selects a named subset for cycle mode.
+    #[serde(default)]
+    pub shader_playlists: HashMap<String, ShaderPlaylist>,
+
+    /// Named palette playlists (`[palette_playlists.name]` TOML syntax).
+    /// Used when `general.palette_playlist` selects a named subset for cycle mode.
+    #[serde(default)]
+    pub palette_playlists: HashMap<String, PalettePlaylist>,
 }
 
 // ---------------------------------------------------------------------------
@@ -63,11 +73,20 @@ pub struct GeneralConfig {
     /// How many seconds to display each shader before cycling. Default: 300 (5 min).
     pub shader_cycle_interval: u64,
 
-    /// Optional ordered list of palette names for cycle rotation.
+    /// How many seconds to display each palette before cycling. Default: 60.
+    pub palette_cycle_interval: u64,
+
+    /// Optional ordered list of palette names for cycle rotation (legacy field).
     pub palette_cycle: Vec<String>,
 
     /// Cross-fade duration when switching palettes, in seconds. `0.0` = instant snap (default).
     pub palette_transition_duration: f32,
+
+    /// Named shader playlist to use when `shader = "cycle"`. If unset, cycles all shaders.
+    pub shader_playlist: Option<String>,
+
+    /// Named palette playlist to use when `palette = "cycle"`. If unset, cycles all palettes.
+    pub palette_playlist: Option<String>,
 }
 
 impl Default for GeneralConfig {
@@ -77,10 +96,31 @@ impl Default for GeneralConfig {
             shader: "mandelbrot".to_string(),
             palette: "electric".to_string(),
             shader_cycle_interval: 300,
+            palette_cycle_interval: 60,
             palette_cycle: Vec::new(),
             palette_transition_duration: 0.0,
+            shader_playlist: None,
+            palette_playlist: None,
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Playlist config
+// ---------------------------------------------------------------------------
+
+/// A named ordered list of shader names for use in cycle mode.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ShaderPlaylist {
+    /// Shader names in cycle order.
+    pub shaders: Vec<String>,
+}
+
+/// A named ordered list of palette names for use in cycle mode.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct PalettePlaylist {
+    /// Palette names in cycle order.
+    pub palettes: Vec<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -276,14 +316,19 @@ mod tests {
         assert_eq!(cfg.general.shader, "mandelbrot");
         assert_eq!(cfg.general.palette, "electric");
         assert_eq!(cfg.general.shader_cycle_interval, 300);
+        assert_eq!(cfg.general.palette_cycle_interval, 60);
         assert!(cfg.general.palette_cycle.is_empty());
         assert_eq!(cfg.general.palette_transition_duration, 0.0);
+        assert!(cfg.general.shader_playlist.is_none());
+        assert!(cfg.general.palette_playlist.is_none());
         assert_eq!(cfg.behavior.fade_in_ms, 800);
         assert_eq!(cfg.behavior.fade_out_ms, 400);
         assert!(cfg.behavior.dismiss_on.contains(&DismissEvent::Key));
         assert!(cfg.palettes.is_empty());
         assert!(cfg.palette_entries.is_empty());
         assert!(cfg.monitors.is_empty());
+        assert!(cfg.shader_playlists.is_empty());
+        assert!(cfg.palette_playlists.is_empty());
     }
 
     #[test]
@@ -440,6 +485,62 @@ shader = "snowfall"
         cfg.apply_cli_overrides(Some("julia"), None);
         assert_eq!(cfg.general.shader, "julia");
         assert_eq!(cfg.general.palette, "electric"); // unchanged
+    }
+
+    #[test]
+    fn test_parse_playlists() {
+        let toml_str = r#"
+[general]
+shader_playlist = "my_favorites"
+palette_playlist = "warm_tones"
+
+[shader_playlists.my_favorites]
+shaders = ["mandelbrot", "julia", "plasma"]
+
+[shader_playlists.chill]
+shaders = ["plasma", "tunnel"]
+
+[palette_playlists.warm_tones]
+palettes = ["ember", "autumn", "groovy"]
+
+[palette_playlists.cool_vibes]
+palettes = ["frost", "ocean", "vapor"]
+"#;
+        let cfg: Config = toml::from_str(toml_str).expect("playlist TOML must parse");
+        assert_eq!(cfg.general.shader_playlist.as_deref(), Some("my_favorites"));
+        assert_eq!(cfg.general.palette_playlist.as_deref(), Some("warm_tones"));
+
+        assert_eq!(cfg.shader_playlists.len(), 2);
+        let fav = cfg
+            .shader_playlists
+            .get("my_favorites")
+            .expect("my_favorites must exist");
+        assert_eq!(fav.shaders, vec!["mandelbrot", "julia", "plasma"]);
+        let chill = cfg.shader_playlists.get("chill").expect("chill must exist");
+        assert_eq!(chill.shaders, vec!["plasma", "tunnel"]);
+
+        assert_eq!(cfg.palette_playlists.len(), 2);
+        let warm = cfg
+            .palette_playlists
+            .get("warm_tones")
+            .expect("warm_tones must exist");
+        assert_eq!(warm.palettes, vec!["ember", "autumn", "groovy"]);
+    }
+
+    #[test]
+    fn test_parse_no_playlists_backward_compat() {
+        let cfg: Config = toml::from_str("").expect("empty TOML must parse");
+        assert!(cfg.shader_playlists.is_empty());
+        assert!(cfg.palette_playlists.is_empty());
+        assert!(cfg.general.shader_playlist.is_none());
+        assert!(cfg.general.palette_playlist.is_none());
+    }
+
+    #[test]
+    fn test_parse_palette_cycle_interval() {
+        let toml_str = "[general]\npalette_cycle_interval = 30\n";
+        let cfg: Config = toml::from_str(toml_str).expect("must parse");
+        assert_eq!(cfg.general.palette_cycle_interval, 30);
     }
 
     #[test]

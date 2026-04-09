@@ -402,9 +402,6 @@ pub struct WaylandState {
     /// Name of the currently active palette.
     active_palette: String,
 
-    /// Shader cycling index (round-robin).
-    shader_cycle_index: usize,
-
     /// EGL state (initialised before the event loop).
     egl: Option<EglState>,
 
@@ -427,13 +424,20 @@ impl WaylandState {
     fn resolve_shader(config: &Config, shader_manager: &ShaderManager) -> String {
         match config.general.shader.as_str() {
             "random" => shader_manager.random().0.to_string(),
-            _ => {
-                // For "cycle", start with the first shader alphabetically.
-                let name = &config.general.shader;
+            "cycle" => {
+                // Start with the first shader alphabetically (or first in playlist).
+                shader_manager
+                    .list()
+                    .into_iter()
+                    .next()
+                    .map(str::to_string)
+                    .unwrap_or_else(|| "mandelbrot".to_string())
+            }
+            name => {
                 if shader_manager.get(name).is_some() {
-                    name.clone()
+                    name.to_string()
                 } else {
-                    // Fallback to mandelbrot or first available
+                    // Fallback to mandelbrot or first available.
                     shader_manager
                         .get("mandelbrot")
                         .map(|_| "mandelbrot".to_string())
@@ -453,6 +457,15 @@ impl WaylandState {
     fn resolve_palette(config: &Config, palette_manager: &PaletteManager) -> String {
         match config.general.palette.as_str() {
             "random" => palette_manager.random().0.to_string(),
+            "cycle" => {
+                // Start with the first palette alphabetically (or first in playlist).
+                palette_manager
+                    .list()
+                    .into_iter()
+                    .next()
+                    .map(str::to_string)
+                    .unwrap_or_else(|| "electric".to_string())
+            }
             name => {
                 if palette_manager.get(name).is_some() {
                     name.to_string()
@@ -608,7 +621,6 @@ pub fn run(
         palette_manager,
         active_shader,
         active_palette,
-        shader_cycle_index: 0,
         egl,
         qh: Some(qh.clone()),
         keyboard: None,
@@ -670,7 +682,9 @@ pub fn run(
     let fps = state.config.general.fps.max(1);
     let frame_ms = 1000u64 / fps as u64;
     let shader_cycle_interval = state.config.general.shader_cycle_interval;
+    let palette_cycle_interval = state.config.general.palette_cycle_interval;
     let shader_cycling = state.config.general.shader == "cycle";
+    let palette_cycling = state.config.general.palette == "cycle";
 
     let mut event_loop: EventLoop<WaylandState> =
         EventLoop::try_new().context("failed to create calloop EventLoop")?;
@@ -776,41 +790,49 @@ pub fn run(
             calloop::timer::Timer::from_duration(Duration::from_secs(shader_cycle_interval.max(1)));
         loop_handle
             .insert_source(cycle_timer, move |_, _, state: &mut WaylandState| {
-                let names: Vec<String> = state
-                    .shader_manager
-                    .list()
-                    .iter()
-                    .map(|s| s.to_string())
-                    .collect();
-                if names.is_empty() {
-                    return calloop::timer::TimeoutAction::ToDuration(Duration::from_secs(
-                        shader_cycle_interval,
-                    ));
-                }
-                state.shader_cycle_index = (state.shader_cycle_index + 1) % names.len();
-                let next = names[state.shader_cycle_index].clone();
-                log::info!("Cycling to shader '{next}'");
-                if let Some(src) = state.shader_manager.get_compiled(&next) {
-                    let src = src.to_string();
-                    let old_active = state.active_shader.clone();
-                    // Only cycle surfaces using the global shader (not per-monitor overrides).
-                    for surf in state.surfaces.values_mut() {
-                        if surf.shader_name == old_active {
-                            if let Some(r) = surf.renderer.as_mut() {
-                                if let Err(e) = r.load_shader(&src) {
-                                    log::warn!("Shader cycle compile error: {e:#}");
+                if let Some(next) = state.shader_manager.cycle_next() {
+                    log::info!("Cycling shader: {next}");
+                    if let Some(compiled) = state.shader_manager.get_compiled(&next) {
+                        let compiled = compiled.to_string();
+                        let old_active = state.active_shader.clone();
+                        for surf in state.surfaces.values_mut() {
+                            if surf.shader_name == old_active {
+                                if let Some(r) = surf.renderer.as_mut() {
+                                    if let Err(e) = r.load_shader(&compiled) {
+                                        log::warn!("Shader cycle compile error: {e:#}");
+                                    }
                                 }
+                                surf.shader_name = next.clone();
                             }
-                            surf.shader_name = next.clone();
                         }
+                        state.active_shader = next;
                     }
-                    state.active_shader = next;
                 }
                 calloop::timer::TimeoutAction::ToDuration(Duration::from_secs(
                     shader_cycle_interval,
                 ))
             })
             .map_err(|e| anyhow::anyhow!("failed to insert shader cycle timer: {e}"))?;
+    }
+
+    // Palette cycling timer (if enabled).
+    if palette_cycling {
+        let cycle_timer = calloop::timer::Timer::from_duration(Duration::from_secs(
+            palette_cycle_interval.max(1),
+        ));
+        loop_handle
+            .insert_source(cycle_timer, move |_, _, state: &mut WaylandState| {
+                if let Some(next) = state.palette_manager.cycle_next() {
+                    log::info!("Cycling palette: {next}");
+                    let now = std::time::Instant::now();
+                    state.palette_manager.begin_transition(&next, now);
+                    state.active_palette = next;
+                }
+                calloop::timer::TimeoutAction::ToDuration(Duration::from_secs(
+                    palette_cycle_interval,
+                ))
+            })
+            .map_err(|e| anyhow::anyhow!("failed to insert palette cycle timer: {e}"))?;
     }
 
     // Run the event loop until running becomes false.
