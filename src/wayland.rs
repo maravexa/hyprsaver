@@ -812,9 +812,8 @@ pub fn run(
     if shader_cycling && palette_cycling {
         // (a) Unified timer: advance both on every tick so monitors always show the
         // same shader and palette at all times.
-        let cycle_timer = calloop::timer::Timer::from_duration(Duration::from_secs(
-            shader_cycle_interval.max(1),
-        ));
+        let cycle_timer =
+            calloop::timer::Timer::from_duration(Duration::from_secs(shader_cycle_interval.max(1)));
         loop_handle
             .insert_source(cycle_timer, move |_, _, state: &mut WaylandState| {
                 let now = std::time::Instant::now();
@@ -844,12 +843,10 @@ pub fn run(
                         (egl_ptr, surf.egl_surface, surf.egl_context)
                     {
                         let egl_ref = unsafe { &*egl };
-                        let _ = egl_ref.egl.make_current(
-                            egl_ref.display,
-                            Some(es),
-                            Some(es),
-                            Some(ec),
-                        );
+                        let _ =
+                            egl_ref
+                                .egl
+                                .make_current(egl_ref.display, Some(es), Some(es), Some(ec));
                     }
                     if let Some(ref compiled) = compiled_shader {
                         if let Some(r) = surf.renderer.as_mut() {
@@ -893,9 +890,8 @@ pub fn run(
         // (b) Shader-only cycle timer.
         // Bug fix: make each surface's EGL context current before load_shader() so
         // all monitors compile the new shader in their own GL context.
-        let cycle_timer = calloop::timer::Timer::from_duration(Duration::from_secs(
-            shader_cycle_interval.max(1),
-        ));
+        let cycle_timer =
+            calloop::timer::Timer::from_duration(Duration::from_secs(shader_cycle_interval.max(1)));
         loop_handle
             .insert_source(cycle_timer, move |_, _, state: &mut WaylandState| {
                 if let Some(next) = state.shader_manager.cycle_next() {
@@ -944,8 +940,7 @@ pub fn run(
                 let now = std::time::Instant::now();
                 if let Some(next) = state.palette_manager.cycle_next() {
                     log::info!("Cycling palette: {next}");
-                    let palette_entry =
-                        state.palette_manager.get(&next).cloned();
+                    let palette_entry = state.palette_manager.get(&next).cloned();
                     let td = state.palette_manager.transition_duration;
                     let egl_ptr = state.egl.as_ref().map(|e| e as *const EglState);
                     if let Some(ref entry) = palette_entry {
