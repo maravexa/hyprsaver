@@ -45,9 +45,11 @@ const float FADE_DUR  = 2.5;   // fade-out window at end of each era
 const float TURN_PROB = 0.25;  // probability of 90° turn at each intersection
 
 // ── Collision-avoidance grid ───────────────────────────────────────────────────
-// Max 50 columns × 20 rows covers up to ~21:9 ultra-wide at CELL = 0.05.
+// 40 columns × 20 rows covers up to ~2:1 aspect ratio at CELL = 0.05.
 // Cells beyond GRID_W_MAX are not tracked (no avoidance there, but no crash).
-const int GRID_W_MAX = 50;
+// Kept small: the array lives in per-thread GPU scratch memory (4 B × size),
+// so every element saved reduces AMD register-file / scratch pressure.
+const int GRID_W_MAX = 40;
 const int GRID_H_MAX = 20;
 
 // ── Hash functions ─────────────────────────────────────────────────────────────
@@ -277,10 +279,21 @@ void main() {
                     int cx2 = int(c2.x), cy2 = int(c2.y);
 
                     // A cell blocks if it is out-of-bounds or already occupied.
-                    bool b1 = (cx1 < 0 || cy1 < 0 || cx1 >= igw || cy1 >= GRID_H_MAX)
-                           || (cx1 < GRID_W_MAX && visited[cy1 * GRID_W_MAX + cx1] != 0);
-                    bool b2 = (cx2 < 0 || cy2 < 0 || cx2 >= igw || cy2 >= GRID_H_MAX)
-                           || (cx2 < GRID_W_MAX && visited[cy2 * GRID_W_MAX + cx2] != 0);
+                    // IMPORTANT: do NOT rely on short-circuit evaluation to guard the
+                    // array access — AMD drivers may evaluate all operands of || even
+                    // when the left side is already true, causing out-of-bounds scratch
+                    // memory access (negative or ≥ size indices) → GPU hard recovery.
+                    // Instead: clamp indices unconditionally so the access is always
+                    // in-range, and use a separate oob flag to override the result.
+                    bool oob1 = (cx1 < 0 || cy1 < 0 || cx1 >= igw || cy1 >= GRID_H_MAX);
+                    int  idx1 = clamp(cy1, 0, GRID_H_MAX - 1) * GRID_W_MAX
+                              + clamp(cx1, 0, GRID_W_MAX - 1);
+                    bool b1   = oob1 || (visited[idx1] != 0);
+
+                    bool oob2 = (cx2 < 0 || cy2 < 0 || cx2 >= igw || cy2 >= GRID_H_MAX);
+                    int  idx2 = clamp(cy2, 0, GRID_H_MAX - 1) * GRID_W_MAX
+                              + clamp(cx2, 0, GRID_W_MAX - 1);
+                    bool b2   = oob2 || (visited[idx2] != 0);
 
                     // Only redirect if BOTH ahead cells are occupied (single-cell
                     // crossings are allowed and look good).
