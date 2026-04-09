@@ -99,13 +99,17 @@ void main() {
 
     vec3 color = vec3(0.0);
 
+    // Per-column speed multiplier: slower columns (0.3×) to fastest (1.0×).
+    // All streams within a column share the same speed so they move in lockstep.
+    float col_speed = mix(0.3, 1.0, hash11(col_f * 7.13));
+
     // --- Three additive streams per column ---
 
     for (int s = 0; s < STREAMS; s++) {
         float seed = col_f * 13.37 + float(s) * 47.53;
 
         // Per-stream parameters (deterministic from seed)
-        float speed     = 2.5 + hash11(seed + 1.1) * 3.5;   // 2.5–6 rows/s
+        float speed     = (2.5 + hash11(seed + 1.1) * 3.5) * col_speed;   // 2.5–6 rows/s scaled by column
         float streamLen = 8.0 + hash11(seed + 2.2) * 14.0;  // 8–22 chars
         float totalLen  = float(totalRows) + streamLen;
         float offset    = hash11(seed + 3.3) * totalLen;
@@ -124,8 +128,8 @@ void main() {
 
             bool isHead = d < 1.0;
 
-            // Pick a glyph — changes CHAR_SPEED times per second per cell.
-            float bucket = floor(t * CHAR_SPEED
+            // Pick a glyph — change rate scales with column speed.
+            float bucket = floor(t * CHAR_SPEED * col_speed
                                  + hash21(vec2(col_f * 3.7, row_ft * 11.3)) * 100.0);
             int ci = int(mod(hash21(vec2(col_f + 0.5,
                                          row_ft + bucket * 0.17)) * 173.0,

@@ -14,6 +14,12 @@ precision highp float;
 // era the screen fades to black and a fresh set of pipes begins. Each pipe
 // samples the palette at a unique hue offset so all 12 are visually distinct.
 //
+// Collision avoidance: when choosing the next direction at an intersection,
+// the shader checks whether the next 2 cells in that direction are already
+// occupied by an earlier pipe in this era.  If they are, a perpendicular
+// direction is tried instead.  If all options are blocked the pipe terminates
+// early.  Single-cell crossings are intentionally allowed (they look good).
+//
 // All pipe state is reconstructed deterministically from u_time every frame —
 // no GPU buffers or textures are required. Pipes are culled at grid boundaries.
 // ---------------------------------------------------------------------------
@@ -37,6 +43,12 @@ const float STAGGER   = 0.55;  // seconds between consecutive pipe starts
 const float ERA_DUR   = 22.0;  // seconds per era (then fade-out & reset)
 const float FADE_DUR  = 2.5;   // fade-out window at end of each era
 const float TURN_PROB = 0.25;  // probability of 90° turn at each intersection
+
+// ── Collision-avoidance grid ───────────────────────────────────────────────────
+// Max 50 columns × 20 rows covers up to ~21:9 ultra-wide at CELL = 0.05.
+// Cells beyond GRID_W_MAX are not tracked (no avoidance there, but no crash).
+const int GRID_W_MAX = 50;
+const int GRID_H_MAX = 20;
 
 // ── Hash functions ─────────────────────────────────────────────────────────────
 
@@ -102,6 +114,7 @@ void main() {
     // ── Grid dimensions ─────────────────────────────────────────────────────────
     float gw = floor(asp / CELL);   // columns  (≈ 35 at 16:9 with CELL = 0.05)
     float gh = 20.0;                // rows     (fixed = 1.0 / CELL)
+    int   igw = min(int(gw), GRID_W_MAX);  // clamped column count for grid array
 
     // ── Hit tracking ─────────────────────────────────────────────────────────────
     // best_nd: normalised distance from pixel to nearest surface (< 1.0 = inside).
@@ -109,6 +122,12 @@ void main() {
     float best_nd  = 1.0;
     vec3  best_col = vec3(0.0);
     vec3  best_N   = vec3(0.0, 0.0, 1.0);
+
+    // ── Collision-avoidance grid ───────────────────────────────────────────────
+    // Tracks which grid cells have been occupied by earlier pipes this era.
+    // Initialised to 0 (free); marked 1 when a pipe segment or joint passes through.
+    int visited[GRID_W_MAX * GRID_H_MAX];
+    for (int _i = 0; _i < GRID_W_MAX * GRID_H_MAX; _i++) visited[_i] = 0;
 
     // Hue offset common to all pipes this era (rotates the palette each reset).
     float era_hue = h11(era_idx * 113.7 + 1.0);
@@ -147,9 +166,17 @@ void main() {
             }
         }
 
+        // Mark the starting cell as occupied.
+        {
+            int cx = int(pos.x), cy = int(pos.y);
+            if (cx >= 0 && cy >= 0 && cx < igw && cy < GRID_H_MAX)
+                visited[cy * GRID_W_MAX + cx] = 1;
+        }
+
         // ── Grow one grid segment per step ────────────────────────────────────
         for (int s = 0; s < MAX_STEPS; s++) {
             if (s >= steps) break;
+            if (dir < 0) break;   // terminated by collision avoidance
 
             bool is_last = (s == steps - 1);
             vec2 dv      = dir_vec(dir);
@@ -212,13 +239,60 @@ void main() {
             // Advance position.
             pos = next_p;
 
-            // Turn decision at this intersection (only needed for non-final steps).
+            // Mark the cell just entered as occupied.
+            {
+                int cx = int(pos.x), cy = int(pos.y);
+                if (cx >= 0 && cy >= 0 && cx < igw && cy < GRID_H_MAX)
+                    visited[cy * GRID_W_MAX + cx] = 1;
+            }
+
+            // ── Turn decision with collision avoidance ────────────────────────
+            // Only needed for non-final steps (last step doesn't need a next dir).
             if (!is_last) {
+                // Record direction before the hash turn so we know the 3 valid
+                // non-reverse options: straight (prev_dir), CCW, CW.
+                int prev_dir = dir;
+
+                // Original hash-based turn decision.
                 float th = h31(seed, float(s), 5.0);
                 if (th < TURN_PROB) {
                     dir = (h31(seed, float(s), 6.0) < 0.5)
                         ? turn_ccw(dir) : turn_cw(dir);
                 }
+
+                // Collision avoidance: if the chosen direction leads to 2+
+                // consecutive occupied cells, try the other non-reverse options.
+                // Try order: hash-chosen dir, CCW of prev_dir, CW of prev_dir.
+                bool dir_found = false;
+                for (int dt = 0; dt < 3; dt++) {
+                    int td = (dt == 0) ? dir
+                           : (dt == 1) ? turn_ccw(prev_dir)
+                                       : turn_cw(prev_dir);
+
+                    vec2 d1 = dir_vec(td);
+                    vec2 c1 = pos + d1;
+                    vec2 c2 = pos + 2.0 * d1;
+
+                    int cx1 = int(c1.x), cy1 = int(c1.y);
+                    int cx2 = int(c2.x), cy2 = int(c2.y);
+
+                    // A cell blocks if it is out-of-bounds or already occupied.
+                    bool b1 = (cx1 < 0 || cy1 < 0 || cx1 >= igw || cy1 >= GRID_H_MAX)
+                           || (cx1 < GRID_W_MAX && visited[cy1 * GRID_W_MAX + cx1] != 0);
+                    bool b2 = (cx2 < 0 || cy2 < 0 || cx2 >= igw || cy2 >= GRID_H_MAX)
+                           || (cx2 < GRID_W_MAX && visited[cy2 * GRID_W_MAX + cx2] != 0);
+
+                    // Only redirect if BOTH ahead cells are occupied (single-cell
+                    // crossings are allowed and look good).
+                    if (!(b1 && b2)) {
+                        dir = td;
+                        dir_found = true;
+                        break;
+                    }
+                }
+
+                // All non-reverse options blocked → terminate this pipe.
+                if (!dir_found) dir = -1;
             }
         }
     }
