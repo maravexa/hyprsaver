@@ -3,12 +3,14 @@
 //! Responsibilities:
 //! - Define the full `Config` struct hierarchy with serde derive
 //! - Provide sensible defaults for every field via `#[serde(default)]`
-//! - Resolve the config file path: CLI flag → `$XDG_CONFIG_HOME/hyprsaver/config.toml`
-//!   → `~/.config/hyprsaver/config.toml` → built-in defaults (zero-config must work)
+//! - Resolve the config file path: CLI flag → `$XDG_CONFIG_HOME/hypr/hyprsaver.toml`
+//!   (new) → `$XDG_CONFIG_HOME/hyprsaver/config.toml` (legacy, deprecated) →
+//!   built-in defaults (zero-config must work)
 //! - Parse TOML via the `toml` crate
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 use crate::palette::Palette;
 
@@ -243,15 +245,67 @@ pub struct MonitorConfig {
 }
 
 // ---------------------------------------------------------------------------
+// Config path resolution
+// ---------------------------------------------------------------------------
+
+/// Outcome of resolving the default config file path.
+///
+/// Priority:
+/// 1. `$XDG_CONFIG_HOME/hypr/hyprsaver.toml` (new path)
+/// 2. `$XDG_CONFIG_HOME/hyprsaver/config.toml` (legacy — deprecated)
+#[derive(Debug, PartialEq)]
+pub enum ConfigPathOutcome {
+    /// Found at `$XDG_CONFIG_HOME/hypr/hyprsaver.toml`.
+    New(PathBuf),
+    /// Found only at the legacy path `$XDG_CONFIG_HOME/hyprsaver/config.toml`.
+    /// Caller should log a deprecation warning.
+    Legacy(PathBuf),
+    /// Both paths exist. Caller should use the new path and warn about the old one.
+    Both { new: PathBuf, legacy: PathBuf },
+    /// Neither path exists; caller should use built-in defaults.
+    NotFound,
+}
+
+/// Resolve the default config path, checking the new Hyprland-ecosystem location
+/// first and falling back to the legacy location.
+pub fn resolve_config_path() -> ConfigPathOutcome {
+    let cfg_dir = dirs::config_dir().unwrap_or_else(|| PathBuf::from(".config"));
+    resolve_config_path_impl(
+        cfg_dir.join("hypr").join("hyprsaver.toml"),
+        cfg_dir.join("hyprsaver").join("config.toml"),
+    )
+}
+
+/// Inner implementation that accepts explicit paths for testability.
+fn resolve_config_path_impl(new_path: PathBuf, legacy_path: PathBuf) -> ConfigPathOutcome {
+    match (new_path.exists(), legacy_path.exists()) {
+        (true, true) => ConfigPathOutcome::Both {
+            new: new_path,
+            legacy: legacy_path,
+        },
+        (true, false) => ConfigPathOutcome::New(new_path),
+        (false, true) => ConfigPathOutcome::Legacy(legacy_path),
+        (false, false) => ConfigPathOutcome::NotFound,
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Config loading
 // ---------------------------------------------------------------------------
 
 /// Resolve and load the config file.
 ///
-/// - If `path` is `Some`, read it (returns an error if the file is missing).
-/// - Otherwise, try `$XDG_CONFIG_HOME/hyprsaver/config.toml`, then
-///   `~/.config/hyprsaver/config.toml`.
+/// - If `path` is `Some`, read it directly (returns an error if the file is missing).
+///   The migration fallback logic only applies to the default path resolution.
+/// - Otherwise, check `$XDG_CONFIG_HOME/hypr/hyprsaver.toml` (new) then
+///   `$XDG_CONFIG_HOME/hyprsaver/config.toml` (legacy, deprecated).
 /// - If no file is found, returns `Config::default()` (zero-config mode).
+///
+/// # Deprecation warnings
+/// If only the legacy path exists a warning is logged asking the user to migrate.
+/// If both paths exist the new path is used and a warning is logged about the old one.
+///
+/// TODO: Remove legacy path fallback in v0.5.0
 pub fn load_config(path: Option<&str>) -> anyhow::Result<Config> {
     use anyhow::Context;
 
@@ -263,30 +317,43 @@ pub fn load_config(path: Option<&str>) -> anyhow::Result<Config> {
         return Ok(config);
     }
 
-    // Try XDG_CONFIG_HOME / hyprsaver / config.toml
-    if let Some(xdg_cfg) = dirs::config_dir() {
-        let candidate = xdg_cfg.join("hyprsaver").join("config.toml");
-        if candidate.exists() {
-            let content = std::fs::read_to_string(&candidate)
-                .with_context(|| format!("failed to read config file: {}", candidate.display()))?;
-            return toml::from_str::<Config>(&content)
-                .with_context(|| format!("failed to parse config file: {}", candidate.display()));
+    // TODO: Remove legacy path fallback in v0.5.0
+    match resolve_config_path() {
+        ConfigPathOutcome::New(p) => {
+            let content = std::fs::read_to_string(&p)
+                .with_context(|| format!("failed to read config file: {}", p.display()))?;
+            toml::from_str::<Config>(&content)
+                .with_context(|| format!("failed to parse config file: {}", p.display()))
+        }
+        ConfigPathOutcome::Legacy(p) => {
+            log::warn!(
+                "Config found at {} — this path is deprecated. \
+                 Please move your config to ~/.config/hypr/hyprsaver.toml",
+                p.display()
+            );
+            let content = std::fs::read_to_string(&p)
+                .with_context(|| format!("failed to read config file: {}", p.display()))?;
+            toml::from_str::<Config>(&content)
+                .with_context(|| format!("failed to parse config file: {}", p.display()))
+        }
+        ConfigPathOutcome::Both { new, legacy } => {
+            log::warn!(
+                "Config found at both {} and {} — using {}. \
+                 Remove the old file to silence this warning.",
+                new.display(),
+                legacy.display(),
+                new.display()
+            );
+            let content = std::fs::read_to_string(&new)
+                .with_context(|| format!("failed to read config file: {}", new.display()))?;
+            toml::from_str::<Config>(&content)
+                .with_context(|| format!("failed to parse config file: {}", new.display()))
+        }
+        ConfigPathOutcome::NotFound => {
+            log::info!("No config file found, using defaults");
+            Ok(Config::default())
         }
     }
-
-    // Try ~/.config/hyprsaver/config.toml (explicit home fallback)
-    if let Some(home) = dirs::home_dir() {
-        let candidate = home.join(".config").join("hyprsaver").join("config.toml");
-        if candidate.exists() {
-            let content = std::fs::read_to_string(&candidate)
-                .with_context(|| format!("failed to read config file: {}", candidate.display()))?;
-            return toml::from_str::<Config>(&content)
-                .with_context(|| format!("failed to parse config file: {}", candidate.display()));
-        }
-    }
-
-    log::info!("No config file found, using defaults");
-    Ok(Config::default())
 }
 
 impl Config {
@@ -551,10 +618,8 @@ palettes = ["frost", "ocean", "vapor"]
         );
 
         let orig_xdg = std::env::var("XDG_CONFIG_HOME").ok();
-        let orig_home = std::env::var("HOME").ok();
 
         std::env::set_var("XDG_CONFIG_HOME", "/nonexistent_xdg_hyprsaver_test");
-        std::env::set_var("HOME", "/nonexistent_home_hyprsaver_test");
 
         let result = load_config(None);
 
@@ -562,13 +627,63 @@ palettes = ["frost", "ocean", "vapor"]
             Some(v) => std::env::set_var("XDG_CONFIG_HOME", v),
             None => std::env::remove_var("XDG_CONFIG_HOME"),
         }
-        match orig_home {
-            Some(v) => std::env::set_var("HOME", v),
-            None => std::env::remove_var("HOME"),
-        }
 
         let cfg = result.expect("load_config(None) with no file must return Ok");
         assert_eq!(cfg.general.fps, 30);
         assert_eq!(cfg.general.shader, "mandelbrot");
+    }
+
+    // ---------------------------------------------------------------------------
+    // resolve_config_path tests
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn test_resolve_config_path_new_only() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let new_path = tmp.path().join("hyprsaver.toml");
+        let legacy_path = tmp.path().join("legacy_config.toml"); // does not exist
+        std::fs::write(&new_path, "").expect("write new path");
+
+        let outcome = resolve_config_path_impl(new_path.clone(), legacy_path);
+        assert_eq!(outcome, ConfigPathOutcome::New(new_path));
+    }
+
+    #[test]
+    fn test_resolve_config_path_legacy_only() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let new_path = tmp.path().join("hyprsaver.toml"); // does not exist
+        let legacy_path = tmp.path().join("config.toml");
+        std::fs::write(&legacy_path, "").expect("write legacy path");
+
+        let outcome = resolve_config_path_impl(new_path, legacy_path.clone());
+        assert_eq!(outcome, ConfigPathOutcome::Legacy(legacy_path));
+    }
+
+    #[test]
+    fn test_resolve_config_path_both_exist() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let new_path = tmp.path().join("hyprsaver.toml");
+        let legacy_path = tmp.path().join("config.toml");
+        std::fs::write(&new_path, "").expect("write new path");
+        std::fs::write(&legacy_path, "").expect("write legacy path");
+
+        let outcome = resolve_config_path_impl(new_path.clone(), legacy_path.clone());
+        assert_eq!(
+            outcome,
+            ConfigPathOutcome::Both {
+                new: new_path,
+                legacy: legacy_path,
+            }
+        );
+    }
+
+    #[test]
+    fn test_resolve_config_path_neither_exists() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let new_path = tmp.path().join("hyprsaver.toml");
+        let legacy_path = tmp.path().join("config.toml");
+
+        let outcome = resolve_config_path_impl(new_path, legacy_path);
+        assert_eq!(outcome, ConfigPathOutcome::NotFound);
     }
 }

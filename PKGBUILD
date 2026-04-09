@@ -40,6 +40,6 @@ package() {
     install -dm755 "$pkgdir/usr/share/$pkgname/examples"
     install -Dm644 examples/hypridle.conf "$pkgdir/usr/share/$pkgname/examples/hypridle.conf"
     install -Dm644 examples/hyprland.conf "$pkgdir/usr/share/$pkgname/examples/hyprland.conf"
-    install -Dm644 examples/config.toml   "$pkgdir/usr/share/$pkgname/examples/config.toml"
+    install -Dm644 examples/hyprsaver.toml "$pkgdir/usr/share/$pkgname/examples/hyprsaver.toml"
     install -Dm644 config.example.toml    "$pkgdir/usr/share/$pkgname/config.example.toml"
 }

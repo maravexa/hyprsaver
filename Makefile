@@ -15,7 +15,7 @@ install: release
 	install -dm755 $(DESTDIR)$(SHAREDIR)/examples
 	install -Dm644 examples/hypridle.conf $(DESTDIR)$(SHAREDIR)/examples/hypridle.conf
 	install -Dm644 examples/hyprland.conf $(DESTDIR)$(SHAREDIR)/examples/hyprland.conf
-	install -Dm644 examples/config.toml $(DESTDIR)$(SHAREDIR)/examples/config.toml
+	install -Dm644 examples/hyprsaver.toml $(DESTDIR)$(SHAREDIR)/examples/hyprsaver.toml
 	install -Dm644 config.example.toml $(DESTDIR)$(SHAREDIR)/config.example.toml
 
 uninstall:
