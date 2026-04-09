@@ -719,7 +719,7 @@ mod tests {
 
     #[test]
     fn test_builtin_shader_count() {
-        assert_eq!(manager().list().len(), 11);
+        assert_eq!(manager().list().len(), 12);
     }
 
     #[test]
@@ -738,6 +738,7 @@ mod tests {
             "flow_field",
             "raymarcher",
             "lissajous",
+            "pipes",
         ] {
             assert!(
                 names.contains(expected),
