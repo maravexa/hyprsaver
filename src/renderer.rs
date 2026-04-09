@@ -263,6 +263,193 @@ impl OffscreenTarget {
 }
 
 // ---------------------------------------------------------------------------
+// TransitionRenderer — shader-to-shader crossfade state machine
+// ---------------------------------------------------------------------------
+
+/// State of a shader-to-shader crossfade transition.
+///
+/// Lives inside `TransitionRenderer`. The `Crossfading` variant carries the
+/// outgoing shader program handle so the dual-FBO render path knows which
+/// program to render into `fbo_a`.
+#[derive(Debug)]
+pub enum TransitionState {
+    /// No transition active — render directly to the default framebuffer.
+    Idle,
+    /// Crossfading from an outgoing shader to an incoming shader.
+    Crossfading {
+        /// The outgoing shader's compiled GL program handle.
+        ///
+        /// `TransitionRenderer` does NOT own this program — its lifecycle is
+        /// managed by `ShaderManager`. When the transition completes, the
+        /// caller is responsible for releasing it if necessary.
+        outgoing_program: glow::Program,
+        /// Current eased progress, 0.0 (all outgoing) → 1.0 (all incoming).
+        ///
+        /// Refreshed by `tick()` each frame and read via `blend_alpha()`.
+        /// The value stored here is post-easing; raw linear progress is
+        /// recomputed from `started_at` / `duration` on the next tick.
+        progress: f32,
+        /// Total transition duration, in seconds.
+        duration: f32,
+        /// Wall-clock instant the transition started. Used by `tick()` to
+        /// compute elapsed time.
+        started_at: std::time::Instant,
+    },
+}
+
+/// Drives a crossfade between two fragment shaders by rendering each to its
+/// own offscreen target (`fbo_a` = outgoing, `fbo_b` = incoming) and blending
+/// them on the default framebuffer.
+///
+/// `TransitionRenderer` owns the two FBOs but **not** the shader programs —
+/// shader program lifecycle stays with `ShaderManager`. The `outgoing_program`
+/// stored in `TransitionState::Crossfading` is a borrowed handle.
+///
+/// # Usage
+/// 1. Call `start_transition()` with the program that was previously active
+///    when the caller swaps in a new shader.
+/// 2. Call `tick()` once per frame. If it returns `true`, the caller should
+///    use the dual-FBO render path and composite `fbo_a` + `fbo_b` using
+///    `blend_alpha()` as the blend factor.
+/// 3. When it returns `false`, the transition is either idle or just
+///    finished; fall back to the normal single-pass render path.
+pub struct TransitionRenderer {
+    /// Current transition state.
+    pub state: TransitionState,
+    /// Offscreen target for the outgoing shader.
+    pub fbo_a: OffscreenTarget,
+    /// Offscreen target for the incoming shader.
+    pub fbo_b: OffscreenTarget,
+    /// Default transition duration in seconds (from config). Used when
+    /// `start_transition()` is called without an explicit override.
+    pub default_duration: f32,
+}
+
+impl TransitionRenderer {
+    /// Create a new `TransitionRenderer` with two offscreen targets at the
+    /// given dimensions. Initial state is `Idle`.
+    ///
+    /// # Safety
+    /// The caller must ensure a current GL context is bound on the calling
+    /// thread.
+    pub fn new(gl: &glow::Context, width: u32, height: u32, default_duration: f32) -> Self {
+        Self {
+            state: TransitionState::Idle,
+            fbo_a: OffscreenTarget::new(gl, width, height),
+            fbo_b: OffscreenTarget::new(gl, width, height),
+            default_duration,
+        }
+    }
+
+    /// Begin a crossfade toward a new shader.
+    ///
+    /// * `outgoing_program` — the shader program that was active before the
+    ///   swap; its output will be rendered into `fbo_a` for the duration of
+    ///   the transition.
+    /// * `duration` — optional override for the transition length in seconds.
+    ///   When `None`, falls back to `self.default_duration`.
+    ///
+    /// If the renderer is already in `Crossfading`, the in-flight transition
+    /// is snapped to complete instantly (its outgoing program handle is
+    /// dropped from this struct — `ShaderManager` remains responsible for
+    /// the old handle's lifecycle) before the new transition begins.
+    pub fn start_transition(&mut self, outgoing_program: glow::Program, duration: Option<f32>) {
+        if matches!(self.state, TransitionState::Crossfading { .. }) {
+            // Complete the in-flight transition instantly. We intentionally
+            // do NOT delete the old outgoing program here — it is owned by
+            // ShaderManager. Dropping the enum variant forgets the handle.
+            self.state = TransitionState::Idle;
+        }
+
+        let duration = duration.unwrap_or(self.default_duration);
+        self.state = TransitionState::Crossfading {
+            outgoing_program,
+            progress: 0.0,
+            duration,
+            started_at: std::time::Instant::now(),
+        };
+    }
+
+    /// Advance the transition clock. Call once per frame.
+    ///
+    /// Returns:
+    /// - `false` when `Idle`, or when the transition has just completed on
+    ///   this tick (state is moved back to `Idle`).
+    /// - `true` while a crossfade is active; the caller should use the
+    ///   dual-FBO render path and composite using `blend_alpha()`.
+    ///
+    /// Applies smoothstep easing (`3t² − 2t³`) to the linear progress before
+    /// storing it. A non-positive `duration` is treated as an instant
+    /// transition and moves the state to `Idle` on the next tick.
+    pub fn tick(&mut self) -> bool {
+        // Copy out the Copy fields we need so the read borrow ends before we
+        // potentially overwrite `self.state` below.
+        let (duration, started_at) = match &self.state {
+            TransitionState::Idle => return false,
+            TransitionState::Crossfading {
+                duration,
+                started_at,
+                ..
+            } => (*duration, *started_at),
+        };
+
+        let elapsed = started_at.elapsed().as_secs_f32();
+        let raw = if duration <= 0.0 {
+            1.0
+        } else {
+            elapsed / duration
+        };
+        let clamped = raw.clamp(0.0, 1.0);
+
+        if clamped >= 1.0 {
+            self.state = TransitionState::Idle;
+            return false;
+        }
+
+        // Smoothstep easing.
+        let eased = clamped * clamped * (3.0 - 2.0 * clamped);
+        if let TransitionState::Crossfading { progress, .. } = &mut self.state {
+            *progress = eased;
+        }
+        true
+    }
+
+    /// Resize both offscreen targets. Per-FBO no-op if dimensions are
+    /// unchanged.
+    pub fn resize(&mut self, gl: &glow::Context, width: u32, height: u32) {
+        self.fbo_a.resize(gl, width, height);
+        self.fbo_b.resize(gl, width, height);
+    }
+
+    /// Release both offscreen targets. Consumes `self`.
+    ///
+    /// Does NOT delete any shader program. If the renderer is still in
+    /// `Crossfading`, the caller is responsible for flagging the outgoing
+    /// program for cleanup via `ShaderManager` — this method simply drops
+    /// the enum variant and forgets the handle.
+    pub fn destroy(self, gl: &glow::Context) {
+        self.fbo_a.destroy(gl);
+        self.fbo_b.destroy(gl);
+    }
+
+    /// Returns `true` if a crossfade is currently in progress.
+    pub fn is_transitioning(&self) -> bool {
+        matches!(self.state, TransitionState::Crossfading { .. })
+    }
+
+    /// Current eased blend factor, in `[0.0, 1.0]`. Returns `0.0` when idle.
+    ///
+    /// Reflects the value most recently stored by `tick()`; call `tick()`
+    /// before reading this each frame so the value is fresh.
+    pub fn blend_alpha(&self) -> f32 {
+        match self.state {
+            TransitionState::Idle => 0.0,
+            TransitionState::Crossfading { progress, .. } => progress,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Renderer
 // ---------------------------------------------------------------------------
 
@@ -888,5 +1075,35 @@ mod tests {
             VERT_SRC.contains("layout(location = 0)"),
             "a_pos must be at location 0"
         );
+    }
+
+    /// Mirrors the easing expression used in `TransitionRenderer::tick()`.
+    /// Kept as a standalone helper so the curve can be verified without a
+    /// GL context.
+    fn smoothstep(t: f32) -> f32 {
+        t * t * (3.0 - 2.0 * t)
+    }
+
+    #[test]
+    fn test_transition_smoothstep_boundaries() {
+        assert!((smoothstep(0.0) - 0.0).abs() < 1e-6);
+        assert!((smoothstep(0.5) - 0.5).abs() < 1e-6);
+        assert!((smoothstep(1.0) - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_transition_smoothstep_monotonic() {
+        // The eased curve must be monotonically non-decreasing on [0, 1]
+        // so the crossfade never visually "reverses".
+        let mut prev = smoothstep(0.0);
+        for i in 1..=100 {
+            let t = i as f32 / 100.0;
+            let cur = smoothstep(t);
+            assert!(
+                cur >= prev - 1e-6,
+                "smoothstep not monotonic at t={t}: {prev} → {cur}"
+            );
+            prev = cur;
+        }
     }
 }
