@@ -66,10 +66,10 @@ pub struct GeneralConfig {
     /// Target render FPS. Default: 30.
     pub fps: u32,
 
-    /// Shader to use. One of: a shader name, `"random"`, or `"cycle"`. Default: `"mandelbrot"`.
+    /// Shader to use. One of: a shader name, `"random"`, or `"cycle"`. Default: `"cycle"`.
     pub shader: String,
 
-    /// Palette to use. One of: a palette name, `"random"`, or `"cycle"`. Default: `"electric"`.
+    /// Palette to use. One of: a palette name, `"random"`, or `"cycle"`. Default: `"cycle"`.
     pub palette: String,
 
     /// How many seconds to display each shader before cycling. Default: 300 (5 min).
@@ -89,20 +89,24 @@ pub struct GeneralConfig {
 
     /// Named palette playlist to use when `palette = "cycle"`. If unset, cycles all palettes.
     pub palette_playlist: Option<String>,
+
+    /// Cycle selection order: `"random"` (default) or `"sequential"`.
+    pub cycle_order: String,
 }
 
 impl Default for GeneralConfig {
     fn default() -> Self {
         Self {
             fps: 30,
-            shader: "mandelbrot".to_string(),
-            palette: "electric".to_string(),
+            shader: "cycle".to_string(),
+            palette: "cycle".to_string(),
             shader_cycle_interval: 300,
             palette_cycle_interval: 60,
             palette_cycle: Vec::new(),
             palette_transition_duration: 0.0,
             shader_playlist: None,
             palette_playlist: None,
+            cycle_order: "random".to_string(),
         }
     }
 }
@@ -364,6 +368,7 @@ impl Config {
         palette: Option<&str>,
         shader_cycle_interval: Option<u64>,
         palette_cycle_interval: Option<u64>,
+        cycle_order: Option<&str>,
     ) {
         if let Some(s) = shader {
             self.general.shader = s.to_string();
@@ -376,6 +381,9 @@ impl Config {
         }
         if let Some(interval) = palette_cycle_interval {
             self.general.palette_cycle_interval = interval;
+        }
+        if let Some(order) = cycle_order {
+            self.general.cycle_order = order.to_string();
         }
     }
 }
@@ -392,14 +400,15 @@ mod tests {
     fn test_default_config() {
         let cfg = Config::default();
         assert_eq!(cfg.general.fps, 30);
-        assert_eq!(cfg.general.shader, "mandelbrot");
-        assert_eq!(cfg.general.palette, "electric");
+        assert_eq!(cfg.general.shader, "cycle");
+        assert_eq!(cfg.general.palette, "cycle");
         assert_eq!(cfg.general.shader_cycle_interval, 300);
         assert_eq!(cfg.general.palette_cycle_interval, 60);
         assert!(cfg.general.palette_cycle.is_empty());
         assert_eq!(cfg.general.palette_transition_duration, 0.0);
         assert!(cfg.general.shader_playlist.is_none());
         assert!(cfg.general.palette_playlist.is_none());
+        assert_eq!(cfg.general.cycle_order, "random");
         assert_eq!(cfg.behavior.fade_in_ms, 800);
         assert_eq!(cfg.behavior.fade_out_ms, 400);
         assert!(cfg.behavior.dismiss_on.contains(&DismissEvent::Key));
@@ -414,8 +423,9 @@ mod tests {
     fn test_parse_minimal_toml() {
         let cfg: Config = toml::from_str("").expect("empty TOML must parse");
         assert_eq!(cfg.general.fps, 30);
-        assert_eq!(cfg.general.shader, "mandelbrot");
-        assert_eq!(cfg.general.palette, "electric");
+        assert_eq!(cfg.general.shader, "cycle");
+        assert_eq!(cfg.general.palette, "cycle");
+        assert_eq!(cfg.general.cycle_order, "random");
         assert_eq!(cfg.behavior.fade_in_ms, 800);
         assert_eq!(cfg.behavior.fade_out_ms, 400);
         assert_eq!(cfg.behavior.dismiss_on.len(), 4);
@@ -544,8 +554,9 @@ shader = "snowfall"
         let toml_str = "[general]\nfps = 60\n";
         let cfg: Config = toml::from_str(toml_str).expect("partial TOML must parse");
         assert_eq!(cfg.general.fps, 60);
-        assert_eq!(cfg.general.shader, "mandelbrot");
-        assert_eq!(cfg.general.palette, "electric");
+        assert_eq!(cfg.general.shader, "cycle");
+        assert_eq!(cfg.general.palette, "cycle");
+        assert_eq!(cfg.general.cycle_order, "random");
         assert_eq!(cfg.behavior.fade_in_ms, 800);
         assert_eq!(cfg.behavior.fade_out_ms, 400);
     }
@@ -553,7 +564,7 @@ shader = "snowfall"
     #[test]
     fn test_cli_overrides() {
         let mut cfg = Config::default();
-        cfg.apply_cli_overrides(Some("julia"), Some("vapor"), None, None);
+        cfg.apply_cli_overrides(Some("julia"), Some("vapor"), None, None, None);
         assert_eq!(cfg.general.shader, "julia");
         assert_eq!(cfg.general.palette, "vapor");
     }
@@ -561,15 +572,15 @@ shader = "snowfall"
     #[test]
     fn test_cli_overrides_partial() {
         let mut cfg = Config::default();
-        cfg.apply_cli_overrides(Some("julia"), None, None, None);
+        cfg.apply_cli_overrides(Some("julia"), None, None, None, None);
         assert_eq!(cfg.general.shader, "julia");
-        assert_eq!(cfg.general.palette, "electric"); // unchanged
+        assert_eq!(cfg.general.palette, "cycle"); // unchanged default
     }
 
     #[test]
     fn test_cli_overrides_cycle_intervals() {
         let mut cfg = Config::default();
-        cfg.apply_cli_overrides(None, None, Some(120), Some(45));
+        cfg.apply_cli_overrides(None, None, Some(120), Some(45), None);
         assert_eq!(cfg.general.shader_cycle_interval, 120);
         assert_eq!(cfg.general.palette_cycle_interval, 45);
     }
@@ -577,9 +588,23 @@ shader = "snowfall"
     #[test]
     fn test_cli_overrides_cycle_intervals_partial() {
         let mut cfg = Config::default();
-        cfg.apply_cli_overrides(None, None, Some(90), None);
+        cfg.apply_cli_overrides(None, None, Some(90), None, None);
         assert_eq!(cfg.general.shader_cycle_interval, 90);
         assert_eq!(cfg.general.palette_cycle_interval, 60); // unchanged default
+    }
+
+    #[test]
+    fn test_cli_overrides_cycle_order() {
+        let mut cfg = Config::default();
+        cfg.apply_cli_overrides(None, None, None, None, Some("sequential"));
+        assert_eq!(cfg.general.cycle_order, "sequential");
+    }
+
+    #[test]
+    fn test_parse_cycle_order() {
+        let toml_str = "[general]\ncycle_order = \"sequential\"\n";
+        let cfg: Config = toml::from_str(toml_str).expect("must parse");
+        assert_eq!(cfg.general.cycle_order, "sequential");
     }
 
     #[test]
@@ -658,7 +683,7 @@ palettes = ["frost", "ocean", "vapor"]
 
         let cfg = result.expect("load_config(None) with no file must return Ok");
         assert_eq!(cfg.general.fps, 30);
-        assert_eq!(cfg.general.shader, "mandelbrot");
+        assert_eq!(cfg.general.shader, "cycle");
     }
 
     // ---------------------------------------------------------------------------

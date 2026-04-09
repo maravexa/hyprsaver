@@ -13,6 +13,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 mod config;
+mod cycle;
 mod palette;
 mod preview;
 mod renderer;
@@ -104,6 +105,18 @@ struct Cli {
     /// Override palette cycle interval in seconds (only used when palette = "cycle")
     #[arg(long, value_name = "SECONDS")]
     palette_cycle_interval: Option<u64>,
+
+    /// Shorter alias for --shader-cycle-interval
+    #[arg(long, value_name = "SECONDS")]
+    shader_interval: Option<u64>,
+
+    /// Shorter alias for --palette-cycle-interval
+    #[arg(long, value_name = "SECONDS")]
+    palette_interval: Option<u64>,
+
+    /// Cycle selection order: "random" (default) or "sequential"
+    #[arg(long, value_name = "random|sequential")]
+    cycle_order: Option<String>,
 }
 
 fn main() {
@@ -789,11 +802,19 @@ fn print_palette_playlists(cfg: &Config) {
 fn load_config(cli: &Cli) -> anyhow::Result<Config> {
     let path = cli.config.as_deref().and_then(|p| p.to_str());
     let mut cfg = config::load_config(path)?;
+
+    // --shader-interval / --palette-interval are shorter aliases; the
+    // explicit --shader-cycle-interval / --palette-cycle-interval take
+    // precedence when both are provided.
+    let shader_interval = cli.shader_cycle_interval.or(cli.shader_interval);
+    let palette_interval = cli.palette_cycle_interval.or(cli.palette_interval);
+
     cfg.apply_cli_overrides(
         cli.shader.as_deref(),
         cli.palette.as_deref(),
-        cli.shader_cycle_interval,
-        cli.palette_cycle_interval,
+        shader_interval,
+        palette_interval,
+        cli.cycle_order.as_deref(),
     );
     Ok(cfg)
 }
