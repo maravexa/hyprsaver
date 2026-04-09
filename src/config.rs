@@ -357,13 +357,25 @@ pub fn load_config(path: Option<&str>) -> anyhow::Result<Config> {
 }
 
 impl Config {
-    /// Override `general.shader` and/or `general.palette` from CLI arguments.
-    pub fn apply_cli_overrides(&mut self, shader: Option<&str>, palette: Option<&str>) {
+    /// Override `general` fields from CLI arguments.
+    pub fn apply_cli_overrides(
+        &mut self,
+        shader: Option<&str>,
+        palette: Option<&str>,
+        shader_cycle_interval: Option<u64>,
+        palette_cycle_interval: Option<u64>,
+    ) {
         if let Some(s) = shader {
             self.general.shader = s.to_string();
         }
         if let Some(p) = palette {
             self.general.palette = p.to_string();
+        }
+        if let Some(interval) = shader_cycle_interval {
+            self.general.shader_cycle_interval = interval;
+        }
+        if let Some(interval) = palette_cycle_interval {
+            self.general.palette_cycle_interval = interval;
         }
     }
 }
@@ -541,7 +553,7 @@ shader = "snowfall"
     #[test]
     fn test_cli_overrides() {
         let mut cfg = Config::default();
-        cfg.apply_cli_overrides(Some("julia"), Some("vapor"));
+        cfg.apply_cli_overrides(Some("julia"), Some("vapor"), None, None);
         assert_eq!(cfg.general.shader, "julia");
         assert_eq!(cfg.general.palette, "vapor");
     }
@@ -549,9 +561,25 @@ shader = "snowfall"
     #[test]
     fn test_cli_overrides_partial() {
         let mut cfg = Config::default();
-        cfg.apply_cli_overrides(Some("julia"), None);
+        cfg.apply_cli_overrides(Some("julia"), None, None, None);
         assert_eq!(cfg.general.shader, "julia");
         assert_eq!(cfg.general.palette, "electric"); // unchanged
+    }
+
+    #[test]
+    fn test_cli_overrides_cycle_intervals() {
+        let mut cfg = Config::default();
+        cfg.apply_cli_overrides(None, None, Some(120), Some(45));
+        assert_eq!(cfg.general.shader_cycle_interval, 120);
+        assert_eq!(cfg.general.palette_cycle_interval, 45);
+    }
+
+    #[test]
+    fn test_cli_overrides_cycle_intervals_partial() {
+        let mut cfg = Config::default();
+        cfg.apply_cli_overrides(None, None, Some(90), None);
+        assert_eq!(cfg.general.shader_cycle_interval, 90);
+        assert_eq!(cfg.general.palette_cycle_interval, 60); // unchanged default
     }
 
     #[test]
