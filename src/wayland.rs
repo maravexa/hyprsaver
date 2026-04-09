@@ -36,6 +36,7 @@ use wayland_client::{
 
 use crate::{
     config::{Config, DismissEvent},
+    cycle::{CycleConfig, CycleEvent, CycleManager, CycleOrder},
     palette::PaletteManager,
     renderer::Renderer,
     shaders::ShaderManager,
@@ -165,6 +166,18 @@ pub struct Surface {
 
     /// Palette name resolved for this surface (per-monitor override or global).
     palette_name: String,
+
+    /// Per-output cycle manager. `Some` only in `synced = false` mode.
+    cycle_manager: Option<CycleManager>,
+
+    /// Start time of an in-progress palette cross-fade on this surface.
+    /// Used in `synced = false` mode; ignored when `synced = true` (global
+    /// PaletteManager tracks the transition instead).
+    palette_transition_start: Option<Instant>,
+
+    /// Name of the incoming palette for an in-progress cross-fade.
+    /// `None` when no transition is active on this surface.
+    palette_next_name: Option<String>,
 }
 
 impl Surface {
@@ -417,6 +430,13 @@ pub struct WaylandState {
 
     /// Signal flag — set to false by signal handler.
     signal_flag: Arc<AtomicBool>,
+
+    /// Global CycleManager used in `synced = true` mode.
+    /// `None` when neither shader nor palette is cycling, or when `synced = false`.
+    global_cycle_manager: Option<CycleManager>,
+
+    /// Whether all monitors cycle in sync (`true`, default) or independently (`false`).
+    synced: bool,
 }
 
 impl WaylandState {
@@ -516,6 +536,66 @@ impl WaylandState {
         (self.active_shader.clone(), self.active_palette.clone())
     }
 
+    /// Build a [`CycleManager`] for a single output in `synced = false` mode.
+    ///
+    /// If the output has a per-monitor config that pins the shader or palette to a
+    /// fixed name, that slot in the CycleManager gets a single-entry playlist so it
+    /// never cycles (the single-entry invariant in [`CycleManager::tick`]).
+    fn build_per_output_cycle_manager(
+        &self,
+        output_name: Option<&str>,
+        seed_offset: u64,
+    ) -> CycleManager {
+        // Determine which shader/palette this output uses.
+        let mc = output_name.and_then(|n| self.config.monitors.iter().find(|m| m.name == n));
+        let monitor_shader = mc
+            .and_then(|m| m.shader.as_deref())
+            .unwrap_or(&self.config.general.shader);
+        let monitor_palette = mc
+            .and_then(|m| m.palette.as_deref())
+            .unwrap_or(&self.config.general.palette);
+
+        let shader_pl: Vec<String> = if monitor_shader == "cycle" || monitor_shader == "random" {
+            self.shader_manager.effective_playlist()
+        } else {
+            // Single-entry list → CycleManager never emits a ShaderChange.
+            vec![monitor_shader.to_string()]
+        };
+
+        let palette_pl: Vec<String> = if monitor_palette == "cycle" || monitor_palette == "random" {
+            self.palette_manager.effective_playlist()
+        } else {
+            vec![monitor_palette.to_string()]
+        };
+
+        // Guard against empty playlists (should not happen given the fallback above).
+        let shader_pl = if shader_pl.is_empty() {
+            vec!["mandelbrot".to_string()]
+        } else {
+            shader_pl
+        };
+        let palette_pl = if palette_pl.is_empty() {
+            vec!["electric".to_string()]
+        } else {
+            palette_pl
+        };
+
+        CycleManager::new_with_offset(
+            CycleConfig {
+                shader_playlist: shader_pl,
+                palette_playlist: palette_pl,
+                shader_interval: Duration::from_secs(
+                    self.config.general.shader_cycle_interval.max(1),
+                ),
+                palette_interval: Duration::from_secs(
+                    self.config.general.palette_cycle_interval.max(1),
+                ),
+                order: CycleOrder::from_str(&self.config.general.cycle_order),
+            },
+            seed_offset,
+        )
+    }
+
     /// Create a layer surface for the given output and return the Surface.
     fn make_layer_surface(
         compositor: &CompositorState,
@@ -556,6 +636,9 @@ impl WaylandState {
             output_name,
             shader_name,
             palette_name,
+            cycle_manager: None,
+            palette_transition_start: None,
+            palette_next_name: None,
         }
     }
 }
@@ -612,6 +695,51 @@ pub fn run(
 
     // Warn about monitor config entries that don't match any connected output.
     // We do this after the roundtrip when we have output info available.
+    let synced = config.general.synced;
+
+    // Build the global CycleManager used in synced=true mode.
+    // In synced=false mode each Surface gets its own CycleManager below.
+    let global_cycle_manager: Option<CycleManager> = if synced {
+        let shader_cycling = config.general.shader == "cycle";
+        let palette_cycling = config.general.palette == "cycle";
+        if shader_cycling || palette_cycling {
+            // Build the playlists from the managers (which already had set_playlist()
+            // called on them in validate_and_apply_playlists()).
+            let shader_pl = if shader_cycling {
+                shader_manager.effective_playlist()
+            } else {
+                vec![active_shader.clone()]
+            };
+            let palette_pl = if palette_cycling {
+                palette_manager.effective_playlist()
+            } else {
+                vec![active_palette.clone()]
+            };
+            let shader_pl = if shader_pl.is_empty() {
+                vec!["mandelbrot".to_string()]
+            } else {
+                shader_pl
+            };
+            let palette_pl = if palette_pl.is_empty() {
+                vec!["electric".to_string()]
+            } else {
+                palette_pl
+            };
+
+            Some(CycleManager::new(CycleConfig {
+                shader_playlist: shader_pl,
+                palette_playlist: palette_pl,
+                shader_interval: Duration::from_secs(config.general.shader_cycle_interval.max(1)),
+                palette_interval: Duration::from_secs(config.general.palette_cycle_interval.max(1)),
+                order: CycleOrder::from_str(&config.general.cycle_order),
+            }))
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
     let mut state = WaylandState {
         registry_state,
         output_state,
@@ -631,6 +759,8 @@ pub fn run(
         keyboard: None,
         pointer: None,
         signal_flag,
+        global_cycle_manager,
+        synced,
     };
 
     // Initial roundtrip to get outputs.
@@ -639,13 +769,24 @@ pub fn run(
     // Create one layer surface per known output, resolving per-monitor config.
     {
         let outputs: Vec<wl_output::WlOutput> = state.output_state.outputs().collect();
-        for output in &outputs {
+        for (output_index, output) in outputs.iter().enumerate() {
             let output_name = state
                 .output_state
                 .info(output)
                 .and_then(|info| info.name.clone());
-            let (shader_name, palette_name) = state.resolve_monitor_config(output_name.as_deref());
-            let surface = WaylandState::make_layer_surface(
+
+            let (shader_name, palette_name, cycle_manager) = if state.synced {
+                let (sn, pn) = state.resolve_monitor_config(output_name.as_deref());
+                (sn, pn, None)
+            } else {
+                let mgr = state
+                    .build_per_output_cycle_manager(output_name.as_deref(), output_index as u64);
+                let sn = mgr.current_shader().to_string();
+                let pn = mgr.current_palette().to_string();
+                (sn, pn, Some(mgr))
+            };
+
+            let mut surface = WaylandState::make_layer_surface(
                 &state.compositor_state,
                 &state.layer_shell,
                 Some(output),
@@ -654,6 +795,7 @@ pub fn run(
                 shader_name,
                 palette_name,
             );
+            surface.cycle_manager = cycle_manager;
             state.surfaces.insert(output.clone(), surface);
         }
 
@@ -686,10 +828,6 @@ pub fn run(
     // Set up calloop event loop.
     let fps = state.config.general.fps.max(1);
     let frame_ms = 1000u64 / fps as u64;
-    let shader_cycle_interval = state.config.general.shader_cycle_interval;
-    let palette_cycle_interval = state.config.general.palette_cycle_interval;
-    let shader_cycling = state.config.general.shader == "cycle";
-    let palette_cycling = state.config.general.palette == "cycle";
 
     let mut event_loop: EventLoop<WaylandState> =
         EventLoop::try_new().context("failed to create calloop EventLoop")?;
@@ -701,6 +839,8 @@ pub fn run(
         .map_err(|e| anyhow::anyhow!("failed to insert WaylandSource: {e}"))?;
 
     // Render timer — fires every frame_ms milliseconds.
+    // This also drives cycle advancement via CycleManager::tick() each frame,
+    // replacing the old separate calloop cycle timers.
     let render_timer = calloop::timer::Timer::from_duration(Duration::from_millis(frame_ms));
     loop_handle
         .insert_source(render_timer, move |_, _, state: &mut WaylandState| {
@@ -730,30 +870,256 @@ pub fn run(
                 }
             }
 
-            // Advance palette cross-fade transition and propagate blend factor.
             let now = std::time::Instant::now();
-            let was_transitioning = state.palette_manager.next_palette().is_some();
-            let blend = state.palette_manager.advance_transition(now);
-            if blend > 0.0 {
-                // Transition in progress: update blend on all renderers.
-                for surf in state.surfaces.values_mut() {
+
+            // --- Cycle advancement (per-frame via CycleManager::tick) ---
+            //
+            // synced=true:  one global CycleManager; broadcast events to all surfaces.
+            // synced=false: each surface has its own CycleManager; tick independently.
+            if state.synced {
+                let events = if let Some(ref mut mgr) = state.global_cycle_manager {
+                    mgr.tick(now)
+                } else {
+                    vec![]
+                };
+
+                let egl_ptr = state.egl.as_ref().map(|e| e as *const EglState);
+                for event in events {
+                    match event {
+                        CycleEvent::ShaderChange(name) => {
+                            log::info!("Cycling shader: {name}");
+                            let compiled =
+                                state.shader_manager.get_compiled(&name).map(str::to_string);
+                            if let Some(compiled) = compiled {
+                                let old_active = state.active_shader.clone();
+                                for surf in state.surfaces.values_mut() {
+                                    // Skip surfaces with per-monitor pinned shaders.
+                                    if surf.shader_name != old_active {
+                                        continue;
+                                    }
+                                    if let (Some(egl), Some(es), Some(ec)) =
+                                        (egl_ptr, surf.egl_surface, surf.egl_context)
+                                    {
+                                        let egl_ref = unsafe { &*egl };
+                                        let _ = egl_ref.egl.make_current(
+                                            egl_ref.display,
+                                            Some(es),
+                                            Some(es),
+                                            Some(ec),
+                                        );
+                                    }
+                                    if let Some(r) = surf.renderer.as_mut() {
+                                        if let Err(e) = r.load_shader(&compiled) {
+                                            log::warn!("Shader cycle compile error: {e:#}");
+                                        }
+                                    }
+                                    surf.shader_name = name.clone();
+                                }
+                                state.active_shader = name;
+                            }
+                        }
+                        CycleEvent::PaletteChange(name) => {
+                            log::info!("Cycling palette: {name}");
+                            let entry = state.palette_manager.get(&name).cloned();
+                            let td = state.palette_manager.transition_duration;
+                            if let Some(entry) = entry {
+                                for surf in state.surfaces.values_mut() {
+                                    if let (Some(egl), Some(es), Some(ec)) =
+                                        (egl_ptr, surf.egl_surface, surf.egl_context)
+                                    {
+                                        let egl_ref = unsafe { &*egl };
+                                        let _ = egl_ref.egl.make_current(
+                                            egl_ref.display,
+                                            Some(es),
+                                            Some(es),
+                                            Some(ec),
+                                        );
+                                    }
+                                    if let Some(r) = surf.renderer.as_mut() {
+                                        if td <= 0.0 {
+                                            r.set_palette(&entry).ok();
+                                        } else {
+                                            r.begin_transition(&entry).ok();
+                                        }
+                                    }
+                                }
+                            }
+                            state.palette_manager.begin_transition(&name, now);
+                            state.active_palette = name;
+                        }
+                    }
+                }
+            } else {
+                // synced=false: tick each surface's CycleManager independently.
+                // Collect keys first to avoid the borrow-split issue with
+                // shader_manager / palette_manager access inside the surface loop.
+                let surface_keys: Vec<wl_output::WlOutput> =
+                    state.surfaces.keys().cloned().collect();
+                let egl_ptr = state.egl.as_ref().map(|e| e as *const EglState);
+
+                for key in &surface_keys {
+                    let events = {
+                        let Some(surf) = state.surfaces.get_mut(key) else {
+                            continue;
+                        };
+                        let Some(ref mut mgr) = surf.cycle_manager else {
+                            continue;
+                        };
+                        mgr.tick(now)
+                    };
+
+                    for event in events {
+                        match event {
+                            CycleEvent::ShaderChange(shader_name) => {
+                                log::info!("Cycling shader on output: {shader_name}");
+                                let compiled = state
+                                    .shader_manager
+                                    .get_compiled(&shader_name)
+                                    .map(str::to_string);
+                                if let Some(compiled) = compiled {
+                                    if let Some(surf) = state.surfaces.get_mut(key) {
+                                        if let (Some(egl), Some(es), Some(ec)) =
+                                            (egl_ptr, surf.egl_surface, surf.egl_context)
+                                        {
+                                            let egl_ref = unsafe { &*egl };
+                                            let _ = egl_ref.egl.make_current(
+                                                egl_ref.display,
+                                                Some(es),
+                                                Some(es),
+                                                Some(ec),
+                                            );
+                                        }
+                                        if let Some(r) = surf.renderer.as_mut() {
+                                            if let Err(e) = r.load_shader(&compiled) {
+                                                log::warn!("Shader cycle compile error: {e:#}");
+                                            }
+                                        }
+                                        surf.shader_name = shader_name;
+                                    }
+                                }
+                            }
+                            CycleEvent::PaletteChange(palette_name) => {
+                                log::info!("Cycling palette on output: {palette_name}");
+                                let entry = state.palette_manager.get(&palette_name).cloned();
+                                let td = state.palette_manager.transition_duration;
+                                if let Some(entry) = entry {
+                                    if let Some(surf) = state.surfaces.get_mut(key) {
+                                        if let (Some(egl), Some(es), Some(ec)) =
+                                            (egl_ptr, surf.egl_surface, surf.egl_context)
+                                        {
+                                            let egl_ref = unsafe { &*egl };
+                                            let _ = egl_ref.egl.make_current(
+                                                egl_ref.display,
+                                                Some(es),
+                                                Some(es),
+                                                Some(ec),
+                                            );
+                                        }
+                                        if let Some(r) = surf.renderer.as_mut() {
+                                            if td <= 0.0 {
+                                                r.set_palette(&entry).ok();
+                                            } else {
+                                                r.begin_transition(&entry).ok();
+                                            }
+                                        }
+                                        if td > 0.0 {
+                                            surf.palette_transition_start = Some(now);
+                                            surf.palette_next_name = Some(palette_name.clone());
+                                        } else {
+                                            surf.palette_name = palette_name;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // --- Palette cross-fade transition ---
+            //
+            // synced=true:  advance the global PaletteManager and propagate its blend to
+            //               all renderers (same as before).
+            // synced=false: compute per-surface blend from surf.palette_transition_start.
+            //               Two-pass approach: pass 1 computes blends and collects
+            //               completed names; pass 2 commits the new palette to each
+            //               renderer (needed to split the mutable-borrow of surfaces from
+            //               the shared-borrow of palette_manager).
+            if state.synced {
+                let was_transitioning = state.palette_manager.next_palette().is_some();
+                let blend = state.palette_manager.advance_transition(now);
+                if blend > 0.0 {
+                    for surf in state.surfaces.values_mut() {
+                        if let Some(r) = surf.renderer.as_mut() {
+                            r.set_blend(blend);
+                        }
+                    }
+                } else {
+                    for surf in state.surfaces.values_mut() {
+                        if let Some(r) = surf.renderer.as_mut() {
+                            r.set_blend(0.0);
+                        }
+                    }
+                    if was_transitioning {
+                        if let Some(entry) = state.palette_manager.current_palette().cloned() {
+                            let egl_ptr = state.egl.as_ref().map(|e| e as *const EglState);
+                            for surf in state.surfaces.values_mut() {
+                                if let (Some(egl), Some(es), Some(ec)) =
+                                    (egl_ptr, surf.egl_surface, surf.egl_context)
+                                {
+                                    let egl_ref = unsafe { &*egl };
+                                    let _ = egl_ref.egl.make_current(
+                                        egl_ref.display,
+                                        Some(es),
+                                        Some(es),
+                                        Some(ec),
+                                    );
+                                }
+                                if let Some(r) = surf.renderer.as_mut() {
+                                    r.set_palette(&entry).ok();
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                // Per-surface blend.
+                let td = state.palette_manager.transition_duration;
+
+                // Pass 1: compute and apply blend; collect names of completed transitions.
+                let mut completions: Vec<(wl_output::WlOutput, String)> = Vec::new();
+                for (key, surf) in state.surfaces.iter_mut() {
+                    let blend = if let Some(start) = surf.palette_transition_start {
+                        if td > 0.0 {
+                            let elapsed = now.duration_since(start).as_secs_f32();
+                            let b = (elapsed / td).clamp(0.0, 1.0);
+                            if b >= 1.0 {
+                                if let Some(next) = surf.palette_next_name.take() {
+                                    surf.palette_transition_start = None;
+                                    surf.palette_name = next.clone();
+                                    completions.push((key.clone(), next));
+                                }
+                                0.0
+                            } else {
+                                b
+                            }
+                        } else {
+                            surf.palette_transition_start = None;
+                            0.0
+                        }
+                    } else {
+                        0.0
+                    };
                     if let Some(r) = surf.renderer.as_mut() {
                         r.set_blend(blend);
                     }
                 }
-            } else {
-                // No active transition: ensure blend=0 on all renderers.
-                for surf in state.surfaces.values_mut() {
-                    if let Some(r) = surf.renderer.as_mut() {
-                        r.set_blend(0.0);
-                    }
-                }
-                // If a timed transition just completed, commit the new current palette
-                // to each renderer's palette A so subsequent cycles start from the right base.
-                if was_transitioning {
-                    if let Some(entry) = state.palette_manager.current_palette().cloned() {
-                        let egl_ptr = state.egl.as_ref().map(|e| e as *const EglState);
-                        for surf in state.surfaces.values_mut() {
+
+                // Pass 2: commit the new palette A to each surface that just finished.
+                let egl_ptr = state.egl.as_ref().map(|e| e as *const EglState);
+                for (key, name) in completions {
+                    if let Some(entry) = state.palette_manager.get(&name).cloned() {
+                        if let Some(surf) = state.surfaces.get_mut(&key) {
                             if let (Some(egl), Some(es), Some(ec)) =
                                 (egl_ptr, surf.egl_surface, surf.egl_context)
                             {
@@ -812,177 +1178,6 @@ pub fn run(
             calloop::timer::TimeoutAction::ToDuration(Duration::from_millis(frame_ms))
         })
         .map_err(|e| anyhow::anyhow!("failed to insert render timer: {e}"))?;
-
-    // Cycle timers — three cases:
-    //   (a) both shader+palette cycle  → single unified timer at shader_cycle_interval
-    //   (b) shader only                → shader timer
-    //   (c) palette only               → palette timer
-
-    if shader_cycling && palette_cycling {
-        // (a) Unified timer: advance both on every tick so monitors always show the
-        // same shader and palette at all times.
-        let cycle_timer =
-            calloop::timer::Timer::from_duration(Duration::from_secs(shader_cycle_interval.max(1)));
-        loop_handle
-            .insert_source(cycle_timer, move |_, _, state: &mut WaylandState| {
-                let now = std::time::Instant::now();
-
-                // Advance cycle indices and pre-fetch data before the surface loop.
-                let next_shader_name = state.shader_manager.cycle_next();
-                let next_palette_name = state.palette_manager.cycle_next();
-
-                let compiled_shader = next_shader_name
-                    .as_deref()
-                    .and_then(|n| state.shader_manager.get_compiled(n))
-                    .map(str::to_string);
-                let palette_entry = next_palette_name
-                    .as_deref()
-                    .and_then(|n| state.palette_manager.get(n))
-                    .cloned();
-                let td = state.palette_manager.transition_duration;
-                let old_active = state.active_shader.clone();
-                let egl_ptr = state.egl.as_ref().map(|e| e as *const EglState);
-
-                for surf in state.surfaces.values_mut() {
-                    if surf.shader_name != old_active {
-                        continue;
-                    }
-                    // Make this surface's EGL context current before any GL operations.
-                    if let (Some(egl), Some(es), Some(ec)) =
-                        (egl_ptr, surf.egl_surface, surf.egl_context)
-                    {
-                        let egl_ref = unsafe { &*egl };
-                        let _ =
-                            egl_ref
-                                .egl
-                                .make_current(egl_ref.display, Some(es), Some(es), Some(ec));
-                    }
-                    if let Some(ref compiled) = compiled_shader {
-                        if let Some(r) = surf.renderer.as_mut() {
-                            if let Err(e) = r.load_shader(compiled) {
-                                log::warn!("Shader cycle compile error: {e:#}");
-                            }
-                        }
-                    }
-                    if let Some(ref entry) = palette_entry {
-                        if let Some(r) = surf.renderer.as_mut() {
-                            if td <= 0.0 {
-                                r.set_palette(entry).ok();
-                            } else {
-                                r.begin_transition(entry).ok();
-                            }
-                        }
-                    }
-                    if let Some(ref n) = next_shader_name {
-                        surf.shader_name = n.clone();
-                    }
-                }
-
-                let sname = next_shader_name.as_deref().unwrap_or("?");
-                let pname = next_palette_name.as_deref().unwrap_or("?");
-                log::info!("Cycling: shader={sname}, palette={pname}");
-
-                if let Some(n) = next_shader_name {
-                    state.active_shader = n;
-                }
-                if let Some(ref n) = next_palette_name {
-                    state.palette_manager.begin_transition(n, now);
-                    state.active_palette = n.clone();
-                }
-
-                calloop::timer::TimeoutAction::ToDuration(Duration::from_secs(
-                    shader_cycle_interval,
-                ))
-            })
-            .map_err(|e| anyhow::anyhow!("failed to insert unified cycle timer: {e}"))?;
-    } else if shader_cycling {
-        // (b) Shader-only cycle timer.
-        // Bug fix: make each surface's EGL context current before load_shader() so
-        // all monitors compile the new shader in their own GL context.
-        let cycle_timer =
-            calloop::timer::Timer::from_duration(Duration::from_secs(shader_cycle_interval.max(1)));
-        loop_handle
-            .insert_source(cycle_timer, move |_, _, state: &mut WaylandState| {
-                if let Some(next) = state.shader_manager.cycle_next() {
-                    log::info!("Cycling shader: {next}");
-                    if let Some(compiled) = state.shader_manager.get_compiled(&next) {
-                        let compiled = compiled.to_string();
-                        let old_active = state.active_shader.clone();
-                        let egl_ptr = state.egl.as_ref().map(|e| e as *const EglState);
-                        for surf in state.surfaces.values_mut() {
-                            if surf.shader_name == old_active {
-                                if let (Some(egl), Some(es), Some(ec)) =
-                                    (egl_ptr, surf.egl_surface, surf.egl_context)
-                                {
-                                    let egl_ref = unsafe { &*egl };
-                                    let _ = egl_ref.egl.make_current(
-                                        egl_ref.display,
-                                        Some(es),
-                                        Some(es),
-                                        Some(ec),
-                                    );
-                                }
-                                if let Some(r) = surf.renderer.as_mut() {
-                                    if let Err(e) = r.load_shader(&compiled) {
-                                        log::warn!("Shader cycle compile error: {e:#}");
-                                    }
-                                }
-                                surf.shader_name = next.clone();
-                            }
-                        }
-                        state.active_shader = next;
-                    }
-                }
-                calloop::timer::TimeoutAction::ToDuration(Duration::from_secs(
-                    shader_cycle_interval,
-                ))
-            })
-            .map_err(|e| anyhow::anyhow!("failed to insert shader cycle timer: {e}"))?;
-    } else if palette_cycling {
-        // (c) Palette-only cycle timer.
-        // Bug fix: push new palette data to each renderer so it actually changes.
-        let cycle_timer = calloop::timer::Timer::from_duration(Duration::from_secs(
-            palette_cycle_interval.max(1),
-        ));
-        loop_handle
-            .insert_source(cycle_timer, move |_, _, state: &mut WaylandState| {
-                let now = std::time::Instant::now();
-                if let Some(next) = state.palette_manager.cycle_next() {
-                    log::info!("Cycling palette: {next}");
-                    let palette_entry = state.palette_manager.get(&next).cloned();
-                    let td = state.palette_manager.transition_duration;
-                    let egl_ptr = state.egl.as_ref().map(|e| e as *const EglState);
-                    if let Some(ref entry) = palette_entry {
-                        for surf in state.surfaces.values_mut() {
-                            if let (Some(egl), Some(es), Some(ec)) =
-                                (egl_ptr, surf.egl_surface, surf.egl_context)
-                            {
-                                let egl_ref = unsafe { &*egl };
-                                let _ = egl_ref.egl.make_current(
-                                    egl_ref.display,
-                                    Some(es),
-                                    Some(es),
-                                    Some(ec),
-                                );
-                            }
-                            if let Some(r) = surf.renderer.as_mut() {
-                                if td <= 0.0 {
-                                    r.set_palette(entry).ok();
-                                } else {
-                                    r.begin_transition(entry).ok();
-                                }
-                            }
-                        }
-                    }
-                    state.palette_manager.begin_transition(&next, now);
-                    state.active_palette = next;
-                }
-                calloop::timer::TimeoutAction::ToDuration(Duration::from_secs(
-                    palette_cycle_interval,
-                ))
-            })
-            .map_err(|e| anyhow::anyhow!("failed to insert palette cycle timer: {e}"))?;
-    }
 
     // Run the event loop until running becomes false.
     log::info!("hyprsaver entering event loop");
@@ -1096,12 +1291,24 @@ impl OutputHandler for WaylandState {
             .output_state
             .info(&output)
             .and_then(|info| info.name.clone());
-        let (shader_name, palette_name) = self.resolve_monitor_config(output_name.as_deref());
+
+        let (shader_name, palette_name, cycle_manager) = if self.synced {
+            let (sn, pn) = self.resolve_monitor_config(output_name.as_deref());
+            (sn, pn, None)
+        } else {
+            // Use surfaces.len() as a seed offset for any hot-plugged outputs.
+            let seed_offset = self.surfaces.len() as u64;
+            let mgr = self.build_per_output_cycle_manager(output_name.as_deref(), seed_offset);
+            let sn = mgr.current_shader().to_string();
+            let pn = mgr.current_palette().to_string();
+            (sn, pn, Some(mgr))
+        };
+
         log::info!(
             "New output detected (name={:?}); creating layer surface",
             output_name
         );
-        let surface = WaylandState::make_layer_surface(
+        let mut surface = WaylandState::make_layer_surface(
             &self.compositor_state,
             &self.layer_shell,
             Some(&output),
@@ -1110,6 +1317,7 @@ impl OutputHandler for WaylandState {
             shader_name,
             palette_name,
         );
+        surface.cycle_manager = cycle_manager;
         self.surfaces.insert(output, surface);
     }
 
