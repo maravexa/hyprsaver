@@ -12,7 +12,7 @@ precision highp float;
 // GLSL — no per-frame CPU work.
 //
 // Layer parameters (i = 0 nearest … 4 furthest):
-//   speed   = float[](0.360, 0.315, 0.270, 0.225, 0.180) + jitter
+//   speed   = float[](0.144, 0.126, 0.108, 0.090, 0.072) + jitter
 //   size_px = float[](9.0, 5.5, 3.0, 1.6, 0.7)  (exponential depth falloff)
 //   density = 10 dots per layer      (50 total / 5 layers)
 // ---------------------------------------------------------------------------
@@ -41,7 +41,7 @@ float hash11(float p) {
 
 vec3 snowLayer(vec2 uv, float fi, float aspect) {
     // Layer kinematics — compressed range, less mechanical lockstep.
-    float speed_base[5] = float[](0.360, 0.315, 0.270, 0.225, 0.180);
+    float speed_base[5] = float[](0.144, 0.126, 0.108, 0.090, 0.072);
     // Exponential size falloff for strong depth illusion; layer 4 sub-pixel → soft haze.
     float size_px[5]    = float[](9.0, 5.5, 3.0, 1.6, 0.7);
 
