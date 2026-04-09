@@ -369,8 +369,33 @@ impl ShaderManager {
         Some(names[self.cycle_index].clone())
     }
 
+    /// Return the name of the shader at the current cycle index, without advancing.
+    ///
+    /// Uses the playlist if set, otherwise all shaders alphabetically.
+    /// Returns `None` if the collection is empty.
+    pub fn current_cycle_name(&self) -> Option<&str> {
+        let names: Vec<&str> = match &self.playlist {
+            Some(pl) => pl
+                .iter()
+                .filter(|n| self.shaders.contains_key(*n))
+                .map(String::as_str)
+                .collect(),
+            None => {
+                let mut ns: Vec<&str> = self.shaders.keys().map(String::as_str).collect();
+                ns.sort_unstable();
+                ns
+            }
+        };
+        if names.is_empty() {
+            return None;
+        }
+        Some(names[self.cycle_index % names.len()])
+    }
+
     /// Set a playlist so that `cycle_next()` iterates only the given names.
     /// Pass an empty vec or call without a playlist to reset to "cycle all".
+    /// Always resets `cycle_index` to 0; call `randomize_cycle_start()` afterward
+    /// if a random starting position is desired (e.g. at screensaver startup).
     pub fn set_playlist(&mut self, names: Vec<String>) {
         if names.is_empty() {
             self.playlist = None;
@@ -378,6 +403,25 @@ impl ShaderManager {
             self.playlist = Some(names);
         }
         self.cycle_index = 0;
+    }
+
+    /// Randomize the starting cycle index within the current playlist (or all shaders
+    /// if no playlist is set). Call this once at screensaver startup so every session
+    /// begins at a different point in the rotation.
+    pub fn randomize_cycle_start(&mut self) {
+        let count = match &self.playlist {
+            Some(pl) => pl.iter().filter(|n| self.shaders.contains_key(*n)).count(),
+            None => self.shaders.len(),
+        };
+        self.cycle_index = if count > 1 {
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .subsec_nanos() as usize
+                % count
+        } else {
+            0
+        };
     }
 
     /// Convenience shortcut: return just the compiled GLSL source string.

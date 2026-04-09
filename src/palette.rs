@@ -545,8 +545,33 @@ impl PaletteManager {
         Some(names[self.cycle_index].clone())
     }
 
+    /// Return the name of the palette at the current cycle index, without advancing.
+    ///
+    /// Uses the playlist if set, otherwise all palettes alphabetically.
+    /// Returns `None` if the collection is empty.
+    pub fn current_cycle_name(&self) -> Option<&str> {
+        let names: Vec<&str> = match &self.cycle_playlist {
+            Some(pl) => pl
+                .iter()
+                .filter(|n| self.palettes.contains_key(*n))
+                .map(String::as_str)
+                .collect(),
+            None => {
+                let mut ns: Vec<&str> = self.palettes.keys().map(String::as_str).collect();
+                ns.sort_unstable();
+                ns
+            }
+        };
+        if names.is_empty() {
+            return None;
+        }
+        Some(names[self.cycle_index % names.len()])
+    }
+
     /// Set a playlist so that `cycle_next()` iterates only the given names.
     /// Pass an empty vec to reset to "cycle all".
+    /// Always resets `cycle_index` to 0; call `randomize_cycle_start()` afterward
+    /// if a random starting position is desired (e.g. at screensaver startup).
     pub fn set_playlist(&mut self, names: Vec<String>) {
         if names.is_empty() {
             self.cycle_playlist = None;
@@ -554,6 +579,25 @@ impl PaletteManager {
             self.cycle_playlist = Some(names);
         }
         self.cycle_index = 0;
+    }
+
+    /// Randomize the starting cycle index within the current playlist (or all palettes
+    /// if no playlist is set). Call this once at screensaver startup so every session
+    /// begins at a different point in the rotation.
+    pub fn randomize_cycle_start(&mut self) {
+        let count = match &self.cycle_playlist {
+            Some(pl) => pl.iter().filter(|n| self.palettes.contains_key(*n)).count(),
+            None => self.palettes.len(),
+        };
+        self.cycle_index = if count > 1 {
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .subsec_nanos() as usize
+                % count
+        } else {
+            0
+        };
     }
 
     /// Advance the transition and return the current blend factor in `[0.0, 1.0]`.
