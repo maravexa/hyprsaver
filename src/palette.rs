@@ -445,13 +445,25 @@ impl PaletteManager {
             "electric".to_string()
         };
 
+        // Randomize starting cycle index so each session feels different.
+        let count = palettes.len();
+        let cycle_index = if count > 1 {
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .subsec_nanos() as usize
+                % count
+        } else {
+            0
+        };
+
         Self {
             palettes,
             transition_duration,
             current_name,
             next_name: None,
             transition_start: None,
-            cycle_index: 0,
+            cycle_index,
             cycle_playlist: None,
         }
     }
@@ -545,15 +557,50 @@ impl PaletteManager {
         Some(names[self.cycle_index].clone())
     }
 
+    /// Return the name of the palette at the current cycle index, without advancing.
+    ///
+    /// Uses the playlist if set, otherwise all palettes alphabetically.
+    /// Returns `None` if the collection is empty.
+    pub fn current_cycle_name(&self) -> Option<&str> {
+        let names: Vec<&str> = match &self.cycle_playlist {
+            Some(pl) => pl
+                .iter()
+                .filter(|n| self.palettes.contains_key(*n))
+                .map(String::as_str)
+                .collect(),
+            None => {
+                let mut ns: Vec<&str> = self.palettes.keys().map(String::as_str).collect();
+                ns.sort_unstable();
+                ns
+            }
+        };
+        if names.is_empty() {
+            return None;
+        }
+        Some(names[self.cycle_index % names.len()])
+    }
+
     /// Set a playlist so that `cycle_next()` iterates only the given names.
     /// Pass an empty vec to reset to "cycle all".
+    /// Randomizes the starting index so sessions begin at different points.
     pub fn set_playlist(&mut self, names: Vec<String>) {
+        let count;
         if names.is_empty() {
             self.cycle_playlist = None;
+            count = self.palettes.len();
         } else {
+            count = names.len();
             self.cycle_playlist = Some(names);
         }
-        self.cycle_index = 0;
+        self.cycle_index = if count > 1 {
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .subsec_nanos() as usize
+                % count
+        } else {
+            0
+        };
     }
 
     /// Advance the transition and return the current blend factor in `[0.0, 1.0]`.

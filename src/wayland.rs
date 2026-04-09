@@ -425,11 +425,9 @@ impl WaylandState {
         match config.general.shader.as_str() {
             "random" => shader_manager.random().0.to_string(),
             "cycle" => {
-                // Start with the first shader alphabetically (or first in playlist).
+                // Start at the randomized cycle index set during ShaderManager init.
                 shader_manager
-                    .list()
-                    .into_iter()
-                    .next()
+                    .current_cycle_name()
                     .map(str::to_string)
                     .unwrap_or_else(|| "mandelbrot".to_string())
             }
@@ -458,11 +456,9 @@ impl WaylandState {
         match config.general.palette.as_str() {
             "random" => palette_manager.random().0.to_string(),
             "cycle" => {
-                // Start with the first palette alphabetically (or first in playlist).
+                // Start at the randomized cycle index set during PaletteManager init.
                 palette_manager
-                    .list()
-                    .into_iter()
-                    .next()
+                    .current_cycle_name()
                     .map(str::to_string)
                     .unwrap_or_else(|| "electric".to_string())
             }
@@ -727,6 +723,7 @@ pub fn run(
 
             // Advance palette cross-fade transition and propagate blend factor.
             let now = std::time::Instant::now();
+            let was_transitioning = state.palette_manager.next_palette().is_some();
             let blend = state.palette_manager.advance_transition(now);
             if blend > 0.0 {
                 // Transition in progress: update blend on all renderers.
@@ -735,11 +732,34 @@ pub fn run(
                         r.set_blend(blend);
                     }
                 }
-            } else if state.palette_manager.next_palette().is_none() {
-                // Transition just completed or was never started: ensure blend=0.
+            } else {
+                // No active transition: ensure blend=0 on all renderers.
                 for surf in state.surfaces.values_mut() {
                     if let Some(r) = surf.renderer.as_mut() {
                         r.set_blend(0.0);
+                    }
+                }
+                // If a timed transition just completed, commit the new current palette
+                // to each renderer's palette A so subsequent cycles start from the right base.
+                if was_transitioning {
+                    if let Some(entry) = state.palette_manager.current_palette().cloned() {
+                        let egl_ptr = state.egl.as_ref().map(|e| e as *const EglState);
+                        for surf in state.surfaces.values_mut() {
+                            if let (Some(egl), Some(es), Some(ec)) =
+                                (egl_ptr, surf.egl_surface, surf.egl_context)
+                            {
+                                let egl_ref = unsafe { &*egl };
+                                let _ = egl_ref.egl.make_current(
+                                    egl_ref.display,
+                                    Some(es),
+                                    Some(es),
+                                    Some(ec),
+                                );
+                            }
+                            if let Some(r) = surf.renderer.as_mut() {
+                                r.set_palette(&entry).ok();
+                            }
+                        }
                     }
                 }
             }
@@ -784,10 +804,98 @@ pub fn run(
         })
         .map_err(|e| anyhow::anyhow!("failed to insert render timer: {e}"))?;
 
-    // Shader cycling timer (if enabled).
-    if shader_cycling {
-        let cycle_timer =
-            calloop::timer::Timer::from_duration(Duration::from_secs(shader_cycle_interval.max(1)));
+    // Cycle timers — three cases:
+    //   (a) both shader+palette cycle  → single unified timer at shader_cycle_interval
+    //   (b) shader only                → shader timer
+    //   (c) palette only               → palette timer
+
+    if shader_cycling && palette_cycling {
+        // (a) Unified timer: advance both on every tick so monitors always show the
+        // same shader and palette at all times.
+        let cycle_timer = calloop::timer::Timer::from_duration(Duration::from_secs(
+            shader_cycle_interval.max(1),
+        ));
+        loop_handle
+            .insert_source(cycle_timer, move |_, _, state: &mut WaylandState| {
+                let now = std::time::Instant::now();
+
+                // Advance cycle indices and pre-fetch data before the surface loop.
+                let next_shader_name = state.shader_manager.cycle_next();
+                let next_palette_name = state.palette_manager.cycle_next();
+
+                let compiled_shader = next_shader_name
+                    .as_deref()
+                    .and_then(|n| state.shader_manager.get_compiled(n))
+                    .map(str::to_string);
+                let palette_entry = next_palette_name
+                    .as_deref()
+                    .and_then(|n| state.palette_manager.get(n))
+                    .cloned();
+                let td = state.palette_manager.transition_duration;
+                let old_active = state.active_shader.clone();
+                let egl_ptr = state.egl.as_ref().map(|e| e as *const EglState);
+
+                for surf in state.surfaces.values_mut() {
+                    if surf.shader_name != old_active {
+                        continue;
+                    }
+                    // Make this surface's EGL context current before any GL operations.
+                    if let (Some(egl), Some(es), Some(ec)) =
+                        (egl_ptr, surf.egl_surface, surf.egl_context)
+                    {
+                        let egl_ref = unsafe { &*egl };
+                        let _ = egl_ref.egl.make_current(
+                            egl_ref.display,
+                            Some(es),
+                            Some(es),
+                            Some(ec),
+                        );
+                    }
+                    if let Some(ref compiled) = compiled_shader {
+                        if let Some(r) = surf.renderer.as_mut() {
+                            if let Err(e) = r.load_shader(compiled) {
+                                log::warn!("Shader cycle compile error: {e:#}");
+                            }
+                        }
+                    }
+                    if let Some(ref entry) = palette_entry {
+                        if let Some(r) = surf.renderer.as_mut() {
+                            if td <= 0.0 {
+                                r.set_palette(entry).ok();
+                            } else {
+                                r.begin_transition(entry).ok();
+                            }
+                        }
+                    }
+                    if let Some(ref n) = next_shader_name {
+                        surf.shader_name = n.clone();
+                    }
+                }
+
+                let sname = next_shader_name.as_deref().unwrap_or("?");
+                let pname = next_palette_name.as_deref().unwrap_or("?");
+                log::info!("Cycling: shader={sname}, palette={pname}");
+
+                if let Some(n) = next_shader_name {
+                    state.active_shader = n;
+                }
+                if let Some(ref n) = next_palette_name {
+                    state.palette_manager.begin_transition(n, now);
+                    state.active_palette = n.clone();
+                }
+
+                calloop::timer::TimeoutAction::ToDuration(Duration::from_secs(
+                    shader_cycle_interval,
+                ))
+            })
+            .map_err(|e| anyhow::anyhow!("failed to insert unified cycle timer: {e}"))?;
+    } else if shader_cycling {
+        // (b) Shader-only cycle timer.
+        // Bug fix: make each surface's EGL context current before load_shader() so
+        // all monitors compile the new shader in their own GL context.
+        let cycle_timer = calloop::timer::Timer::from_duration(Duration::from_secs(
+            shader_cycle_interval.max(1),
+        ));
         loop_handle
             .insert_source(cycle_timer, move |_, _, state: &mut WaylandState| {
                 if let Some(next) = state.shader_manager.cycle_next() {
@@ -795,8 +903,20 @@ pub fn run(
                     if let Some(compiled) = state.shader_manager.get_compiled(&next) {
                         let compiled = compiled.to_string();
                         let old_active = state.active_shader.clone();
+                        let egl_ptr = state.egl.as_ref().map(|e| e as *const EglState);
                         for surf in state.surfaces.values_mut() {
                             if surf.shader_name == old_active {
+                                if let (Some(egl), Some(es), Some(ec)) =
+                                    (egl_ptr, surf.egl_surface, surf.egl_context)
+                                {
+                                    let egl_ref = unsafe { &*egl };
+                                    let _ = egl_ref.egl.make_current(
+                                        egl_ref.display,
+                                        Some(es),
+                                        Some(es),
+                                        Some(ec),
+                                    );
+                                }
                                 if let Some(r) = surf.renderer.as_mut() {
                                     if let Err(e) = r.load_shader(&compiled) {
                                         log::warn!("Shader cycle compile error: {e:#}");
@@ -813,18 +933,43 @@ pub fn run(
                 ))
             })
             .map_err(|e| anyhow::anyhow!("failed to insert shader cycle timer: {e}"))?;
-    }
-
-    // Palette cycling timer (if enabled).
-    if palette_cycling {
+    } else if palette_cycling {
+        // (c) Palette-only cycle timer.
+        // Bug fix: push new palette data to each renderer so it actually changes.
         let cycle_timer = calloop::timer::Timer::from_duration(Duration::from_secs(
             palette_cycle_interval.max(1),
         ));
         loop_handle
             .insert_source(cycle_timer, move |_, _, state: &mut WaylandState| {
+                let now = std::time::Instant::now();
                 if let Some(next) = state.palette_manager.cycle_next() {
                     log::info!("Cycling palette: {next}");
-                    let now = std::time::Instant::now();
+                    let palette_entry =
+                        state.palette_manager.get(&next).cloned();
+                    let td = state.palette_manager.transition_duration;
+                    let egl_ptr = state.egl.as_ref().map(|e| e as *const EglState);
+                    if let Some(ref entry) = palette_entry {
+                        for surf in state.surfaces.values_mut() {
+                            if let (Some(egl), Some(es), Some(ec)) =
+                                (egl_ptr, surf.egl_surface, surf.egl_context)
+                            {
+                                let egl_ref = unsafe { &*egl };
+                                let _ = egl_ref.egl.make_current(
+                                    egl_ref.display,
+                                    Some(es),
+                                    Some(es),
+                                    Some(ec),
+                                );
+                            }
+                            if let Some(r) = surf.renderer.as_mut() {
+                                if td <= 0.0 {
+                                    r.set_palette(entry).ok();
+                                } else {
+                                    r.begin_transition(entry).ok();
+                                }
+                            }
+                        }
+                    }
                     state.palette_manager.begin_transition(&next, now);
                     state.active_palette = next;
                 }
