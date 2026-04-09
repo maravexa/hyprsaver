@@ -66,6 +66,9 @@ pub const BUILTIN_FIRE: &str = include_str!("../shaders/fire.frag");
 /// Underwater caustic light patterns — sine-wave summation caustics with water-surface heave.
 pub const BUILTIN_CAUSTICS: &str = include_str!("../shaders/caustics.frag");
 
+/// Five animated cubic Bézier curves with slow-drifting control points and additive palette glow.
+pub const BUILTIN_BEZIER: &str = include_str!("../shaders/bezier.frag");
+
 // ---------------------------------------------------------------------------
 // Vertex shader for the fullscreen quad (triangle-strip, no VBO needed)
 // ---------------------------------------------------------------------------
@@ -216,6 +219,7 @@ impl ShaderManager {
 
         // Register built-in shaders.
         let builtins: &[(&str, &str)] = &[
+            ("bezier", BUILTIN_BEZIER),
             ("caustics", BUILTIN_CAUSTICS),
             ("fire", BUILTIN_FIRE),
             ("flow_field", BUILTIN_FLOW_FIELD),
@@ -796,7 +800,7 @@ mod tests {
 
     #[test]
     fn test_builtin_shader_count() {
-        assert_eq!(manager().list().len(), 17);
+        assert_eq!(manager().list().len(), 18);
     }
 
     #[test]
@@ -804,6 +808,7 @@ mod tests {
         let mgr = manager();
         let names = mgr.list();
         for expected in &[
+            "bezier",
             "caustics",
             "fire",
             "flow_field",
