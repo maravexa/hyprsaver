@@ -117,6 +117,14 @@ struct Cli {
     /// Cycle selection order: "random" (default) or "sequential"
     #[arg(long, value_name = "random|sequential")]
     cycle_order: Option<String>,
+
+    /// All monitors cycle shaders and palettes in sync (default). Overrides config `synced = false`.
+    #[arg(long, overrides_with = "no_synced")]
+    synced: bool,
+
+    /// Each monitor cycles independently. Overrides config `synced = true`.
+    #[arg(long, overrides_with = "synced")]
+    no_synced: bool,
 }
 
 fn main() {
@@ -809,12 +817,21 @@ fn load_config(cli: &Cli) -> anyhow::Result<Config> {
     let shader_interval = cli.shader_cycle_interval.or(cli.shader_interval);
     let palette_interval = cli.palette_cycle_interval.or(cli.palette_interval);
 
+    let synced = if cli.synced {
+        Some(true)
+    } else if cli.no_synced {
+        Some(false)
+    } else {
+        None
+    };
+
     cfg.apply_cli_overrides(
         cli.shader.as_deref(),
         cli.palette.as_deref(),
         shader_interval,
         palette_interval,
         cli.cycle_order.as_deref(),
+        synced,
     );
     Ok(cfg)
 }

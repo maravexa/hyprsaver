@@ -92,6 +92,15 @@ pub struct GeneralConfig {
 
     /// Cycle selection order: `"random"` (default) or `"sequential"`.
     pub cycle_order: String,
+
+    /// Whether all monitors cycle in sync. Default: `true`.
+    ///
+    /// When `true` (default), all outputs display the same shader and palette
+    /// at all times — cycle events are broadcast simultaneously.
+    ///
+    /// When `false`, each output gets an independent cycle with a different RNG
+    /// seed so monitors naturally desynchronize over time.
+    pub synced: bool,
 }
 
 impl Default for GeneralConfig {
@@ -107,6 +116,7 @@ impl Default for GeneralConfig {
             shader_playlist: None,
             palette_playlist: None,
             cycle_order: "random".to_string(),
+            synced: true,
         }
     }
 }
@@ -369,6 +379,7 @@ impl Config {
         shader_cycle_interval: Option<u64>,
         palette_cycle_interval: Option<u64>,
         cycle_order: Option<&str>,
+        synced: Option<bool>,
     ) {
         if let Some(s) = shader {
             self.general.shader = s.to_string();
@@ -384,6 +395,9 @@ impl Config {
         }
         if let Some(order) = cycle_order {
             self.general.cycle_order = order.to_string();
+        }
+        if let Some(s) = synced {
+            self.general.synced = s;
         }
     }
 }
@@ -564,7 +578,7 @@ shader = "snowfall"
     #[test]
     fn test_cli_overrides() {
         let mut cfg = Config::default();
-        cfg.apply_cli_overrides(Some("julia"), Some("vapor"), None, None, None);
+        cfg.apply_cli_overrides(Some("julia"), Some("vapor"), None, None, None, None);
         assert_eq!(cfg.general.shader, "julia");
         assert_eq!(cfg.general.palette, "vapor");
     }
@@ -572,7 +586,7 @@ shader = "snowfall"
     #[test]
     fn test_cli_overrides_partial() {
         let mut cfg = Config::default();
-        cfg.apply_cli_overrides(Some("julia"), None, None, None, None);
+        cfg.apply_cli_overrides(Some("julia"), None, None, None, None, None);
         assert_eq!(cfg.general.shader, "julia");
         assert_eq!(cfg.general.palette, "cycle"); // unchanged default
     }
@@ -580,7 +594,7 @@ shader = "snowfall"
     #[test]
     fn test_cli_overrides_cycle_intervals() {
         let mut cfg = Config::default();
-        cfg.apply_cli_overrides(None, None, Some(120), Some(45), None);
+        cfg.apply_cli_overrides(None, None, Some(120), Some(45), None, None);
         assert_eq!(cfg.general.shader_cycle_interval, 120);
         assert_eq!(cfg.general.palette_cycle_interval, 45);
     }
@@ -588,7 +602,7 @@ shader = "snowfall"
     #[test]
     fn test_cli_overrides_cycle_intervals_partial() {
         let mut cfg = Config::default();
-        cfg.apply_cli_overrides(None, None, Some(90), None, None);
+        cfg.apply_cli_overrides(None, None, Some(90), None, None, None);
         assert_eq!(cfg.general.shader_cycle_interval, 90);
         assert_eq!(cfg.general.palette_cycle_interval, 60); // unchanged default
     }
@@ -596,7 +610,7 @@ shader = "snowfall"
     #[test]
     fn test_cli_overrides_cycle_order() {
         let mut cfg = Config::default();
-        cfg.apply_cli_overrides(None, None, None, None, Some("sequential"));
+        cfg.apply_cli_overrides(None, None, None, None, Some("sequential"), None);
         assert_eq!(cfg.general.cycle_order, "sequential");
     }
 
@@ -605,6 +619,29 @@ shader = "snowfall"
         let toml_str = "[general]\ncycle_order = \"sequential\"\n";
         let cfg: Config = toml::from_str(toml_str).expect("must parse");
         assert_eq!(cfg.general.cycle_order, "sequential");
+    }
+
+    #[test]
+    fn test_default_synced_is_true() {
+        let cfg = Config::default();
+        assert!(cfg.general.synced, "synced must default to true");
+    }
+
+    #[test]
+    fn test_parse_synced_false() {
+        let toml_str = "[general]\nsynced = false\n";
+        let cfg: Config = toml::from_str(toml_str).expect("must parse");
+        assert!(!cfg.general.synced);
+    }
+
+    #[test]
+    fn test_cli_override_synced() {
+        let mut cfg = Config::default();
+        assert!(cfg.general.synced);
+        cfg.apply_cli_overrides(None, None, None, None, None, Some(false));
+        assert!(!cfg.general.synced);
+        cfg.apply_cli_overrides(None, None, None, None, None, Some(true));
+        assert!(cfg.general.synced);
     }
 
     #[test]
