@@ -1,5 +1,5 @@
 # hyprsaver — example configuration
-# Location: ~/.config/hyprsaver/config.toml
+# Location: ~/.config/hypr/hyprsaver.toml
 #
 # Every key shown here is optional. If a key is omitted, the built-in default
 # (shown as the value below) is used. A completely empty config file — or no
@@ -16,7 +16,7 @@ fps = 30
 
 # Which shader to display. Options:
 #   - A shader name from the built-in library (see --list-shaders)
-#   - A filename stem from ~/.config/hyprsaver/shaders/ (without .frag)
+#   - A filename stem from ~/.config/hypr/hyprsaver/shaders/ (without .frag)
 #   - "random"  — pick a random shader each time hyprsaver starts
 #   - "cycle"   — rotate through all available shaders on shader_cycle_interval
 shader = "mandelbrot"
@@ -76,7 +76,7 @@ dismiss_on = ["key", "mouse_move", "mouse_click", "touch"]
 # Directory scanned for user-supplied .frag shader files.
 # Files here are available by their stem name (e.g. my_shader.frag → "my_shader").
 # Built-in shaders are always available regardless of this setting.
-shader_dir = "~/.config/hyprsaver/shaders"
+shader_dir = "~/.config/hypr/hyprsaver/shaders"
 
 # Watch shader_dir for file changes and hot-reload modified shaders without restart.
 # Very useful when writing or tweaking shaders with --preview.

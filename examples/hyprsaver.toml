@@ -1,5 +1,5 @@
 # hyprsaver -- example configuration
-# Location: ~/.config/hyprsaver/config.toml
+# Location: ~/.config/hypr/hyprsaver.toml
 #
 # Every key shown here is optional. If a key is omitted, the built-in default
 # (shown as the value below) is used. A completely empty config file -- or no
@@ -16,7 +16,7 @@ fps = 30
 
 # Which shader to display. Options:
 #   - A shader name from the built-in library (see --list-shaders)
-#   - A filename stem from ~/.config/hyprsaver/shaders/ (without .frag)
+#   - A filename stem from ~/.config/hypr/hyprsaver/shaders/ (without .frag)
 #   - "random"  -- pick a random shader each time hyprsaver starts
 #   - "cycle"   -- rotate through all available shaders on shader_cycle_interval
 shader = "mandelbrot"
@@ -102,7 +102,7 @@ dismiss_on = ["key", "mouse_move", "mouse_click", "touch"]
 # d = [0.70, 0.30, 0.10]
 
 # ---------------------------------------------------------------------------
-# Shader playlists — named subsets for cycle mode
+# Shader playlists -- named subsets for cycle mode
 # ---------------------------------------------------------------------------
 # When shader = "cycle" and shader_playlist is set, hyprsaver cycles only
 # the shaders listed here (in order). Unknown names are skipped with a warning.
@@ -115,7 +115,7 @@ dismiss_on = ["key", "mouse_move", "mouse_click", "touch"]
 # shaders = ["snowfall", "starfield", "tunnel"]
 
 # ---------------------------------------------------------------------------
-# Palette playlists — named subsets for palette cycle mode
+# Palette playlists -- named subsets for palette cycle mode
 # ---------------------------------------------------------------------------
 # When palette = "cycle" and palette_playlist is set, hyprsaver cycles only
 # the palettes listed here (in order). Unknown names are skipped with a warning.
@@ -133,7 +133,7 @@ dismiss_on = ["key", "mouse_move", "mouse_click", "touch"]
 # entry matches a Wayland output by name (run `hyprctl monitors` to see names).
 # Monitors without an entry use the global shader/palette from [general].
 #
-# Both shader and palette are optional per entry — omit either to inherit the
+# Both shader and palette are optional per entry -- omit either to inherit the
 # global setting.
 #
 # [[monitor]]
