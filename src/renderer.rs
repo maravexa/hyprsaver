@@ -51,6 +51,218 @@ pub struct UniformLocations {
 }
 
 // ---------------------------------------------------------------------------
+// OffscreenTarget — FBO + color texture for offscreen rendering
+// ---------------------------------------------------------------------------
+
+/// A framebuffer object with a color texture attachment, used for offscreen
+/// rendering passes (e.g. rendering two shaders to textures and crossfading
+/// between them on the default framebuffer).
+///
+/// The texture is allocated as `GL_RGBA8` with `GL_LINEAR` filtering and
+/// `GL_CLAMP_TO_EDGE` wrapping. No depth/stencil attachment — these targets
+/// are for 2D fullscreen passes only.
+///
+/// # Lifecycle
+/// - `new()` allocates the FBO and color texture
+/// - `resize()` reallocates the texture if dimensions changed
+/// - `bind()` / `unbind()` switch draw target and viewport
+/// - `destroy()` must be called before the GL context is torn down
+pub struct OffscreenTarget {
+    pub fbo: glow::Framebuffer,
+    pub texture: glow::Texture,
+    pub width: u32,
+    pub height: u32,
+}
+
+impl OffscreenTarget {
+    /// Create a new offscreen target at the given dimensions.
+    ///
+    /// # Panics
+    /// Panics if GL fails to create the framebuffer or texture, or if the
+    /// framebuffer is incomplete after attachment.
+    ///
+    /// # Safety
+    /// The caller must ensure a current GL context is bound on the calling
+    /// thread.
+    pub fn new(gl: &glow::Context, width: u32, height: u32) -> Self {
+        unsafe {
+            let fbo = gl
+                .create_framebuffer()
+                .expect("OffscreenTarget: create_framebuffer failed");
+            let texture = gl
+                .create_texture()
+                .expect("OffscreenTarget: create_texture failed");
+
+            // Allocate color texture storage.
+            gl.bind_texture(glow::TEXTURE_2D, Some(texture));
+            gl.tex_image_2d(
+                glow::TEXTURE_2D,
+                0,
+                glow::RGBA8 as i32,
+                width as i32,
+                height as i32,
+                0,
+                glow::RGBA,
+                glow::UNSIGNED_BYTE,
+                None,
+            );
+            gl.tex_parameter_i32(
+                glow::TEXTURE_2D,
+                glow::TEXTURE_MIN_FILTER,
+                glow::LINEAR as i32,
+            );
+            gl.tex_parameter_i32(
+                glow::TEXTURE_2D,
+                glow::TEXTURE_MAG_FILTER,
+                glow::LINEAR as i32,
+            );
+            gl.tex_parameter_i32(
+                glow::TEXTURE_2D,
+                glow::TEXTURE_WRAP_S,
+                glow::CLAMP_TO_EDGE as i32,
+            );
+            gl.tex_parameter_i32(
+                glow::TEXTURE_2D,
+                glow::TEXTURE_WRAP_T,
+                glow::CLAMP_TO_EDGE as i32,
+            );
+            gl.bind_texture(glow::TEXTURE_2D, None);
+
+            // Attach the texture as COLOR_ATTACHMENT0 on the FBO.
+            gl.bind_framebuffer(glow::FRAMEBUFFER, Some(fbo));
+            gl.framebuffer_texture_2d(
+                glow::FRAMEBUFFER,
+                glow::COLOR_ATTACHMENT0,
+                glow::TEXTURE_2D,
+                Some(texture),
+                0,
+            );
+
+            let status = gl.check_framebuffer_status(glow::FRAMEBUFFER);
+            if status != glow::FRAMEBUFFER_COMPLETE {
+                panic!(
+                    "OffscreenTarget: framebuffer incomplete after attachment \
+                     (status = 0x{status:04X}, size = {width}x{height})"
+                );
+            }
+
+            gl.bind_framebuffer(glow::FRAMEBUFFER, None);
+
+            Self {
+                fbo,
+                texture,
+                width,
+                height,
+            }
+        }
+    }
+
+    /// Resize the color texture. No-op if the dimensions are unchanged.
+    ///
+    /// The FBO handle itself is reused; only the backing texture is
+    /// reallocated and re-attached.
+    pub fn resize(&mut self, gl: &glow::Context, width: u32, height: u32) {
+        if width == self.width && height == self.height {
+            return;
+        }
+
+        unsafe {
+            // Drop the old texture.
+            gl.delete_texture(self.texture);
+
+            // Create + configure a replacement at the new size.
+            let texture = gl
+                .create_texture()
+                .expect("OffscreenTarget::resize: create_texture failed");
+            gl.bind_texture(glow::TEXTURE_2D, Some(texture));
+            gl.tex_image_2d(
+                glow::TEXTURE_2D,
+                0,
+                glow::RGBA8 as i32,
+                width as i32,
+                height as i32,
+                0,
+                glow::RGBA,
+                glow::UNSIGNED_BYTE,
+                None,
+            );
+            gl.tex_parameter_i32(
+                glow::TEXTURE_2D,
+                glow::TEXTURE_MIN_FILTER,
+                glow::LINEAR as i32,
+            );
+            gl.tex_parameter_i32(
+                glow::TEXTURE_2D,
+                glow::TEXTURE_MAG_FILTER,
+                glow::LINEAR as i32,
+            );
+            gl.tex_parameter_i32(
+                glow::TEXTURE_2D,
+                glow::TEXTURE_WRAP_S,
+                glow::CLAMP_TO_EDGE as i32,
+            );
+            gl.tex_parameter_i32(
+                glow::TEXTURE_2D,
+                glow::TEXTURE_WRAP_T,
+                glow::CLAMP_TO_EDGE as i32,
+            );
+            gl.bind_texture(glow::TEXTURE_2D, None);
+
+            // Re-attach the new texture to the existing FBO.
+            gl.bind_framebuffer(glow::FRAMEBUFFER, Some(self.fbo));
+            gl.framebuffer_texture_2d(
+                glow::FRAMEBUFFER,
+                glow::COLOR_ATTACHMENT0,
+                glow::TEXTURE_2D,
+                Some(texture),
+                0,
+            );
+
+            let status = gl.check_framebuffer_status(glow::FRAMEBUFFER);
+            if status != glow::FRAMEBUFFER_COMPLETE {
+                panic!(
+                    "OffscreenTarget::resize: framebuffer incomplete after reattach \
+                     (status = 0x{status:04X}, size = {width}x{height})"
+                );
+            }
+
+            gl.bind_framebuffer(glow::FRAMEBUFFER, None);
+
+            self.texture = texture;
+            self.width = width;
+            self.height = height;
+        }
+    }
+
+    /// Bind this FBO as the current draw target and set the viewport to its
+    /// full dimensions.
+    pub fn bind(&self, gl: &glow::Context) {
+        unsafe {
+            gl.bind_framebuffer(glow::FRAMEBUFFER, Some(self.fbo));
+            gl.viewport(0, 0, self.width as i32, self.height as i32);
+        }
+    }
+
+    /// Unbind any offscreen target, restoring the default framebuffer
+    /// (window / layer surface). Does not touch the viewport — the caller is
+    /// responsible for restoring it if needed.
+    pub fn unbind(gl: &glow::Context) {
+        unsafe {
+            gl.bind_framebuffer(glow::FRAMEBUFFER, None);
+        }
+    }
+
+    /// Delete the FBO and its color texture. Consumes `self` so the handles
+    /// cannot be reused after destruction.
+    pub fn destroy(self, gl: &glow::Context) {
+        unsafe {
+            gl.delete_framebuffer(self.fbo);
+            gl.delete_texture(self.texture);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Renderer
 // ---------------------------------------------------------------------------
 
@@ -169,6 +381,10 @@ impl Renderer {
         unsafe {
             gl.clear_color(0.0, 0.0, 0.0, 1.0);
         }
+
+        // Run a one-shot FBO sanity check at startup so any GL driver quirks
+        // surface early, before we care about frame timing.
+        Self::debug_sanity_check_fbo(&gl);
 
         Ok(Self {
             gl,
@@ -459,6 +675,48 @@ impl Renderer {
     // ------------------------------------------------------------------
     // Private helpers
     // ------------------------------------------------------------------
+
+    /// One-shot sanity check for `OffscreenTarget`: allocate a 1920×1080 FBO,
+    /// bind it, clear to red, unbind, and destroy. Logs GL errors (if any)
+    /// and emits a debug message on success.
+    ///
+    /// Runs at `Renderer::new()` time to catch driver/context issues early.
+    fn debug_sanity_check_fbo(gl: &glow::Context) {
+        // Drain any pre-existing GL error state so we only report issues
+        // caused by the check itself.
+        loop {
+            let e = unsafe { gl.get_error() };
+            if e == glow::NO_ERROR {
+                break;
+            }
+        }
+
+        let target = OffscreenTarget::new(gl, 1920, 1080);
+        target.bind(gl);
+        unsafe {
+            gl.clear_color(1.0, 0.0, 0.0, 1.0);
+            gl.clear(glow::COLOR_BUFFER_BIT);
+        }
+        OffscreenTarget::unbind(gl);
+
+        let err = unsafe { gl.get_error() };
+        if err != glow::NO_ERROR {
+            log::warn!(
+                "OffscreenTarget sanity check reported GL error 0x{err:04X} \
+                 (1920x1080 RGBA8 FBO)"
+            );
+        } else {
+            log::debug!("OffscreenTarget sanity check passed (1920x1080 RGBA8)");
+        }
+
+        // Restore the default clear color so the first real frame starts from
+        // a known state.
+        unsafe {
+            gl.clear_color(0.0, 0.0, 0.0, 1.0);
+        }
+
+        target.destroy(gl);
+    }
 
     /// Upload a 256-sample LUT as a 256×1 RGBA8 texture and return its handle.
     ///
