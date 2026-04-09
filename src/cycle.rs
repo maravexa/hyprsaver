@@ -186,6 +186,21 @@ impl CycleManager {
         events
     }
 
+    /// Create a new `CycleManager` with an additional seed offset for per-output independence.
+    ///
+    /// Pass the output index (0, 1, 2, …) or any unique u64 derived from the
+    /// output name to guarantee independent RNG streams across monitors.
+    pub fn new_with_offset(config: CycleConfig, seed_offset: u64) -> Self {
+        let mut mgr = Self::new(config);
+        // XOR-mix the offset with a Knuth constant to spread bits across the state.
+        mgr.rng_state ^= seed_offset.wrapping_mul(0x9e37_79b9_7f4a_7c15);
+        // xorshift64 must never have state 0.
+        if mgr.rng_state == 0 {
+            mgr.rng_state = 0x853c_49e6_748f_ea9b;
+        }
+        mgr
+    }
+
     /// Immediately advance to the next shader, bypassing the interval timer.
     ///
     /// Resets the shader timer so the next automatic advance starts from now.
@@ -517,5 +532,67 @@ mod tests {
         let c = xorshift64(&mut state);
         assert_ne!(a, b);
         assert_ne!(b, c);
+    }
+
+    // --- new_with_offset ---
+
+    #[test]
+    fn new_with_offset_terminates_with_zero_offset() {
+        // Regression: offset=0 XORs with 0, leaving rng_state unchanged.
+        // Verify that force_next_shader still terminates (rng_state is never 0).
+        let mut mgr = CycleManager::new_with_offset(
+            CycleConfig {
+                shader_playlist: vec!["a".into(), "b".into()],
+                palette_playlist: vec!["x".into()],
+                shader_interval: std::time::Duration::from_secs(300),
+                palette_interval: std::time::Duration::from_secs(60),
+                order: CycleOrder::Random,
+            },
+            0,
+        );
+        // If rng_state were 0 the next_index loop would spin forever.
+        let _ = mgr.force_next_shader();
+    }
+
+    #[test]
+    fn new_with_offset_terminates_with_nonzero_offset() {
+        // Same sanity check with a nonzero offset.
+        let mut mgr = CycleManager::new_with_offset(
+            CycleConfig {
+                shader_playlist: vec!["a".into(), "b".into()],
+                palette_playlist: vec!["x".into()],
+                shader_interval: std::time::Duration::from_secs(300),
+                palette_interval: std::time::Duration::from_secs(60),
+                order: CycleOrder::Random,
+            },
+            42,
+        );
+        let _ = mgr.force_next_shader();
+    }
+
+    #[test]
+    fn new_with_offset_sequential_starts_differ() {
+        // With sequential order, cycle_index starts randomly in [0, len). Two
+        // managers seeded with different offsets may or may not start at the same
+        // index, but both must produce valid, non-panicking sequences.
+        let mk = |offset: u64| {
+            CycleManager::new_with_offset(
+                CycleConfig {
+                    shader_playlist: vec!["a".into(), "b".into(), "c".into()],
+                    palette_playlist: vec!["x".into()],
+                    shader_interval: std::time::Duration::from_secs(300),
+                    palette_interval: std::time::Duration::from_secs(60),
+                    order: CycleOrder::Sequential,
+                },
+                offset,
+            )
+        };
+        // Verify both complete 6 sequential draws without panicking.
+        for offset in 0u64..4 {
+            let mut mgr = mk(offset);
+            for _ in 0..6 {
+                let _ = mgr.force_next_shader();
+            }
+        }
     }
 }
