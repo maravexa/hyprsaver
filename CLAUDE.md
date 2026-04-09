@@ -5,11 +5,11 @@ hyprsaver is a Wayland-native screensaver for Hyprland. It renders GLSL fractal 
 
 ## Architecture
 Four layers, each a module in `src/`:
-- `wayland.rs` — Wayland connection, output enumeration, layer-shell surface lifecycle. Uses smithay-client-toolkit. One surface per monitor.
-- `renderer.rs` — OpenGL via glow. Fullscreen quad, uploads uniforms (time, resolution, palette vectors), calls draw. Doesn't know about Wayland.
-- `shaders.rs` — Loads `.frag` files from config dir and built-ins. Handles compilation, hot-reload (notify crate), Shadertoy uniform remapping. Prepends palette function to all shaders.
-- `palette.rs` — Cosine gradient palettes (Inigo Quilez technique). Four vec3 params (a,b,c,d) → 12 floats. Loaded from config TOML.
-- `config.rs` — TOML config with serde. Every field has a default. Config path: CLI flag → `$XDG_CONFIG_HOME/hypr/hyprsaver.toml` (new) → `$XDG_CONFIG_HOME/hyprsaver/config.toml` (legacy, deprecated) → built-in defaults.
+- `wayland.rs` — Wayland connection, output enumeration, layer-shell surface lifecycle. Uses smithay-client-toolkit. One surface per monitor. Hosts the calloop event loop, cycle timers, and `advance_transition()` calls each frame.
+- `renderer.rs` — OpenGL via glow. Fullscreen quad, uploads uniforms (time, resolution, palette vectors, speed/zoom scales, alpha fade), calls draw. Doesn't know about Wayland.
+- `shaders.rs` — Loads `.frag` files from config dir and built-ins. Handles compilation, hot-reload (notify crate), Shadertoy uniform remapping. Prepends palette function to all shaders. Manages cycle playlists (`set_playlist`, `cycle_next`, `randomize_cycle_start`).
+- `palette.rs` — Cosine gradient palettes (Inigo Quilez technique) and LUT palettes. Four vec3 params (a,b,c,d) → 12 floats. PNG LUT loading via `image` crate. CSS gradient stop palettes. `PaletteManager` with crossfade transition state (`begin_transition` / `advance_transition`).
+- `config.rs` — TOML config with serde. Every field has a default. Config path: CLI flag → `$XDG_CONFIG_HOME/hypr/hyprsaver.toml` (new) → `$XDG_CONFIG_HOME/hyprsaver/config.toml` (legacy, deprecated) → built-in defaults. Includes `[[shader_playlists]]` and `[[palette_playlists]]` table sections and cycle interval fields.
 
 Entry point: `main.rs` — CLI (clap), signal handling (signal-hook), config load, then either preview mode (xdg-toplevel window) or screensaver mode (layer-shell overlay). Event loop is calloop.
 
@@ -22,11 +22,12 @@ cargo build --release
 
 ## Key Design Decisions
 - **glow over wgpu**: Thin OpenGL wrapper, minimal complexity for v1. wgpu is on the roadmap for v0.4.0 (Vulkan support).
-- **Cosine palettes only (v1)**: 12 floats, no texture uploads. LUT/gradient palettes are v0.2.0.
+- **Cosine palettes + LUT**: 12 floats or a 256×1 PNG strip. LUT palettes on texture units 1/2.
 - **Shadertoy compat**: Shaders use Shadertoy conventions (iTime, iResolution, mainImage). A shim in shaders.rs remaps to our uniforms. Users can paste Shadertoy code with minimal edits.
 - **Palette as uniforms, not in-shader**: Palettes are uploaded as vec3 uniforms. Shaders call `palette(t)` with a float. This decouples color from math — any shader × any palette.
 - **Belt-and-suspenders exit**: Exits on either (1) input events on the layer surface or (2) SIGTERM from hypridle's on-resume. Both paths must work independently.
 - **Hot-reload**: Filesystem watcher on shader dir. On change, recompile shader; on compile error, log and keep current shader. No restart needed.
+- **Cycle timers**: calloop `Timer` events in `wayland.rs`. Shader cycle and palette cycle can have independent intervals. Both advance all surfaces simultaneously so monitors stay in sync. Startup randomizes the cycle position.
 
 ## Conventions
 - Rust 2021 edition, stable toolchain
@@ -37,15 +38,43 @@ cargo build --release
 - Config: all fields optional with serde defaults. Zero-config must work.
 
 ## File Locations at Runtime
-- Config: `~/.config/hypr/hyprsaver.toml` (legacy: `~/.config/hyprsaver/config.toml`, deprecated)
+- Config: `~/.config/hypr/hyprsaver.toml` (legacy: `~/.config/hyprsaver/config.toml`, deprecated — warns on load, will be removed in v0.5.0)
 - User shaders: `~/.config/hypr/hyprsaver/shaders/*.frag` (legacy: `~/.config/hyprsaver/shaders/`, deprecated)
 - Built-in shaders: compiled into binary via `include_str!()`
 - Logs: stderr (journalctl if launched by hypridle)
 
+## Built-in Shaders (v0.3.0 — 17 total)
+
+| Name          | Description                                              |
+|---------------|----------------------------------------------------------|
+| mandelbrot    | Mandelbrot set with animated zoom                        |
+| julia         | Julia set with animated parameter                        |
+| plasma        | Classic plasma effect                                    |
+| tunnel        | Infinite tunnel flythrough                               |
+| voronoi       | Animated Voronoi cells                                   |
+| snowfall      | Five-layer parallax snowfall with palette dot glow       |
+| starfield     | Hyperspace zoom tunnel with motion-blur tracers          |
+| kaleidoscope  | 6-fold kaleidoscope driven by domain-warped FBM          |
+| flow_field    | Curl-noise flow field with 8-step particle tracing       |
+| raymarcher    | Raymarched torus with Phong lighting                     |
+| lissajous     | Three overlapping Lissajous curves with glow             |
+| geometry      | Wireframe polyhedron morphing (cube→icosahedron→...)     |
+| hypercube     | Rotating 4D tesseract projected to 2D, neon glow         |
+| network       | Neural network node graph with glowing connections       |
+| matrix        | Classic Matrix digital rain with procedural glyphs       |
+| fire          | Roiling procedural flames with ember particles           |
+| caustics      | Underwater caustic light patterns                        |
+
+## Playlist / Cycle System (v0.3.0)
+
+`config.rs` parses `[shader_playlists.<name>]` and `[palette_playlists.<name>]` table sections. When `shader = "cycle"` (or `palette = "cycle"`) is active and `shader_playlist` / `palette_playlist` is set in `[general]`, the `ShaderManager` / `PaletteManager` iterates only the named playlist. `ShaderManager::set_playlist()` and `randomize_cycle_start()` are called at startup. `cycle_next()` advances on each timer tick.
+
+Cycle timer logic lives in `wayland.rs`: calloop `Timer` events are registered once the screensaver is active. The timer handler advances all `Renderer` instances simultaneously (one per connected monitor) so they stay in sync.
+
 ## Testing Strategy
-- Unit tests: palette math (color_at for known inputs), config deserialization (missing fields → defaults), Shadertoy shim (uniform remapping)
+- Unit tests: palette math (color_at for known inputs), config deserialization (missing fields → defaults), Shadertoy shim (uniform remapping), playlist cycle, shader count
 - Integration: `--preview` mode with a test shader, assert it opens a window and renders frames without panic
-- Manual: run under Hyprland, verify layer surface appears on all monitors, verify input dismiss, verify SIGTERM dismiss, verify hot-reload
+- Manual: run under Hyprland, verify layer surface appears on all monitors, verify input dismiss, verify SIGTERM dismiss, verify hot-reload, verify cycle advances across monitors
 
 ## What to Watch Out For
 - smithay-client-toolkit API churn: SCTK 0.18→0.19 had breaking changes. Pin the version.
@@ -56,7 +85,7 @@ cargo build --release
 
 ## Palette Uniforms — v0.2.0 Migration Note
 
-**Custom shaders must be updated** after upgrading to v0.2.0. The palette uniform names changed:
+**Custom shaders must be updated** after upgrading from v0.1.x. The palette uniform names changed:
 
 | Old (v0.1.x)       | New (v0.2.0+)                                     |
 |--------------------|---------------------------------------------------|
@@ -88,59 +117,19 @@ Two additional uniforms are injected by `prepare_shader()` in `shaders.rs` for e
 
 **In preview mode** the egui control panel's Speed and Zoom sliders call `Renderer::set_speed_scale()` / `set_zoom_scale()` which are forwarded to the shader each frame.
 
-**All 11 built-in shaders** have been updated to wire these uniforms into their time-based motion expressions:
-- All shaders: `u_time` replaced with `u_time * u_speed_scale` in motion/animation expressions (not in position-seeding hashes).
-- Zoom-specific shaders: `mandelbrot` (`max_zoom_exp *= u_zoom_scale`), `raymarcher` (camera orbit radius `/ u_zoom_scale`), `starfield` (`ZOOM * u_speed_scale * u_zoom_scale`).
-
-**Custom shaders** that don't declare `u_speed_scale` or `u_zoom_scale` will have them injected automatically by the pipeline (no action needed). Shaders that define their own values for these uniforms are left untouched.
-
 ## Roadmap Summary
 - v0.1.0: Core screensaver. Layer-shell, glow, cosine palettes, built-in shaders, hot-reload, preview mode.
 - v0.2.0: LUT + gradient palettes, per-monitor config, palette transitions.
-- v0.3.0: PipeWire audio reactivity, interactive mode, MPRIS integration.
-- v0.4.0: wgpu backend, shader parameter GUI, community repo.
+- v0.3.0: 6 new shaders, cycle mode with playlists, shader descriptions, random start position. ✓ shipped
+- v0.4.0: per-monitor shader/palette assignment, screencopy texture pipeline, rain-on-glass shader, palette crossfade on cycle.
 - v1.0.0: Stable config format, AUR/Nix packages, full Shadertoy uniform support.
 
-## v0.2.0 Status
+## v0.3.0 Status
 
-All Palette Engine Upgrade modules implemented (Phase 3):
-- palette.rs: PaletteEntry enum (Cosine | Lut), PNG LUT loading (image crate), CSS gradient stops → LUT
-  interpolation, 3 built-in gradient palettes (sunset/aurora/midnight), PaletteManager with crossfade
-  transition state (begin_transition / advance_transition).
-- config.rs: [[palette]] table-array, PaletteConfigEntry (type = "lut" / "gradient"), GradientStopConfig,
-  general.palette_transition_duration field.
-- renderer.rs: LUT textures (256×1 RGBA8 GL_TEXTURE_2D on units 1+2), u_use_lut / u_palette_blend uniforms,
-  set_palette(PaletteEntry) / begin_transition / set_blend API. Also: u_speed_scale / u_zoom_scale
-  uniforms (1.0 default — no daemon behavior change).
-- shaders.rs: Updated palette() injection — cosine + LUT code paths, mix() crossfade, new uniform names.
-  Also: u_speed_scale / u_zoom_scale injected if not declared; 11 built-in shaders updated.
-- wayland.rs: advance_transition() called each frame, blend factor propagated to all renderers.
-- build.rs: Generates examples/palettes/fire.png at build time (black→deep-red→orange→yellow-white).
-- preview.rs: Full egui control panel (shader/palette ComboBox, speed/zoom sliders, ▶ Preview button).
-  Uses egui 0.29 + egui_glow 0.29. Split viewport: shader left, panel right (280 px). Pointer routing.
-  starfield.frag: new hyperspace zoom tunnel (120 stars, depth projection, motion-blur tracers).
-  snowfall.frag: 5-layer parallax snowfall (replaces old starfield).
-
-### v0.1.0 Status
-
-All core modules implemented:
-- config.rs: TOML config with full defaults, CLI overrides
-- palette.rs: Cosine gradient palettes, 9 built-ins, PaletteManager
-- shaders.rs: Shader loading, Shadertoy compat shim, hot-reload via notify, 10 built-in shaders
-- renderer.rs: glow-based OpenGL ES renderer, fullscreen quad, uniform upload
-- wayland.rs: SCTK layer-shell surfaces, EGL context per output, input dismiss, calloop event loop
-- main.rs: CLI (clap), signal handling, PID file, config→manager→run pipeline
-
-### Known Limitations (v0.1.0)
-- Fade in/out not implemented (config fields exist but are ignored)
-- Preview mode (--preview) falls back to layer-shell mode with a warning
-- Shader cycling timer is wired into the event loop but palette cycling by month is not
-- Multi-monitor uses same shader+palette on all outputs (per-monitor config is v0.2.0)
-- No audio reactivity, no interactive mouse input
-
-### Next Implementation Priorities
-1. Fade in/out (render alpha ramp)
-2. Preview mode (xdg-toplevel fallback)
-3. Palette cycling in the event loop
-4. Per-monitor shader/palette assignment
-5. LUT and gradient-stop palettes
+All cycle/playlist features implemented:
+- config.rs: `shader_cycle_interval`, `palette_cycle_interval`, `shader_playlist`, `palette_playlist` fields in `[general]`; `[shader_playlists.<name>]` and `[palette_playlists.<name>]` table sections.
+- shaders.rs: `set_playlist()`, `cycle_next()`, `current_cycle_name()`, `randomize_cycle_start()` on `ShaderManager`.
+- wayland.rs: Unified cycle timer; both shader + palette advance together when both are cycling; independent timers otherwise. `randomize_cycle_start()` called at startup. All monitors advanced in sync.
+- main.rs: `--shader-cycle-interval`, `--palette-cycle-interval`, `--list-shader-playlists`, `--list-palette-playlists` CLI flags.
+- 6 new built-in shaders: geometry, hypercube, network, matrix, fire, caustics.
+- Removed: pipes shader (visual artifacts), palette_test example.

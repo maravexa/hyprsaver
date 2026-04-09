@@ -511,10 +511,6 @@ fn shader_descriptions() -> std::collections::HashMap<&'static str, &'static str
             "network",
             "Neural network visualization with parallax nodes and pulsing connections",
         ),
-        (
-            "pipes",
-            "Classic 3D pipes growing across a grid with glossy tube shading",
-        ),
         ("plasma", "Classic plasma effect"),
         ("raymarcher", "Raymarched torus with Phong lighting"),
         ("snowfall", "Five-layer parallax snowfall"),
