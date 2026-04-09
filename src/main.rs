@@ -482,11 +482,18 @@ fn expand_tilde(path: &str) -> PathBuf {
 /// Short descriptions for built-in shaders.
 fn shader_descriptions() -> std::collections::HashMap<&'static str, &'static str> {
     [
+        ("caustics", "Underwater light caustic patterns dancing across the screen"),
+        ("fire", "Procedural flames rising with fractal noise turbulence"),
         ("flow_field", "Curl-noise flow field with particle tracing"),
+        ("geometry", "Rotating wireframe polyhedra morphing between geometric forms"),
+        ("hypercube", "4D tesseract rotating in two planes, projected to 2D with neon glow"),
         ("julia", "Julia set with animated constant"),
         ("kaleidoscope", "6-fold kaleidoscope with domain-warped FBM"),
         ("lissajous", "Three overlapping Lissajous curves with glow"),
         ("mandelbrot", "Mandelbrot set zoom"),
+        ("matrix", "Digital rain — falling characters in the style of The Matrix"),
+        ("network", "Neural network visualization with parallax nodes and pulsing connections"),
+        ("pipes", "Classic 3D pipes growing across a grid with glossy tube shading"),
         ("plasma", "Classic plasma effect"),
         ("raymarcher", "Raymarched torus with Phong lighting"),
         ("snowfall", "Five-layer parallax snowfall"),
