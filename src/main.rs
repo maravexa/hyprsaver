@@ -96,6 +96,14 @@ struct Cli {
     /// List all defined palette playlists and exit
     #[arg(long)]
     list_palette_playlists: bool,
+
+    /// Override shader cycle interval in seconds (only used when shader = "cycle")
+    #[arg(long, value_name = "SECONDS")]
+    shader_cycle_interval: Option<u64>,
+
+    /// Override palette cycle interval in seconds (only used when palette = "cycle")
+    #[arg(long, value_name = "SECONDS")]
+    palette_cycle_interval: Option<u64>,
 }
 
 fn main() {
@@ -757,6 +765,11 @@ fn print_palette_playlists(cfg: &Config) {
 fn load_config(cli: &Cli) -> anyhow::Result<Config> {
     let path = cli.config.as_deref().and_then(|p| p.to_str());
     let mut cfg = config::load_config(path)?;
-    cfg.apply_cli_overrides(cli.shader.as_deref(), cli.palette.as_deref());
+    cfg.apply_cli_overrides(
+        cli.shader.as_deref(),
+        cli.palette.as_deref(),
+        cli.shader_cycle_interval,
+        cli.palette_cycle_interval,
+    );
     Ok(cfg)
 }
