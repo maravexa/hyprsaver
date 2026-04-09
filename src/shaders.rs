@@ -111,6 +111,11 @@ pub struct ShaderManager {
     watcher: Option<RecommendedWatcher>,
     /// Receiver for shader-name strings sent by the watcher thread.
     change_rx: Option<mpsc::Receiver<String>>,
+    /// Current position in the cycle. Advances on each `cycle_next()` call.
+    cycle_index: usize,
+    /// If `Some`, `cycle_next()` iterates only these names (in order).
+    /// If `None`, iterates all shaders sorted by name.
+    playlist: Option<Vec<String>>,
 }
 
 impl ShaderManager {
@@ -207,6 +212,8 @@ impl ShaderManager {
             shaders,
             watcher: None,
             change_rx: None,
+            cycle_index: 0,
+            playlist: None,
         })
     }
 
@@ -235,6 +242,44 @@ impl ShaderManager {
             .nth(idx)
             .expect("shaders map is non-empty");
         (name.as_str(), src)
+    }
+
+    /// Advance the cycle index and return the name of the next shader.
+    ///
+    /// If a playlist is set, iterates only playlist items in definition order.
+    /// Otherwise iterates all available shaders alphabetically.
+    /// Wraps around when it reaches the end. Returns `None` if there are no shaders.
+    ///
+    /// Call `get()` or `get_compiled()` with the returned name to access the source.
+    pub fn cycle_next(&mut self) -> Option<String> {
+        let names: Vec<String> = match &self.playlist {
+            Some(pl) => pl
+                .iter()
+                .filter(|n| self.shaders.contains_key(*n))
+                .cloned()
+                .collect(),
+            None => {
+                let mut ns: Vec<String> = self.shaders.keys().cloned().collect();
+                ns.sort_unstable();
+                ns
+            }
+        };
+        if names.is_empty() {
+            return None;
+        }
+        self.cycle_index = self.cycle_index.wrapping_add(1) % names.len();
+        Some(names[self.cycle_index].clone())
+    }
+
+    /// Set a playlist so that `cycle_next()` iterates only the given names.
+    /// Pass an empty vec or call without a playlist to reset to "cycle all".
+    pub fn set_playlist(&mut self, names: Vec<String>) {
+        if names.is_empty() {
+            self.playlist = None;
+        } else {
+            self.playlist = Some(names);
+        }
+        self.cycle_index = 0;
     }
 
     /// Convenience shortcut: return just the compiled GLSL source string.
@@ -762,6 +807,73 @@ mod tests {
             !compiled.unwrap().is_empty(),
             "compiled source must not be empty"
         );
+    }
+
+    #[test]
+    fn test_cycle_next_iterates_all_sorted() {
+        let mut mgr = manager();
+        let sorted = mgr.list().iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let n = sorted.len();
+        let mut seen = Vec::new();
+        for _ in 0..n {
+            let name = mgr.cycle_next().expect("must return Some");
+            seen.push(name);
+        }
+        let mut seen_sorted = seen.clone();
+        seen_sorted.sort_unstable();
+        assert_eq!(seen_sorted, sorted, "cycle_next must visit all shaders");
+    }
+
+    #[test]
+    fn test_cycle_next_wraps_around() {
+        let mut mgr = manager();
+        let n = mgr.list().len();
+        // Record what the first call returns, then advance n-1 more times to
+        // complete one full rotation (n calls total). The n+1th call must match.
+        let first_name = mgr.cycle_next().expect("must return Some");
+        for _ in 0..(n - 1) {
+            mgr.cycle_next().expect("must return Some");
+        }
+        let after_full_rotation = mgr.cycle_next().expect("must return Some");
+        assert_eq!(
+            after_full_rotation, first_name,
+            "cycle_next must wrap back after n calls"
+        );
+    }
+
+    #[test]
+    fn test_set_playlist_restricts_cycle() {
+        let mut mgr = manager();
+        // cycle_index starts at 0; first call increments to 1.
+        // Playlist = ["mandelbrot", "julia"], so: call1→"julia", call2→"mandelbrot", call3→"julia".
+        mgr.set_playlist(vec!["mandelbrot".to_string(), "julia".to_string()]);
+        let name1 = mgr.cycle_next().expect("must return Some");
+        let name2 = mgr.cycle_next().expect("must return Some");
+        let name3 = mgr.cycle_next().expect("must return Some"); // wraps
+        assert_eq!(name1, "julia");
+        assert_eq!(name2, "mandelbrot");
+        assert_eq!(name3, "julia", "must wrap around within playlist");
+    }
+
+    #[test]
+    fn test_set_playlist_empty_resets_to_all() {
+        let mut mgr = manager();
+        mgr.set_playlist(vec!["mandelbrot".to_string()]);
+        mgr.set_playlist(vec![]); // reset
+        let n = mgr.list().len();
+        let mut seen = std::collections::HashSet::new();
+        for _ in 0..n {
+            let name = mgr.cycle_next().expect("must return Some");
+            seen.insert(name);
+        }
+        assert_eq!(seen.len(), n, "after reset, all shaders should be visited");
+    }
+
+    #[test]
+    fn test_random_selection_unchanged() {
+        let mgr = manager();
+        let (name, _src) = mgr.random();
+        assert!(mgr.get(name).is_some(), "random() must return a known shader");
     }
 
     #[test]
