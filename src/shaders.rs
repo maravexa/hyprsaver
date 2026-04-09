@@ -52,6 +52,9 @@ pub const BUILTIN_LISSAJOUS: &str = include_str!("../shaders/lissajous.frag");
 /// Classic 3D Pipes screensaver — glossy cylinders with sphere joints on a dark grid.
 pub const BUILTIN_PIPES: &str = include_str!("../shaders/pipes.frag");
 
+/// Wireframe polyhedron morphing screensaver — cube → octahedron → icosahedron → dodecahedron.
+pub const BUILTIN_GEOMETRY: &str = include_str!("../shaders/geometry.frag");
+
 // ---------------------------------------------------------------------------
 // Vertex shader for the fullscreen quad (triangle-strip, no VBO needed)
 // ---------------------------------------------------------------------------
@@ -203,6 +206,7 @@ impl ShaderManager {
         // Register built-in shaders.
         let builtins: &[(&str, &str)] = &[
             ("flow_field", BUILTIN_FLOW_FIELD),
+            ("geometry", BUILTIN_GEOMETRY),
             ("julia", BUILTIN_JULIA),
             ("kaleidoscope", BUILTIN_KALEIDOSCOPE),
             ("lissajous", BUILTIN_LISSAJOUS),
@@ -719,7 +723,7 @@ mod tests {
 
     #[test]
     fn test_builtin_shader_count() {
-        assert_eq!(manager().list().len(), 12);
+        assert_eq!(manager().list().len(), 13);
     }
 
     #[test]
