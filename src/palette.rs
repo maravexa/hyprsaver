@@ -93,6 +93,58 @@ impl PaletteEntry {
             PaletteEntry::Lut(v) => v.clone(),
         }
     }
+
+    /// Linearly interpolate between two palettes at parameter `t ∈ [0, 1]`.
+    ///
+    /// - **Cosine → Cosine**: interpolates all 12 cosine params (a, b, c, d)
+    ///   component-wise and returns a [`PaletteEntry::Cosine`]. At `t = 0.0`
+    ///   the result equals `from`; at `t = 1.0` it equals `to`.
+    /// - **LUT → LUT**: interpolates the 256 RGB samples linearly and returns
+    ///   a [`PaletteEntry::Lut`]. Per-channel clamped to `[0, 1]`.
+    /// - **Mixed (Cosine ↔ LUT)**: resolves the cosine side to 256 samples via
+    ///   [`PaletteEntry::to_lut`] first, then performs LUT-to-LUT interpolation.
+    ///
+    /// `t` is clamped to `[0, 1]`. This is a pure function — neither input is
+    /// mutated. Produces no NaN for finite inputs, and the returned RGB values
+    /// are in `[0, 1]` for both variants (cosine output is clamped inside
+    /// [`Palette::color_at`] during sampling).
+    pub fn interpolate(from: &PaletteEntry, to: &PaletteEntry, t: f32) -> PaletteEntry {
+        let t = t.clamp(0.0, 1.0);
+        match (from, to) {
+            (PaletteEntry::Cosine(a), PaletteEntry::Cosine(b)) => {
+                let lerp3 = |x: [f32; 3], y: [f32; 3]| -> [f32; 3] {
+                    [
+                        x[0] * (1.0 - t) + y[0] * t,
+                        x[1] * (1.0 - t) + y[1] * t,
+                        x[2] * (1.0 - t) + y[2] * t,
+                    ]
+                };
+                PaletteEntry::Cosine(Palette {
+                    a: lerp3(a.a, b.a),
+                    b: lerp3(a.b, b.b),
+                    c: lerp3(a.c, b.c),
+                    d: lerp3(a.d, b.d),
+                })
+            }
+            _ => {
+                // LUT↔LUT or mixed: resolve both to 256 samples then lerp.
+                let lut_a = from.to_lut();
+                let lut_b = to.to_lut();
+                let blended: Vec<[f32; 3]> = lut_a
+                    .iter()
+                    .zip(lut_b.iter())
+                    .map(|(sa, sb)| {
+                        [
+                            (sa[0] * (1.0 - t) + sb[0] * t).clamp(0.0, 1.0),
+                            (sa[1] * (1.0 - t) + sb[1] * t).clamp(0.0, 1.0),
+                            (sa[2] * (1.0 - t) + sb[2] * t).clamp(0.0, 1.0),
+                        ]
+                    })
+                    .collect();
+                PaletteEntry::Lut(blended)
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -383,15 +435,34 @@ pub fn builtin_gradient_palettes() -> Vec<(String, PaletteEntry)> {
 
 /// Manages named palettes (built-ins + user-defined) and cross-fade transitions.
 ///
-/// Transition lifecycle:
-/// 1. Call `begin_transition(name)` when the active palette should change.
-/// 2. Call `advance_transition(now)` every frame; it returns the blend factor in `[0.0, 1.0]`.
-/// 3. When `advance_transition` returns `1.0` the transition is complete; subsequent calls
-///    return `0.0` (no blend) until the next `begin_transition`.
+/// Transition lifecycle (two equivalent APIs):
+///
+/// **GPU-blended path** (used by the main render loop):
+/// 1. Call [`Self::begin_transition`] or [`Self::transition_to`] when the
+///    active palette should change.
+/// 2. Call [`Self::advance_transition`] every frame; it returns the blend
+///    factor in `[0.0, 1.0]` which is forwarded to the shader's
+///    `u_palette_blend` uniform. Palette A and palette B are uploaded
+///    separately and the shader mixes on-GPU.
+/// 3. When `advance_transition` returns `1.0` the transition is complete;
+///    subsequent calls return `0.0` (no blend) until the next transition.
+///
+/// **CPU-interpolated path** (useful for tests and pre-blended uploads):
+/// 1. Call [`Self::transition_to`] with an explicit per-call duration.
+/// 2. Call [`Self::tick`] once per frame; it returns `true` while the
+///    transition is in progress.
+/// 3. Call [`Self::interpolated_palette`] each frame to get the current
+///    single, pre-blended [`PaletteEntry`] ready for upload.
 pub struct PaletteManager {
     palettes: HashMap<String, PaletteEntry>,
-    /// Duration of the crossfade, in seconds. `0.0` means instant snap.
+    /// Default duration of the crossfade, in seconds. `0.0` means instant snap.
+    /// Used by [`PaletteManager::begin_transition`]; can be overridden per call
+    /// via [`PaletteManager::transition_to`].
     pub transition_duration: f32,
+    /// Duration of the currently active transition, in seconds. Set by
+    /// [`PaletteManager::transition_to`]; falls back to `transition_duration`
+    /// when `None`.
+    active_duration: Option<f32>,
     /// Name of the currently displayed palette.
     current_name: String,
     /// Name of the palette being transitioned to (`None` when idle).
@@ -448,6 +519,7 @@ impl PaletteManager {
         Self {
             palettes,
             transition_duration,
+            active_duration: None,
             current_name,
             next_name: None,
             transition_start: None,
@@ -498,7 +570,8 @@ impl PaletteManager {
         self.next_name.as_deref().and_then(|n| self.palettes.get(n))
     }
 
-    /// Initiate a crossfade to the palette named `to_name`.
+    /// Initiate a crossfade to the palette named `to_name`, using the
+    /// manager's default [`PaletteManager::transition_duration`] field.
     ///
     /// If `transition_duration == 0.0` the swap is instant (no blend).
     /// If `to_name` is unknown, does nothing.
@@ -507,6 +580,8 @@ impl PaletteManager {
             log::warn!("begin_transition: unknown palette '{to_name}'");
             return;
         }
+        // Clear any per-call override so the default duration takes effect.
+        self.active_duration = None;
         if self.transition_duration <= 0.0 {
             // Instant swap.
             self.current_name = to_name.to_string();
@@ -516,6 +591,87 @@ impl PaletteManager {
             self.next_name = Some(to_name.to_string());
             self.transition_start = Some(now);
         }
+    }
+
+    /// Initiate a crossfade to the palette named `to_name` with an explicit
+    /// per-call `duration` in seconds.
+    ///
+    /// This overrides the default [`PaletteManager::transition_duration`] for
+    /// just the current transition. Useful when the cycle engine wants a
+    /// palette-specific fade length (e.g. a longer blend on shader change).
+    ///
+    /// If `duration <= 0.0` the swap is instant (no blend).
+    /// If `to_name` is unknown, does nothing and logs a warning.
+    ///
+    /// After calling this, poll the transition each frame with [`Self::tick`]
+    /// and sample the current blended palette with [`Self::interpolated_palette`].
+    pub fn transition_to(&mut self, to_name: &str, duration: f32, now: Instant) {
+        if !self.palettes.contains_key(to_name) {
+            log::warn!("transition_to: unknown palette '{to_name}'");
+            return;
+        }
+        if duration <= 0.0 {
+            // Instant swap.
+            self.current_name = to_name.to_string();
+            self.next_name = None;
+            self.transition_start = None;
+            self.active_duration = None;
+        } else {
+            self.next_name = Some(to_name.to_string());
+            self.transition_start = Some(now);
+            self.active_duration = Some(duration);
+        }
+    }
+
+    /// Returns `true` if a crossfade is currently in progress (i.e. a target
+    /// palette is pending and the transition clock has not yet expired).
+    ///
+    /// Does not advance the clock — prefer [`Self::tick`] inside the render
+    /// loop when you also want the clock to tick.
+    pub fn is_transitioning(&self) -> bool {
+        self.transition_start.is_some() && self.next_name.is_some()
+    }
+
+    /// Advance the transition clock and return whether a transition is still
+    /// in progress.
+    ///
+    /// Returns:
+    /// - `true` while a crossfade is active (`0.0 ≤ blend < 1.0`).
+    /// - `false` when idle, or on the frame the transition just completed —
+    ///   in which case the target palette has been promoted to current and
+    ///   [`Self::interpolated_palette`] will return the target from now on.
+    ///
+    /// This is a thin wrapper over [`Self::advance_transition`] that exposes
+    /// progress as a bool; call it once per frame.
+    pub fn tick(&mut self, now: Instant) -> bool {
+        self.advance_transition(now);
+        self.is_transitioning()
+    }
+
+    /// Return the current interpolated palette for wall-clock `now`, or the
+    /// active palette if no transition is in progress.
+    ///
+    /// During a transition this performs CPU-side linear interpolation:
+    /// - **Cosine → Cosine**: 12 cosine params blended component-wise; returns
+    ///   a [`PaletteEntry::Cosine`].
+    /// - **LUT → LUT** or **mixed**: both sides resolved to 256-sample LUTs,
+    ///   blended per-sample; returns a [`PaletteEntry::Lut`].
+    ///
+    /// Does not mutate the transition clock — call [`Self::tick`] for that.
+    /// Returns `None` only if the current palette name is not registered
+    /// (should not happen in normal use).
+    pub fn interpolated_palette(&self, now: Instant) -> Option<PaletteEntry> {
+        let current = self.current_palette()?;
+        let (Some(start), Some(next)) = (self.transition_start, self.next_palette()) else {
+            return Some(current.clone());
+        };
+        let duration = self.active_duration.unwrap_or(self.transition_duration);
+        let t = if duration > 0.0 {
+            (now.duration_since(start).as_secs_f32() / duration).clamp(0.0, 1.0)
+        } else {
+            1.0
+        };
+        Some(PaletteEntry::interpolate(current, next, t))
     }
 
     /// Advance the palette cycle index and return the name of the next palette.
@@ -604,20 +760,29 @@ impl PaletteManager {
     ///
     /// - Returns `0.0` when no transition is active.
     /// - Promotes `next` → `current` and returns `0.0` once the blend reaches `1.0`.
+    ///
+    /// Uses the per-call duration set by [`Self::transition_to`] when present,
+    /// otherwise the default [`Self::transition_duration`] field.
     pub fn advance_transition(&mut self, now: Instant) -> f32 {
         let (Some(start), Some(next_name)) = (self.transition_start, self.next_name.as_deref())
         else {
             return 0.0;
         };
 
+        let duration = self.active_duration.unwrap_or(self.transition_duration);
         let elapsed = now.duration_since(start).as_secs_f32();
-        let blend = (elapsed / self.transition_duration).clamp(0.0, 1.0);
+        let blend = if duration > 0.0 {
+            (elapsed / duration).clamp(0.0, 1.0)
+        } else {
+            1.0
+        };
 
         if blend >= 1.0 {
             // Transition complete: promote next → current.
             self.current_name = next_name.to_string();
             self.next_name = None;
             self.transition_start = None;
+            self.active_duration = None;
             return 0.0;
         }
 
@@ -638,6 +803,7 @@ impl Default for PaletteManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
 
     fn assert_approx(got: [f32; 3], want: [f32; 3], eps: f32) {
         for i in 0..3 {
@@ -914,6 +1080,267 @@ mod tests {
             mgr.next_palette().is_none(),
             "next should be None after completion"
         );
+    }
+
+    // --- transition_to / tick / interpolated_palette ---
+
+    /// Helper: assert a 3-channel color has no NaN and is in [0, 1].
+    fn assert_valid_rgb(c: [f32; 3], ctx: &str) {
+        for (i, ch) in c.iter().enumerate() {
+            assert!(!ch.is_nan(), "{ctx}: channel {i} is NaN");
+            assert!(
+                (0.0..=1.0).contains(ch),
+                "{ctx}: channel {i} out of range: {ch}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_tick_returns_false_when_idle() {
+        let mut mgr = PaletteManager::new(HashMap::new(), Vec::new(), 1.0, "electric");
+        assert!(!mgr.tick(Instant::now()));
+        assert!(!mgr.is_transitioning());
+    }
+
+    #[test]
+    fn test_transition_to_drives_tick_true_then_false() {
+        let mut mgr = PaletteManager::new(HashMap::new(), Vec::new(), 0.0, "electric");
+        let t0 = Instant::now();
+        mgr.transition_to("ember", 1.0, t0);
+        assert!(
+            mgr.is_transitioning(),
+            "should be transitioning immediately"
+        );
+        // Mid-transition: tick returns true.
+        assert!(mgr.tick(t0 + Duration::from_millis(500)));
+        // After duration: tick returns false and target is promoted to current.
+        assert!(!mgr.tick(t0 + Duration::from_secs(2)));
+        assert_eq!(mgr.current_name(), "ember");
+    }
+
+    #[test]
+    fn test_transition_to_cosine_to_cosine() {
+        // Cosine → Cosine: electric → ember.
+        let mut mgr = PaletteManager::new(HashMap::new(), Vec::new(), 0.0, "electric");
+        let t0 = Instant::now();
+        mgr.transition_to("ember", 1.0, t0);
+
+        // Source palette (electric) and target palette (ember), as snapshots.
+        let source = match mgr.get("electric").expect("electric exists") {
+            PaletteEntry::Cosine(p) => p.clone(),
+            _ => panic!("electric must be cosine"),
+        };
+        let target = match mgr.get("ember").expect("ember exists") {
+            PaletteEntry::Cosine(p) => p.clone(),
+            _ => panic!("ember must be cosine"),
+        };
+
+        // --- t = 0.0: must match source. ---
+        let start = mgr.interpolated_palette(t0).expect("must have palette");
+        let start_pal = match &start {
+            PaletteEntry::Cosine(p) => p,
+            _ => panic!("cosine→cosine must stay Cosine"),
+        };
+        for i in 0..=16 {
+            let ti = i as f32 / 16.0;
+            let got = start_pal.color_at(ti);
+            let want = source.color_at(ti);
+            assert_approx(got, want, 1e-5);
+            assert_valid_rgb(got, "cosine→cosine t=0");
+        }
+
+        // --- t = 1.0: must match target. ---
+        let end = mgr
+            .interpolated_palette(t0 + Duration::from_secs(1))
+            .expect("must have palette");
+        let end_pal = match &end {
+            PaletteEntry::Cosine(p) => p,
+            _ => panic!("cosine→cosine must stay Cosine"),
+        };
+        for i in 0..=16 {
+            let ti = i as f32 / 16.0;
+            let got = end_pal.color_at(ti);
+            let want = target.color_at(ti);
+            assert_approx(got, want, 1e-5);
+            assert_valid_rgb(got, "cosine→cosine t=1");
+        }
+
+        // --- t = 0.5: plausible midpoint, no NaN, all in range. ---
+        let mid = mgr
+            .interpolated_palette(t0 + Duration::from_millis(500))
+            .expect("must have palette");
+        let mid_pal = match &mid {
+            PaletteEntry::Cosine(p) => p,
+            _ => panic!("cosine→cosine must stay Cosine"),
+        };
+        // Verify that mid params are the exact linear blend of source and target.
+        for i in 0..3 {
+            let expected_a = source.a[i] * 0.5 + target.a[i] * 0.5;
+            let expected_b = source.b[i] * 0.5 + target.b[i] * 0.5;
+            let expected_c = source.c[i] * 0.5 + target.c[i] * 0.5;
+            let expected_d = source.d[i] * 0.5 + target.d[i] * 0.5;
+            assert!((mid_pal.a[i] - expected_a).abs() < 1e-5);
+            assert!((mid_pal.b[i] - expected_b).abs() < 1e-5);
+            assert!((mid_pal.c[i] - expected_c).abs() < 1e-5);
+            assert!((mid_pal.d[i] - expected_d).abs() < 1e-5);
+        }
+        // Sample colors should be finite and in-range.
+        for i in 0..=16 {
+            let ti = i as f32 / 16.0;
+            assert_valid_rgb(mid_pal.color_at(ti), "cosine→cosine t=0.5");
+        }
+    }
+
+    #[test]
+    fn test_transition_to_lut_to_lut() {
+        // LUT → LUT: sunset → aurora (both are built-in gradient LUTs).
+        let mut mgr = PaletteManager::new(HashMap::new(), Vec::new(), 0.0, "sunset");
+        let t0 = Instant::now();
+        mgr.transition_to("aurora", 2.0, t0);
+
+        let source_lut = match mgr.get("sunset").expect("sunset exists") {
+            PaletteEntry::Lut(v) => v.clone(),
+            _ => panic!("sunset must be LUT"),
+        };
+        let target_lut = match mgr.get("aurora").expect("aurora exists") {
+            PaletteEntry::Lut(v) => v.clone(),
+            _ => panic!("aurora must be LUT"),
+        };
+        assert_eq!(source_lut.len(), 256);
+        assert_eq!(target_lut.len(), 256);
+
+        // --- t = 0.0 ---
+        let start = mgr.interpolated_palette(t0).expect("must have palette");
+        match &start {
+            PaletteEntry::Lut(samples) => {
+                assert_eq!(samples.len(), 256);
+                for (i, (got, want)) in samples.iter().zip(source_lut.iter()).enumerate() {
+                    assert_approx(*got, *want, 1e-5);
+                    assert_valid_rgb(*got, &format!("LUT→LUT t=0 sample {i}"));
+                }
+            }
+            _ => panic!("LUT→LUT must produce Lut"),
+        }
+
+        // --- t = 1.0 ---
+        let end = mgr
+            .interpolated_palette(t0 + Duration::from_secs(2))
+            .expect("must have palette");
+        match &end {
+            PaletteEntry::Lut(samples) => {
+                assert_eq!(samples.len(), 256);
+                for (i, (got, want)) in samples.iter().zip(target_lut.iter()).enumerate() {
+                    assert_approx(*got, *want, 1e-5);
+                    assert_valid_rgb(*got, &format!("LUT→LUT t=1 sample {i}"));
+                }
+            }
+            _ => panic!("LUT→LUT must produce Lut"),
+        }
+
+        // --- t = 0.5: plausible midpoint. ---
+        let mid = mgr
+            .interpolated_palette(t0 + Duration::from_secs(1))
+            .expect("must have palette");
+        match &mid {
+            PaletteEntry::Lut(samples) => {
+                assert_eq!(samples.len(), 256);
+                for (i, got) in samples.iter().enumerate() {
+                    let expected = [
+                        (source_lut[i][0] * 0.5 + target_lut[i][0] * 0.5).clamp(0.0, 1.0),
+                        (source_lut[i][1] * 0.5 + target_lut[i][1] * 0.5).clamp(0.0, 1.0),
+                        (source_lut[i][2] * 0.5 + target_lut[i][2] * 0.5).clamp(0.0, 1.0),
+                    ];
+                    assert_approx(*got, expected, 1e-5);
+                    assert_valid_rgb(*got, &format!("LUT→LUT t=0.5 sample {i}"));
+                }
+            }
+            _ => panic!("LUT→LUT must produce Lut"),
+        }
+    }
+
+    #[test]
+    fn test_transition_to_cosine_to_lut() {
+        // Mixed: cosine (electric) → LUT (sunset). Must resolve cosine to 256
+        // samples first, then LUT-to-LUT interpolate.
+        let mut mgr = PaletteManager::new(HashMap::new(), Vec::new(), 0.0, "electric");
+        let t0 = Instant::now();
+        mgr.transition_to("sunset", 1.0, t0);
+
+        // Expected source samples = cosine resolved to LUT.
+        let source_lut = match mgr.get("electric").expect("electric exists") {
+            PaletteEntry::Cosine(p) => p.to_lut(),
+            _ => panic!("electric must be cosine"),
+        };
+        let target_lut = match mgr.get("sunset").expect("sunset exists") {
+            PaletteEntry::Lut(v) => v.clone(),
+            _ => panic!("sunset must be LUT"),
+        };
+
+        // --- t = 0.0: must match source's LUT-resolved samples. ---
+        let start = mgr.interpolated_palette(t0).expect("must have palette");
+        match &start {
+            PaletteEntry::Lut(samples) => {
+                assert_eq!(samples.len(), 256);
+                for (i, (got, want)) in samples.iter().zip(source_lut.iter()).enumerate() {
+                    assert_approx(*got, *want, 1e-5);
+                    assert_valid_rgb(*got, &format!("cosine→LUT t=0 sample {i}"));
+                }
+            }
+            _ => panic!("mixed transition must produce Lut"),
+        }
+
+        // --- t = 1.0: must match target LUT. ---
+        let end = mgr
+            .interpolated_palette(t0 + Duration::from_secs(1))
+            .expect("must have palette");
+        match &end {
+            PaletteEntry::Lut(samples) => {
+                assert_eq!(samples.len(), 256);
+                for (i, (got, want)) in samples.iter().zip(target_lut.iter()).enumerate() {
+                    assert_approx(*got, *want, 1e-5);
+                    assert_valid_rgb(*got, &format!("cosine→LUT t=1 sample {i}"));
+                }
+            }
+            _ => panic!("mixed transition must produce Lut"),
+        }
+
+        // --- t = 0.5: plausible midpoint, no NaN, in [0, 1]. ---
+        let mid = mgr
+            .interpolated_palette(t0 + Duration::from_millis(500))
+            .expect("must have palette");
+        match &mid {
+            PaletteEntry::Lut(samples) => {
+                assert_eq!(samples.len(), 256);
+                for (i, got) in samples.iter().enumerate() {
+                    let expected = [
+                        (source_lut[i][0] * 0.5 + target_lut[i][0] * 0.5).clamp(0.0, 1.0),
+                        (source_lut[i][1] * 0.5 + target_lut[i][1] * 0.5).clamp(0.0, 1.0),
+                        (source_lut[i][2] * 0.5 + target_lut[i][2] * 0.5).clamp(0.0, 1.0),
+                    ];
+                    assert_approx(*got, expected, 1e-5);
+                    assert_valid_rgb(*got, &format!("cosine→LUT t=0.5 sample {i}"));
+                }
+            }
+            _ => panic!("mixed transition must produce Lut"),
+        }
+    }
+
+    #[test]
+    fn test_transition_to_unknown_is_noop() {
+        let mut mgr = PaletteManager::new(HashMap::new(), Vec::new(), 0.0, "electric");
+        let t0 = Instant::now();
+        mgr.transition_to("no_such_palette", 1.0, t0);
+        assert!(!mgr.is_transitioning());
+        assert_eq!(mgr.current_name(), "electric");
+    }
+
+    #[test]
+    fn test_transition_to_zero_duration_snaps() {
+        let mut mgr = PaletteManager::new(HashMap::new(), Vec::new(), 0.0, "electric");
+        let t0 = Instant::now();
+        mgr.transition_to("frost", 0.0, t0);
+        assert!(!mgr.is_transitioning());
+        assert_eq!(mgr.current_name(), "frost");
     }
 
     // --- cycle_next / set_playlist ---
