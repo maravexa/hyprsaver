@@ -119,10 +119,10 @@ void main() {
 
                 // ~35 % of connections active per cycle window
                 float actHash = hash11(connId + cycleSeed * 17.11);
-                float active  = step(actHash, 0.35);
+                float connOn  = step(actHash, 0.35);
 
-                float lineAlph = baseAlph + active * (0.50 - baseAlph) * pulse;
-                vec3  lineCol  = mix(palette(ct), vec3(1.0), 0.2 * pulse * active);
+                float lineAlph = baseAlph + connOn * (0.50 - baseAlph) * pulse;
+                vec3  lineCol  = mix(palette(ct), vec3(1.0), 0.2 * pulse * connOn);
 
                 col += lineCol * lg * lineAlph;
             }
@@ -155,10 +155,10 @@ void main() {
                     float pulse    = sin(t * pulseSpd + pulsePh) * 0.5 + 0.5;
 
                     float actHash = hash11(connId + cycleSeed * 17.11);
-                    float active  = step(actHash, 0.35);
+                    float connOn  = step(actHash, 0.35);
 
-                    float lineAlph = crossA + active * (0.35 - crossA) * pulse;
-                    vec3  lineCol  = mix(palette(ct), vec3(1.0), 0.2 * pulse * active);
+                    float lineAlph = crossA + connOn * (0.35 - crossA) * pulse;
+                    vec3  lineCol  = mix(palette(ct), vec3(1.0), 0.2 * pulse * connOn);
 
                     col += lineCol * lg * lineAlph;
                 }
