@@ -62,7 +62,7 @@ sudo pacman -U hyprsaver-0.2.0-x86_64-linux.tar.zst
    }
    ```
 
-4. Customize (`~/.config/hyprsaver/config.toml`):
+4. Customize (`~/.config/hypr/hyprsaver.toml`):
    ```toml
    [general]
    shader = "julia"
@@ -88,7 +88,7 @@ sudo pacman -U hyprsaver-0.2.0-x86_64-linux.tar.zst
 - **Multi-monitor** support -- one surface per output, with per-monitor shader/palette assignment via `[[monitor]]` config blocks
 - **Cosine gradient palettes** -- 12 floats define smooth, infinite color ramps. Any shader x any palette
 - **Shadertoy-compatible** shader format -- paste Shadertoy code with minimal edits, it just works
-- **Hot-reload** shaders from `~/.config/hyprsaver/shaders/` -- edit, save, see the change instantly
+- **Hot-reload** shaders from `~/.config/hypr/hyprsaver/shaders/` -- edit, save, see the change instantly
 - **Built-in shader collection** (10 shaders):
 
   | Name            | Description                                        |
@@ -243,9 +243,14 @@ bind = , escape, exec, hyprsaver --quit
 
 ## Configuration
 
-The config file lives at `~/.config/hyprsaver/config.toml`. It is entirely optional -- hyprsaver runs with built-in defaults if no file exists.
+The config file lives at `~/.config/hypr/hyprsaver.toml`. It is entirely optional -- hyprsaver runs with built-in defaults if no file exists.
 
-A full annotated example is provided at [`config.example.toml`](config.example.toml) and [`examples/config.toml`](examples/config.toml).
+> **Upgrading from v0.2.x?** The config path moved from `~/.config/hyprsaver/config.toml` to
+> `~/.config/hypr/hyprsaver.toml` and the shader directory from `~/.config/hyprsaver/shaders/`
+> to `~/.config/hypr/hyprsaver/shaders/`. The old paths are still recognised with a deprecation
+> warning — move your files at your convenience.
+
+A full annotated example is provided at [`config.example.toml`](config.example.toml) and [`examples/hyprsaver.toml`](examples/hyprsaver.toml).
 
 ### Minimal Config
 
@@ -300,7 +305,7 @@ Full mathematical background: [https://iquilezles.org/articles/palettes/](https:
 
 ## Writing Custom Shaders
 
-Drop `.frag` files in `~/.config/hyprsaver/shaders/`. They are available immediately by filename stem (e.g. `my_effect.frag` -> `--shader my_effect`).
+Drop `.frag` files in `~/.config/hypr/hyprsaver/shaders/`. They are available immediately by filename stem (e.g. `my_effect.frag` -> `--shader my_effect`).
 
 ### Shader Format
 
@@ -403,7 +408,7 @@ Keyboard shortcuts always active in the preview window:
 hyprsaver --preview my_shader
 
 # In another terminal, edit the shader -- changes appear within one second
-$EDITOR ~/.config/hyprsaver/shaders/my_shader.frag
+$EDITOR ~/.config/hypr/hyprsaver/shaders/my_shader.frag
 ```
 
 Compile errors are logged to stderr; the last working shader continues running.
@@ -437,8 +442,8 @@ For fast iteration when designing or tweaking palettes, use the included test sh
 
 1. Copy the test shader to your user shader directory:
    ```bash
-   mkdir -p ~/.config/hyprsaver/shaders
-   cp examples/palette_test.frag ~/.config/hyprsaver/shaders/
+   mkdir -p ~/.config/hypr/hyprsaver/shaders
+   cp examples/palette_test.frag ~/.config/hypr/hyprsaver/shaders/
    ```
 
 2. Launch hyprsaver with the test shader and your target palette:
@@ -450,7 +455,7 @@ For fast iteration when designing or tweaking palettes, use the included test sh
    The bottom shows the palette applied to a ring pattern, simulating how it
    looks on fractal geometry.
 
-3. Edit your palette values in `~/.config/hyprsaver/config.toml`:
+3. Edit your palette values in `~/.config/hypr/hyprsaver.toml`:
    ```toml
    [palettes.my_custom_palette]
    a = [0.5, 0.3, 0.2]
@@ -532,8 +537,8 @@ graph TD
     end
 
     subgraph files ["User File Paths"]
-        configfile[("~/.config/hyprsaver/config.toml")]
-        shaderfiles[("~/.config/hyprsaver/shaders/*.frag")]
+        configfile[("~/.config/hypr/hyprsaver.toml")]
+        shaderfiles[("~/.config/hypr/hyprsaver/shaders/*.frag")]
         pidfile[("$XDG_RUNTIME_DIR/hyprsaver.pid")]
     end
 

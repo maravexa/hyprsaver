@@ -9,7 +9,7 @@
 
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 
 // ---------------------------------------------------------------------------
@@ -80,6 +80,77 @@ void main() {
     v_uv = uvs[gl_VertexID];
 }
 "#;
+
+// ---------------------------------------------------------------------------
+// Shader directory resolution
+// ---------------------------------------------------------------------------
+
+/// Outcome of resolving the user shader directory.
+///
+/// Priority:
+/// 1. `$XDG_CONFIG_HOME/hypr/hyprsaver/shaders/` (new path)
+/// 2. `$XDG_CONFIG_HOME/hyprsaver/shaders/` (legacy — deprecated)
+///
+/// If both exist and contain `.frag` files, both are used (new takes precedence).
+#[derive(Debug, PartialEq)]
+pub enum ShaderDirOutcome {
+    /// Use the new path only.
+    New(PathBuf),
+    /// Use only the legacy path (new doesn't exist). Caller should log a deprecation warning.
+    Legacy(PathBuf),
+    /// Both exist and contain `.frag` files. Load from both; new takes precedence.
+    /// Caller should log a deprecation warning about the legacy path.
+    Both { new: PathBuf, legacy: PathBuf },
+    /// Neither directory exists; only built-in shaders are available.
+    NotFound(PathBuf),
+}
+
+/// Resolve the user shader directory, checking the new Hyprland-ecosystem location
+/// first and falling back to the legacy location.
+///
+/// The returned `ShaderDirOutcome` tells the caller which directory to use as the
+/// primary (and which legacy directory to also load from, if applicable).
+pub fn resolve_shader_dir() -> ShaderDirOutcome {
+    let cfg_dir = dirs::config_dir().unwrap_or_else(|| PathBuf::from(".config"));
+    let new_dir = cfg_dir.join("hypr").join("hyprsaver").join("shaders");
+    let legacy_dir = cfg_dir.join("hyprsaver").join("shaders");
+    resolve_shader_dir_impl(new_dir, legacy_dir)
+}
+
+/// Inner implementation that accepts explicit paths for testability.
+fn resolve_shader_dir_impl(new_dir: PathBuf, legacy_dir: PathBuf) -> ShaderDirOutcome {
+    let new_exists = new_dir.is_dir();
+    let legacy_has_frags = legacy_dir.is_dir() && dir_has_frags(&legacy_dir);
+
+    if new_exists {
+        if legacy_has_frags {
+            ShaderDirOutcome::Both {
+                new: new_dir,
+                legacy: legacy_dir,
+            }
+        } else {
+            ShaderDirOutcome::New(new_dir)
+        }
+    } else if legacy_has_frags {
+        ShaderDirOutcome::Legacy(legacy_dir)
+    } else if legacy_dir.is_dir() {
+        // Legacy dir exists but is empty; treat as "new dir" for the watcher path.
+        ShaderDirOutcome::New(new_dir)
+    } else {
+        ShaderDirOutcome::NotFound(new_dir)
+    }
+}
+
+/// Returns `true` if `dir` contains at least one `.frag` file.
+fn dir_has_frags(dir: &Path) -> bool {
+    std::fs::read_dir(dir)
+        .map(|entries| {
+            entries
+                .flatten()
+                .any(|e| e.path().extension().and_then(|ext| ext.to_str()) == Some("frag"))
+        })
+        .unwrap_or(false)
+}
 
 // ---------------------------------------------------------------------------
 // ShaderSource
@@ -341,6 +412,65 @@ impl ShaderManager {
             },
         );
         Ok(name)
+    }
+
+    /// Load all `.frag` files from `dir` without overwriting entries that are already
+    /// registered. Used for merging the legacy shader directory when both the new and
+    /// legacy directories exist — the new-path shaders are loaded first, so they win
+    /// on name collision.
+    pub fn load_from_dir_no_overwrite(&mut self, dir: &Path) {
+        if !dir.is_dir() {
+            return;
+        }
+        match std::fs::read_dir(dir) {
+            Ok(entries) => {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.extension().and_then(|e| e.to_str()) != Some("frag") {
+                        continue;
+                    }
+                    let Some(name) = path
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .map(str::to_string)
+                    else {
+                        continue;
+                    };
+                    // Skip if already registered (new-path shader takes precedence).
+                    if self.shaders.contains_key(&name) {
+                        log::info!(
+                            "Shader '{name}': new-path version takes precedence over legacy {:?}",
+                            path
+                        );
+                        continue;
+                    }
+                    match std::fs::read_to_string(&path) {
+                        Ok(content) => {
+                            let raw = content
+                                .strip_prefix('\u{FEFF}')
+                                .unwrap_or(&content)
+                                .to_string();
+                            let compiled = prepare_shader(&raw);
+                            self.shaders.insert(
+                                name.clone(),
+                                ShaderSource {
+                                    name,
+                                    raw,
+                                    compiled,
+                                    builtin: false,
+                                },
+                            );
+                        }
+                        Err(e) => {
+                            log::warn!("Failed to load legacy shader {:?}: {e}", path);
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                log::warn!("Failed to read legacy shader directory {:?}: {e}", dir);
+            }
+        }
     }
 
     /// Start watching `shader_dir` for `.frag` file creation and modification events.
@@ -888,6 +1018,104 @@ mod tests {
         assert!(
             result.is_err(),
             "reload of a non-existent shader must return Err"
+        );
+    }
+
+    // ---------------------------------------------------------------------------
+    // resolve_shader_dir tests
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn test_resolve_shader_dir_new_only() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let new_dir = tmp.path().join("new_shaders");
+        let legacy_dir = tmp.path().join("legacy_shaders");
+        std::fs::create_dir_all(&new_dir).expect("create new_dir");
+
+        let outcome = resolve_shader_dir_impl(new_dir.clone(), legacy_dir);
+        assert_eq!(outcome, ShaderDirOutcome::New(new_dir));
+    }
+
+    #[test]
+    fn test_resolve_shader_dir_legacy_only_with_frags() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let new_dir = tmp.path().join("new_shaders");
+        let legacy_dir = tmp.path().join("legacy_shaders");
+        std::fs::create_dir_all(&legacy_dir).expect("create legacy_dir");
+        std::fs::write(legacy_dir.join("test.frag"), "void main() {}").expect("write frag");
+
+        let outcome = resolve_shader_dir_impl(new_dir, legacy_dir.clone());
+        assert_eq!(outcome, ShaderDirOutcome::Legacy(legacy_dir));
+    }
+
+    #[test]
+    fn test_resolve_shader_dir_both_with_frags() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let new_dir = tmp.path().join("new_shaders");
+        let legacy_dir = tmp.path().join("legacy_shaders");
+        std::fs::create_dir_all(&new_dir).expect("create new_dir");
+        std::fs::create_dir_all(&legacy_dir).expect("create legacy_dir");
+        std::fs::write(legacy_dir.join("test.frag"), "void main() {}").expect("write frag");
+
+        let outcome = resolve_shader_dir_impl(new_dir.clone(), legacy_dir.clone());
+        assert_eq!(
+            outcome,
+            ShaderDirOutcome::Both {
+                new: new_dir,
+                legacy: legacy_dir,
+            }
+        );
+    }
+
+    #[test]
+    fn test_resolve_shader_dir_neither_exists() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let new_dir = tmp.path().join("new_shaders");
+        let legacy_dir = tmp.path().join("legacy_shaders");
+
+        let outcome = resolve_shader_dir_impl(new_dir.clone(), legacy_dir);
+        assert_eq!(outcome, ShaderDirOutcome::NotFound(new_dir));
+    }
+
+    #[test]
+    fn test_load_from_dir_no_overwrite() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let dir_a = tmp.path().join("dir_a");
+        let dir_b = tmp.path().join("dir_b");
+        std::fs::create_dir_all(&dir_a).expect("create dir_a");
+        std::fs::create_dir_all(&dir_b).expect("create dir_b");
+
+        // Write "shared" to both dirs — dir_a version should win.
+        std::fs::write(
+            dir_a.join("shared.frag"),
+            "#version 320 es\nprecision highp float;\nvoid main() { fragColor = vec4(1.0); }\n",
+        )
+        .expect("write dir_a/shared.frag");
+        std::fs::write(
+            dir_b.join("shared.frag"),
+            "#version 320 es\nprecision highp float;\nvoid main() { fragColor = vec4(0.0); }\n",
+        )
+        .expect("write dir_b/shared.frag");
+        // Write "unique_b" only in dir_b.
+        std::fs::write(
+            dir_b.join("unique_b.frag"),
+            "#version 320 es\nprecision highp float;\nvoid main() { fragColor = vec4(0.5); }\n",
+        )
+        .expect("write dir_b/unique_b.frag");
+
+        let mut mgr = ShaderManager::new(dir_a).expect("ShaderManager::new must succeed");
+        mgr.load_from_dir_no_overwrite(&dir_b);
+
+        // "shared" should contain the dir_a version (vec4(1.0)).
+        let shared = mgr.get("shared").expect("shared must exist");
+        assert!(
+            shared.raw.contains("vec4(1.0)"),
+            "dir_a version of 'shared' must win"
+        );
+        // "unique_b" should be loaded from dir_b.
+        assert!(
+            mgr.get("unique_b").is_some(),
+            "unique_b from dir_b must be loaded"
         );
     }
 }

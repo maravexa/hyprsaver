@@ -12,7 +12,7 @@ categories = ["graphics", "rendering"]
 rust-version = "1.88"
 exclude = [
     ".github/**",
-    "examples/config.toml",
+    "examples/hyprsaver.toml",
     "examples/hypridle.conf",
     "examples/hyprland.conf",
     "*.tar.gz",
@@ -49,6 +49,9 @@ wayland-egl = "0.32"
 image = { version = "0.25", default-features = false, features = ["png"] }
 egui = "0.29"
 egui_glow = "0.29"
+
+[dev-dependencies]
+tempfile = "3"
 
 [build-dependencies]
 image = { version = "0.25", default-features = false, features = ["png"] }
