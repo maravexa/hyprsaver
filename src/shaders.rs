@@ -726,7 +726,7 @@ mod tests {
 
     #[test]
     fn test_builtin_shader_count() {
-        assert_eq!(manager().list().len(), 13);
+        assert_eq!(manager().list().len(), 14);
     }
 
     #[test]
@@ -747,6 +747,7 @@ mod tests {
             "lissajous",
             "pipes",
             "hypercube",
+            "geometry",
         ] {
             assert!(
                 names.contains(expected),
