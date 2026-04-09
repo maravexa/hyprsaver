@@ -734,7 +734,7 @@ mod tests {
 
     #[test]
     fn test_builtin_shader_count() {
-        assert_eq!(manager().list().len(), 15);
+        assert_eq!(manager().list().len(), 16);
     }
 
     #[test]
@@ -753,6 +753,7 @@ mod tests {
             "flow_field",
             "raymarcher",
             "lissajous",
+            "matrix",
             "network",
             "pipes",
             "hypercube",
