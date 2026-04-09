@@ -52,6 +52,8 @@ pub const BUILTIN_LISSAJOUS: &str = include_str!("../shaders/lissajous.frag");
 /// Classic 3D Pipes screensaver — glossy cylinders with sphere joints on a dark grid.
 pub const BUILTIN_PIPES: &str = include_str!("../shaders/pipes.frag");
 
+/// Rotating 4D hypercube (tesseract) projected to 2D with neon glow wireframe.
+pub const BUILTIN_HYPERCUBE: &str = include_str!("../shaders/hypercube.frag");
 /// Wireframe polyhedron morphing screensaver — cube → octahedron → icosahedron → dodecahedron.
 pub const BUILTIN_GEOMETRY: &str = include_str!("../shaders/geometry.frag");
 
@@ -206,6 +208,7 @@ impl ShaderManager {
         // Register built-in shaders.
         let builtins: &[(&str, &str)] = &[
             ("flow_field", BUILTIN_FLOW_FIELD),
+            ("hypercube", BUILTIN_HYPERCUBE),
             ("geometry", BUILTIN_GEOMETRY),
             ("julia", BUILTIN_JULIA),
             ("kaleidoscope", BUILTIN_KALEIDOSCOPE),
@@ -743,6 +746,7 @@ mod tests {
             "raymarcher",
             "lissajous",
             "pipes",
+            "hypercube",
         ] {
             assert!(
                 names.contains(expected),
