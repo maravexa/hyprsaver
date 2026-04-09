@@ -63,6 +63,12 @@ pub const BUILTIN_GEOMETRY: &str = include_str!("../shaders/geometry.frag");
 /// Classic Matrix digital rain — falling columns of procedural bitmask glyphs.
 pub const BUILTIN_MATRIX: &str = include_str!("../shaders/matrix.frag");
 
+/// Procedural fire — roiling flames rising from the bottom with three-octave noise and ember particles.
+pub const BUILTIN_FIRE: &str = include_str!("../shaders/fire.frag");
+
+/// Underwater caustic light patterns — sine-wave summation caustics with water-surface heave.
+pub const BUILTIN_CAUSTICS: &str = include_str!("../shaders/caustics.frag");
+
 // ---------------------------------------------------------------------------
 // Vertex shader for the fullscreen quad (triangle-strip, no VBO needed)
 // ---------------------------------------------------------------------------
@@ -213,6 +219,8 @@ impl ShaderManager {
 
         // Register built-in shaders.
         let builtins: &[(&str, &str)] = &[
+            ("caustics", BUILTIN_CAUSTICS),
+            ("fire", BUILTIN_FIRE),
             ("flow_field", BUILTIN_FLOW_FIELD),
             ("hypercube", BUILTIN_HYPERCUBE),
             ("geometry", BUILTIN_GEOMETRY),
@@ -734,7 +742,7 @@ mod tests {
 
     #[test]
     fn test_builtin_shader_count() {
-        assert_eq!(manager().list().len(), 16);
+        assert_eq!(manager().list().len(), 18);
     }
 
     #[test]
@@ -742,22 +750,24 @@ mod tests {
         let mgr = manager();
         let names = mgr.list();
         for expected in &[
-            "mandelbrot",
-            "julia",
-            "plasma",
-            "tunnel",
-            "voronoi",
-            "snowfall",
-            "starfield",
-            "kaleidoscope",
+            "caustics",
+            "fire",
             "flow_field",
-            "raymarcher",
+            "geometry",
+            "hypercube",
+            "julia",
+            "kaleidoscope",
             "lissajous",
+            "mandelbrot",
             "matrix",
             "network",
             "pipes",
-            "hypercube",
-            "geometry",
+            "plasma",
+            "raymarcher",
+            "snowfall",
+            "starfield",
+            "tunnel",
+            "voronoi",
         ] {
             assert!(
                 names.contains(expected),
