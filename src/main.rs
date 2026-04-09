@@ -88,6 +88,14 @@ struct Cli {
     /// Enable verbose debug logging (equivalent to RUST_LOG=hyprsaver=debug)
     #[arg(short, long)]
     verbose: bool,
+
+    /// List all defined shader playlists and exit
+    #[arg(long)]
+    list_shader_playlists: bool,
+
+    /// List all defined palette playlists and exit
+    #[arg(long)]
+    list_palette_playlists: bool,
 }
 
 fn main() {
@@ -137,7 +145,7 @@ fn run() -> anyhow::Result<()> {
 
     // Build extra (LUT / gradient) palette entries from config.
     let extra_entries = build_palette_entries(&cfg);
-    let palette_manager = PaletteManager::new(
+    let mut palette_manager = PaletteManager::new(
         cfg.palettes.clone(),
         extra_entries,
         cfg.general.palette_transition_duration,
@@ -153,6 +161,17 @@ fn run() -> anyhow::Result<()> {
         print_palettes(&palette_manager, &cfg);
         return Ok(());
     }
+    if cli.list_shader_playlists {
+        print_shader_playlists(&cfg);
+        return Ok(());
+    }
+    if cli.list_palette_playlists {
+        print_palette_playlists(&cfg);
+        return Ok(());
+    }
+
+    // Validate and wire playlists into managers (Phases 2+3).
+    validate_and_apply_playlists(&cfg, &mut shader_manager, &mut palette_manager);
 
     if cli.preview {
         // Preview mode: windowed xdg-toplevel window, no PID file, no daemon check.
@@ -567,6 +586,143 @@ fn install_signal_handlers(running: Arc<AtomicBool>) -> anyhow::Result<()> {
     });
 
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Playlist validation and wiring (Phases 2 + 3)
+// ---------------------------------------------------------------------------
+
+/// Validate playlist config and wire resolved playlists into the managers.
+///
+/// For each named playlist:
+/// - Warn if the playlist name is set but the mode is not "cycle".
+/// - Warn and skip unknown shader/palette names within the playlist.
+/// - Warn and fall back to "cycle all" if the playlist resolves to empty.
+/// - Call `set_playlist()` on the manager with the resolved list.
+fn validate_and_apply_playlists(
+    cfg: &Config,
+    shader_manager: &mut ShaderManager,
+    palette_manager: &mut PaletteManager,
+) {
+    // --- Shader playlist ---
+    if let Some(ref playlist_name) = cfg.general.shader_playlist {
+        if cfg.general.shader != "cycle" {
+            log::warn!(
+                "shader_playlist is set but shader mode is not 'cycle', playlist will be ignored"
+            );
+        } else {
+            match cfg.shader_playlists.get(playlist_name) {
+                None => {
+                    log::warn!(
+                        "shader_playlist '{playlist_name}' not found in [shader_playlists]; cycling all shaders"
+                    );
+                }
+                Some(pl) => {
+                    let resolved: Vec<String> = pl
+                        .shaders
+                        .iter()
+                        .filter_map(|name| {
+                            if shader_manager.get(name).is_some() {
+                                Some(name.clone())
+                            } else {
+                                log::warn!(
+                                    "Shader '{name}' in playlist '{playlist_name}' not found; skipping"
+                                );
+                                None
+                            }
+                        })
+                        .collect();
+                    if resolved.is_empty() {
+                        log::warn!(
+                            "Shader playlist '{playlist_name}' is empty after filtering; cycling all shaders"
+                        );
+                    } else {
+                        log::info!(
+                            "Shader cycle playlist: {playlist_name} ({} shaders)",
+                            resolved.len()
+                        );
+                        shader_manager.set_playlist(resolved);
+                    }
+                }
+            }
+        }
+    }
+
+    // --- Palette playlist ---
+    if let Some(ref playlist_name) = cfg.general.palette_playlist {
+        if cfg.general.palette != "cycle" {
+            log::warn!(
+                "palette_playlist is set but palette mode is not 'cycle', playlist will be ignored"
+            );
+        } else {
+            match cfg.palette_playlists.get(playlist_name) {
+                None => {
+                    log::warn!(
+                        "palette_playlist '{playlist_name}' not found in [palette_playlists]; cycling all palettes"
+                    );
+                }
+                Some(pl) => {
+                    let resolved: Vec<String> = pl
+                        .palettes
+                        .iter()
+                        .filter_map(|name| {
+                            if palette_manager.get(name).is_some() {
+                                Some(name.clone())
+                            } else {
+                                log::warn!(
+                                    "Palette '{name}' in playlist '{playlist_name}' not found; skipping"
+                                );
+                                None
+                            }
+                        })
+                        .collect();
+                    if resolved.is_empty() {
+                        log::warn!(
+                            "Palette playlist '{playlist_name}' is empty after filtering; cycling all palettes"
+                        );
+                    } else {
+                        log::info!(
+                            "Palette cycle playlist: {playlist_name} ({} palettes)",
+                            resolved.len()
+                        );
+                        palette_manager.set_playlist(resolved);
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// --list-shader-playlists / --list-palette-playlists
+// ---------------------------------------------------------------------------
+
+fn print_shader_playlists(cfg: &Config) {
+    if cfg.shader_playlists.is_empty() {
+        println!("No shader playlists defined.");
+        return;
+    }
+    println!("Shader playlists:");
+    let mut names: Vec<&String> = cfg.shader_playlists.keys().collect();
+    names.sort_unstable();
+    for name in names {
+        let shaders = cfg.shader_playlists[name].shaders.join(", ");
+        println!("  {name}: {shaders}");
+    }
+}
+
+fn print_palette_playlists(cfg: &Config) {
+    if cfg.palette_playlists.is_empty() {
+        println!("No palette playlists defined.");
+        return;
+    }
+    println!("Palette playlists:");
+    let mut names: Vec<&String> = cfg.palette_playlists.keys().collect();
+    names.sort_unstable();
+    for name in names {
+        let palettes = cfg.palette_playlists[name].palettes.join(", ");
+        println!("  {name}: {palettes}");
+    }
 }
 
 /// Load config from CLI flag -> XDG path -> built-in defaults, then apply
