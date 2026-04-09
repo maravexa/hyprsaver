@@ -323,6 +323,20 @@ impl ShaderManager {
         names
     }
 
+    /// Return the effective cycle playlist as an owned `Vec<String>`.
+    ///
+    /// If a playlist was set via [`set_playlist`], returns that list.
+    /// Otherwise returns all known shader names sorted alphabetically.
+    pub fn effective_playlist(&self) -> Vec<String> {
+        if let Some(ref pl) = self.playlist {
+            pl.clone()
+        } else {
+            let mut names: Vec<String> = self.shaders.keys().cloned().collect();
+            names.sort_unstable();
+            names
+        }
+    }
+
     /// Return a random shader. Uses current-time subsecond nanos modulo count.
     pub fn random(&self) -> (&str, &ShaderSource) {
         let idx = std::time::SystemTime::now()

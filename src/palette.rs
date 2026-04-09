@@ -540,6 +540,20 @@ impl PaletteManager {
         names
     }
 
+    /// Return the effective cycle playlist as an owned `Vec<String>`.
+    ///
+    /// If a playlist was set via [`set_playlist`], returns that list.
+    /// Otherwise returns all known palette names sorted alphabetically.
+    pub fn effective_playlist(&self) -> Vec<String> {
+        if let Some(ref pl) = self.cycle_playlist {
+            pl.clone()
+        } else {
+            let mut names: Vec<String> = self.palettes.keys().cloned().collect();
+            names.sort_unstable();
+            names
+        }
+    }
+
     /// Return a random palette (current-time subsecond-nanos mod count).
     pub fn random(&self) -> (&str, &PaletteEntry) {
         let idx = std::time::SystemTime::now()
