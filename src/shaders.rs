@@ -60,6 +60,9 @@ pub const BUILTIN_HYPERCUBE: &str = include_str!("../shaders/hypercube.frag");
 /// Wireframe polyhedron morphing screensaver — cube → octahedron → icosahedron → dodecahedron.
 pub const BUILTIN_GEOMETRY: &str = include_str!("../shaders/geometry.frag");
 
+/// Classic Matrix digital rain — falling columns of procedural bitmask glyphs.
+pub const BUILTIN_MATRIX: &str = include_str!("../shaders/matrix.frag");
+
 // ---------------------------------------------------------------------------
 // Vertex shader for the fullscreen quad (triangle-strip, no VBO needed)
 // ---------------------------------------------------------------------------
@@ -217,6 +220,7 @@ impl ShaderManager {
             ("kaleidoscope", BUILTIN_KALEIDOSCOPE),
             ("lissajous", BUILTIN_LISSAJOUS),
             ("mandelbrot", BUILTIN_MANDELBROT),
+            ("matrix", BUILTIN_MATRIX),
             ("network", BUILTIN_NETWORK),
             ("pipes", BUILTIN_PIPES),
             ("plasma", BUILTIN_PLASMA),
@@ -730,7 +734,7 @@ mod tests {
 
     #[test]
     fn test_builtin_shader_count() {
-        assert_eq!(manager().list().len(), 15);
+        assert_eq!(manager().list().len(), 16);
     }
 
     #[test]
@@ -749,6 +753,7 @@ mod tests {
             "flow_field",
             "raymarcher",
             "lissajous",
+            "matrix",
             "network",
             "pipes",
             "hypercube",
