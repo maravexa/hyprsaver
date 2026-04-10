@@ -4,7 +4,7 @@ precision highp float;
 // ---------------------------------------------------------------------------
 // hyprsaver — hypercube.frag
 //
-// Rotating 4D hypercube (tesseract) projected to 2D with neon glow wireframe.
+// Rotating 4D hypercube (tesseract) projected to 2D wireframe.
 //
 // Technique:
 //   • 16 vertices — all ±1 combinations in 4D
@@ -16,7 +16,7 @@ precision highp float;
 //   • 4D → 3D perspective divide by (w + 2.0); denominator ≥ 2−√2 > 0
 //     (XW rotation of ±1 vertices bounds |w| ≤ √2, so no singularity)
 //   • 3D → 2D perspective divide by (z + 2.5); scaled to ~60 % screen height
-//   • Two-layer neon glow per edge: tight bright core + wide soft halo
+//   • Smoothstep anti-aliased edge lines — no bloom, reduced GPU cost
 //   • Edge hue driven by post-rotation w-depth for a visible 4D colour cue,
 //     plus a slow palette drift so hues shift even when geometry is stable
 // ---------------------------------------------------------------------------
@@ -142,10 +142,11 @@ void main() {
         float t_pal = fract((wd[i] + wd[j]) * 0.15 + 0.5 + ta * 0.02);
         vec3  ecol  = palette(t_pal);
 
-        // Two-layer neon glow: tight bright core (~5 px) + wide soft halo (~16 px)
-        float g = 2.0 * exp(-d * d * 50000.0)
-                + 0.5 * exp(-d * d *  5000.0);
-        col += g * ecol;
+        // Smoothstep anti-aliased edge — no exp() bloom, lower GPU cost.
+        // line_width ~0.003 ≈ 3 px on a 1080p screen (UV units = screen height).
+        float line_width = 0.003;
+        float intensity = 1.0 - smoothstep(line_width * 0.5, line_width, d);
+        col += intensity * ecol;
     }
 
     // Reinhard tonemapping — prevents bright edge intersections from overexposing.
