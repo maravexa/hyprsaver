@@ -4,23 +4,22 @@ precision highp float;
 // ---------------------------------------------------------------------------
 // hyprsaver — mandelbrot.frag
 //
-// Animated ping-pong zoom into Mandelbrot boundary regions.
+// Zoom cycle: home (full-fractal view) → target → home.
 // Cycles through 12 verified boundary targets every 50 s; max zoom ~268×
 // (1.5^14) — safely within float32 precision limits.
 //
-// v0.3.1 changes:
-//   • Main cardioid + period-2 bulb early exit.  These two constant-time
-//     checks skip the full iteration loop for the two largest interior
-//     regions of the set.  When the view is centred on the interior (deep
-//     zoom on-target or bad target) 60-80 % of pixels bail out immediately,
-//     cutting GPU utilisation proportionally.
-//   • Smooth centre-pan during zoom-out.  The camera drifts from the
-//     current target toward the next while zooming out (raw_phase 0.7→1.0).
-//     By the time the view is fully wide the centre has already arrived at
-//     the new target, so the next zoom-in starts correctly — no jump.
-//   • All 12 zoom targets replaced with verified boundary coordinates.
-//     Every point lies on or within ~0.001 of the set boundary and shows
-//     rich spiral/filament detail at every zoom level up to 268×.
+// v0.3.2 changes:
+//   • Home position: every cycle starts and ends at HOME_CENTER = (-0.5, 0.0)
+//     with scale 1.0, showing the classic full-fractal view.  The prior
+//     ping-pong zoom kept the camera near the active target even at the widest
+//     point; now it always returns to the standard textbook framing.
+//   • Three-phase cycle: zoom-in (zoom_t 0→1) then zoom-out (zoom_t 1→0),
+//     each driven by a smoothstep S-curve for natural easing.
+//   • Target switches only at zoom_t = 0.0 (camera at HOME_CENTER, scale 1×),
+//     so there is never a visible jump or pop between targets.
+//   • Center interpolates as mix(HOME_CENTER, target, zoom_t): the pan from
+//     home to the next target happens automatically during zoom-in.
+//   • Main cardioid + period-2 bulb early exit retained from v0.3.1.
 // ---------------------------------------------------------------------------
 
 uniform float u_time;
@@ -44,7 +43,7 @@ float mandelbrot(vec2 c, int max_iter) {
     float q  = xm * xm + c.y * c.y;
     if (q * (q + xm) < 0.25 * c.y * c.y) return 0.0;
 
-    // Period-2 bulb: (x+1)² + y² < 0.25²
+    // Period-2 bulb: (x+1)² + y² < 0.0625
     float xp1 = c.x + 1.0;
     if (xp1 * xp1 + c.y * c.y < 0.0625) return 0.0;
 
@@ -95,58 +94,65 @@ vec2 zoom_target(int idx) {
 }
 
 // ---------------------------------------------------------------------------
+// Home position — the standard full-fractal Mandelbrot view.
+// At scale 1.0 the camera shows the central region of the set centred on the
+// geometric midpoint of the main cardioid and period-2 bulb.
+// ---------------------------------------------------------------------------
+const vec2 HOME_CENTER = vec2(-0.5, 0.0);
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 void main() {
     // Centred UV, aspect-ratio corrected.
     vec2 uv = (gl_FragCoord.xy - 0.5 * u_resolution.xy) / u_resolution.y;
 
-    float zoom_cycle   = 50.0;                 // seconds per ping-pong cycle
-    float max_zoom_exp = 14.0 * u_zoom_scale;  // 1.5^14 ≈ 268× at default scale
+    float cycle_duration = 50.0;                 // seconds per full in-out cycle
+    float max_zoom_exp   = 14.0 * u_zoom_scale;  // 1.5^14 ≈ 268× at default scale
 
     // Decompose time into whole-cycle index and fractional phase [0, 1).
-    float cycle_f   = u_time * u_speed_scale / zoom_cycle;
-    float cycle_id  = floor(cycle_f);
-    float raw_phase = fract(cycle_f);
+    float total_t  = u_time * u_speed_scale / cycle_duration;
+    float cycle_id = floor(total_t);
+    float t        = fract(total_t);
 
-    // Ping-pong zoom depth: 0 (wide) → 1 (deep) → 0 (wide) per cycle.
-    float t     = 0.5 - 0.5 * cos(raw_phase * 6.28318);
-    float scale = pow(1.5, t * max_zoom_exp);
+    // -----------------------------------------------------------------------
+    // Zoom depth: smoothstep S-curve for both in and out phases.
+    //   zoom_t = 0.0  →  home (scale 1×, center HOME_CENTER)
+    //   zoom_t = 1.0  →  maximum zoom (scale ~268×, center = target)
+    // -----------------------------------------------------------------------
+    float zoom_t;
+    if (t < 0.5) {
+        zoom_t = smoothstep(0.0, 0.5, t);        // 0 → 1  (zoom in)
+    } else {
+        zoom_t = 1.0 - smoothstep(0.5, 1.0, t); // 1 → 0  (zoom out)
+    }
+
+    // Exponential zoom: logarithmic feel — slow at start, faster in middle.
+    float scale = pow(1.5, zoom_t * max_zoom_exp);
 
     // -----------------------------------------------------------------------
     // Target selection — stateless, deterministic, no consecutive repeats.
     //
-    // next_idx compares against cur_raw (the *unadjusted* hash for the
-    // current cycle) rather than the adjusted cur_idx.  This ensures that
-    // next_idx equals the cur_idx that will be computed at cycle_id+1,
-    // guaranteeing a continuous camera centre at every cycle boundary.
+    // Target advances at the cycle boundary (zoom_t = 0.0, camera at
+    // HOME_CENTER) so switching targets never causes a visible jump.
     // -----------------------------------------------------------------------
     int cur_raw  = int(hash(cycle_id)       * float(NUM_TARGETS));
     int prev_raw = int(hash(cycle_id - 1.0) * float(NUM_TARGETS));
-    int cur_idx  = (cur_raw == prev_raw) ? (cur_raw  + 1) % NUM_TARGETS : cur_raw;
-
-    int next_raw = int(hash(cycle_id + 1.0) * float(NUM_TARGETS));
-    int next_idx = (next_raw == cur_raw)    ? (next_raw + 1) % NUM_TARGETS : next_raw;
+    int cur_idx  = (cur_raw == prev_raw) ? (cur_raw + 1) % NUM_TARGETS : cur_raw;
 
     // -----------------------------------------------------------------------
-    // Smooth centre-pan during the zoom-out phase.
-    //
-    // While raw_phase is in [0.7, 1.0] pan_t rises from 0 → 1, smoothly
-    // moving the camera centre from the current target to the next.  By the
-    // time raw_phase reaches 1.0 (fully zoomed out) the centre is already at
-    // the next target, so the following zoom-in has no abrupt jump.
+    // Camera centre: HOME_CENTER at zoom_t = 0, target at zoom_t = 1.
+    // The pan from home toward the target happens naturally during zoom-in;
+    // the return pan happens during zoom-out — always through HOME_CENTER.
     // -----------------------------------------------------------------------
-    float pan_t = smoothstep(0.7, 1.0, raw_phase);
-    vec2  center = mix(zoom_target(cur_idx), zoom_target(next_idx), pan_t);
+    vec2 center = mix(HOME_CENTER, zoom_target(cur_idx), zoom_t);
 
     vec2 c = center + uv / scale;
 
-    // Adaptive iteration cap: 80 at widest view (fast overview), 256 at
-    // maximum zoom (fine boundary detail).  Reduced ceiling vs v0.3.0 (was
-    // 300) — interior pixels now bail out early via cardioid/bulb checks, so
-    // the remaining per-pixel budget can be trimmed without quality loss at
-    // the boundary.
-    int max_iter = 80 + int(t * 176.0);
+    // Adaptive iteration cap: 80 at widest view (fast), 256 at max zoom (fine
+    // boundary detail).  Interior pixels bail out early via cardioid/bulb
+    // checks so the reduced ceiling costs nothing at the boundary.
+    int max_iter = 80 + int(zoom_t * 176.0);
     float n = mandelbrot(c, max_iter);
 
     if (n == 0.0) {
@@ -156,7 +162,7 @@ void main() {
     }
 
     // Normalise to [0, 1] for palette lookup.
-    float t_palette   = n / float(max_iter);
+    float t_palette = n / float(max_iter);
 
     // Slow time-based colour drift so hues shift even when geometry is stable.
     float time_offset = u_time * u_speed_scale * 0.02;
