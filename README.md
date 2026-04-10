@@ -79,7 +79,7 @@ cargo install hyprsaver
    # Per-monitor overrides (run `hyprctl monitors` for output names)
    [[monitor]]
    name = "DP-1"
-   shader = "raymarcher"
+   shader = "donut"
    palette = "frost"
    ```
 
@@ -107,7 +107,7 @@ cargo install hyprsaver
   | `starfield`     | Hyperspace zoom tunnel with motion-blur tracers      |
   | `kaleidoscope`  | 6-fold kaleidoscope driven by domain-warped FBM      |
   | `flow_field`    | Curl-noise flow field with 8-step particle tracing   |
-  | `raymarcher`    | Raymarched torus with Phong lighting and fog         |
+  | `donut`         | Raymarched torus with Phong lighting and fog         |
   | `lissajous`     | Three overlapping Lissajous curves with glow         |
   | `geometry`      | Wireframe polyhedron morphing (cube→icosahedron→...) |
   | `hypercube`     | Rotating 4D tesseract projected to 2D, neon glow     |

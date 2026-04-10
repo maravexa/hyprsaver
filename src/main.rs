@@ -547,7 +547,7 @@ fn shader_descriptions() -> std::collections::HashMap<&'static str, &'static str
             "Neural network visualization with parallax nodes and pulsing connections",
         ),
         ("plasma", "Classic plasma effect"),
-        ("raymarcher", "Raymarched torus with Phong lighting"),
+        ("donut", "Raymarched torus with Phong lighting"),
         ("snowfall", "Five-layer parallax snowfall"),
         (
             "starfield",
