@@ -43,7 +43,12 @@ use wayland_client::{
     Connection, QueueHandle,
 };
 
-use crate::{config::Config, palette::PaletteManager, renderer::Renderer, shaders::ShaderManager};
+use crate::{
+    config::Config,
+    palette::{Palette, PaletteEntry, PaletteManager},
+    renderer::Renderer,
+    shaders::ShaderManager,
+};
 
 // Width of the right-side egui control panel in logical pixels.
 const PANEL_WIDTH: u32 = 280;
@@ -108,7 +113,12 @@ impl EglState {
 enum PreviewTab {
     Preview,
     Playlists,
+    PaletteEditor,
 }
+
+/// Sentinel name used in the palette editor's dropdown to represent the
+/// "create a new palette" option.
+const NEW_PALETTE_SENTINEL: &str = "— New Palette —";
 
 /// All state for the Playlists editor tab.
 struct PlaylistEditorState {
@@ -141,6 +151,68 @@ struct PlaylistEditorState {
     save_status: String,
 }
 
+/// All state for the Palette Editor tab.
+///
+/// Only cosine palettes are editable here — LUT palettes are out of scope for
+/// this editor. Slider changes update `current` and flip `dirty`, which the
+/// render loop consumes on each frame to push new vec3 uniforms to the GPU
+/// without recompiling the shader.
+struct PaletteEditorState {
+    /// Name of the palette currently being edited. Either an existing cosine
+    /// palette name, or [`NEW_PALETTE_SENTINEL`] while building a new one.
+    selected_name: String,
+    /// When the selector dropdown is on [`NEW_PALETTE_SENTINEL`], the text
+    /// the user is typing into the "Palette name" field.
+    new_name: String,
+    /// The palette currently baked into the sliders. Edited live.
+    current: Palette,
+    /// The palette as it was when loaded. The Reset button restores this.
+    original: Palette,
+    /// Set to `true` on any slider change. The render loop clears this and
+    /// uploads the new uniforms on the next frame — no shader recompile.
+    dirty: bool,
+    /// Set by the "Save Palette" button, consumed by `render_panel`.
+    save_requested: bool,
+    /// Set by the "Reset" button, consumed inline.
+    reset_requested: bool,
+    /// Status message shown beneath the action buttons.
+    save_status: String,
+}
+
+impl PaletteEditorState {
+    /// Build an initial editor state from a palette manager, preferring to
+    /// edit `preferred_name` if it exists and is a cosine palette. Falls back
+    /// to the first cosine palette found, or the default palette if the
+    /// manager contains only LUTs.
+    fn from_manager(pm: &PaletteManager, preferred_name: &str) -> Self {
+        // Try the requested name first.
+        if let Some(PaletteEntry::Cosine(p)) = pm.get(preferred_name) {
+            return Self::with_palette(preferred_name.to_string(), p.clone());
+        }
+        // Fall back to the first cosine palette in the sorted list.
+        for name in pm.list() {
+            if let Some(PaletteEntry::Cosine(p)) = pm.get(name) {
+                return Self::with_palette(name.to_string(), p.clone());
+            }
+        }
+        // No cosine palettes available — start fresh.
+        Self::with_palette(NEW_PALETTE_SENTINEL.to_string(), Palette::default())
+    }
+
+    fn with_palette(name: String, palette: Palette) -> Self {
+        Self {
+            selected_name: name,
+            new_name: String::new(),
+            current: palette.clone(),
+            original: palette,
+            dirty: false,
+            save_requested: false,
+            reset_requested: false,
+            save_status: String::new(),
+        }
+    }
+}
+
 /// Persistent UI state for the right-side egui control panel.
 struct PreviewPanelState {
     selected_shader: String,
@@ -154,6 +226,8 @@ struct PreviewPanelState {
     active_tab: PreviewTab,
     /// State for the Playlists editor tab.
     playlist_editor: PlaylistEditorState,
+    /// State for the Palette Editor tab.
+    palette_editor: PaletteEditorState,
 }
 
 /// egui resources bundled together so they can be `.take()`n out of
@@ -312,6 +386,8 @@ impl PreviewState {
         egui_ctx.set_visuals(visuals);
 
         let playlist_editor = self.make_playlist_editor_state();
+        let palette_editor =
+            PaletteEditorState::from_manager(&self.palette_manager, &self.active_palette);
         match egui_glow::Painter::new(Arc::clone(&gl_arc), "", None, false) {
             Ok(painter) => {
                 self.egui_bundle = Some(EguiBundle {
@@ -327,6 +403,7 @@ impl PreviewState {
                         preview_requested: false,
                         active_tab: PreviewTab::Preview,
                         playlist_editor,
+                        palette_editor,
                     },
                 });
             }
@@ -461,8 +538,27 @@ impl PreviewState {
             .collect();
         palette_list.sort();
 
+        // Cosine-only map for the palette editor dropdown — LUT palettes are
+        // intentionally excluded because the editor only operates on the 12
+        // cosine parameters. The list is sorted; the map is the source of
+        // truth when the user picks a different palette to load into the
+        // sliders.
+        let mut cosine_palettes: std::collections::BTreeMap<String, Palette> =
+            std::collections::BTreeMap::new();
+        for name in self.palette_manager.list() {
+            if let Some(PaletteEntry::Cosine(p)) = self.palette_manager.get(name) {
+                cosine_palettes.insert(name.to_string(), p.clone());
+            }
+        }
+
         let full_output = bundle.ctx.run(raw_input, |ctx| {
-            draw_panel(ctx, &mut bundle.state, &shader_list, &palette_list);
+            draw_panel(
+                ctx,
+                &mut bundle.state,
+                &shader_list,
+                &palette_list,
+                &cosine_palettes,
+            );
         });
 
         let clipped = bundle.ctx.tessellate(full_output.shapes, scale);
@@ -561,6 +657,66 @@ impl PreviewState {
             bundle.state.playlist_editor.save_status =
                 "Applied! Cycle manager updated.".to_string();
             log::info!("preview: playlist applied and cycle restarted");
+        }
+
+        // ── Palette editor: Reset button ──────────────────────────────
+        if bundle.state.palette_editor.reset_requested {
+            bundle.state.palette_editor.reset_requested = false;
+            let original = bundle.state.palette_editor.original.clone();
+            bundle.state.palette_editor.current = original;
+            bundle.state.palette_editor.dirty = true;
+            bundle.state.palette_editor.save_status = "Reset to loaded values.".to_string();
+        }
+
+        // ── Palette editor: live uniform update ───────────────────────
+        // Slider drags flip `dirty`. Consume it and push the 12 cosine
+        // params straight into the renderer via `set_palette`. This is a
+        // pure uniform upload — no shader recompile, no texture work for
+        // cosine palettes. See the `PaletteEditorState` doc comment.
+        if bundle.state.palette_editor.dirty {
+            bundle.state.palette_editor.dirty = false;
+            let p = bundle.state.palette_editor.current.clone();
+            if let Some(r) = self.renderer.as_mut() {
+                if let Err(e) = r.set_palette(&PaletteEntry::Cosine(p)) {
+                    log::warn!("preview: live palette uniform upload failed: {e:#}");
+                }
+            }
+        }
+
+        // ── Palette editor: Save button ───────────────────────────────
+        if bundle.state.palette_editor.save_requested {
+            bundle.state.palette_editor.save_requested = false;
+            let ed = &bundle.state.palette_editor;
+            let name = if ed.selected_name == NEW_PALETTE_SENTINEL {
+                ed.new_name.trim().to_string()
+            } else {
+                ed.selected_name.clone()
+            };
+            if name.is_empty() {
+                bundle.state.palette_editor.save_status = "Enter a name before saving.".to_string();
+            } else {
+                let palette_to_save = ed.current.clone();
+                match save_palette_config(&name, &palette_to_save) {
+                    Ok(path) => {
+                        // Make the new palette visible for the rest of the
+                        // session — without this the user would need to
+                        // restart to see it in any palette dropdown.
+                        self.palette_manager
+                            .insert_cosine(name.clone(), palette_to_save.clone());
+                        // Snap "original" to the just-saved values so a
+                        // subsequent Reset doesn't revert the save.
+                        bundle.state.palette_editor.original = palette_to_save;
+                        bundle.state.palette_editor.selected_name = name.clone();
+                        bundle.state.palette_editor.new_name.clear();
+                        bundle.state.palette_editor.save_status = format!("Saved to {path}");
+                        log::info!("preview: palette '{name}' saved to {path}");
+                    }
+                    Err(e) => {
+                        bundle.state.palette_editor.save_status = format!("Error: {e}");
+                        log::warn!("preview: palette save error: {e}");
+                    }
+                }
+            }
         }
 
         self.egui_bundle = Some(bundle);
@@ -1281,6 +1437,7 @@ fn draw_panel(
     state: &mut PreviewPanelState,
     shader_list: &[String],
     palette_list: &[String],
+    cosine_palettes: &std::collections::BTreeMap<String, Palette>,
 ) {
     egui::SidePanel::right("control_panel")
         .exact_width(PANEL_WIDTH as f32)
@@ -1294,11 +1451,13 @@ fn draw_panel(
             // Tab bar — pre-compute active flags to avoid closure capture conflicts.
             let on_preview = state.active_tab == PreviewTab::Preview;
             let on_playlists = state.active_tab == PreviewTab::Playlists;
+            let on_palette = state.active_tab == PreviewTab::PaletteEditor;
             let tab_fill_active = egui::Color32::from_rgba_unmultiplied(60, 80, 130, 220);
 
+            // Helper inlined three times below: one button per tab.
+            let tab_w = (PANEL_WIDTH as f32 - 20.0) / 3.0;
             ui.add_space(4.0);
             ui.horizontal(|ui| {
-                let half_w = (PANEL_WIDTH as f32 - 16.0) / 2.0;
                 if ui
                     .add(
                         egui::Button::new(egui::RichText::new("Preview").color(if on_preview {
@@ -1311,7 +1470,7 @@ fn draw_panel(
                         } else {
                             egui::Color32::TRANSPARENT
                         })
-                        .min_size(egui::Vec2::new(half_w, 22.0)),
+                        .min_size(egui::Vec2::new(tab_w, 22.0)),
                     )
                     .clicked()
                 {
@@ -1331,11 +1490,29 @@ fn draw_panel(
                         } else {
                             egui::Color32::TRANSPARENT
                         })
-                        .min_size(egui::Vec2::new(half_w, 22.0)),
+                        .min_size(egui::Vec2::new(tab_w, 22.0)),
                     )
                     .clicked()
                 {
                     state.active_tab = PreviewTab::Playlists;
+                }
+                if ui
+                    .add(
+                        egui::Button::new(egui::RichText::new("Palette").color(if on_palette {
+                            egui::Color32::WHITE
+                        } else {
+                            egui::Color32::from_gray(150)
+                        }))
+                        .fill(if on_palette {
+                            tab_fill_active
+                        } else {
+                            egui::Color32::TRANSPARENT
+                        })
+                        .min_size(egui::Vec2::new(tab_w, 22.0)),
+                    )
+                    .clicked()
+                {
+                    state.active_tab = PreviewTab::PaletteEditor;
                 }
             });
             ui.add_space(2.0);
@@ -1348,6 +1525,9 @@ fn draw_panel(
                 }
                 PreviewTab::Playlists => {
                     draw_playlists_tab(ui, state, shader_list, palette_list);
+                }
+                PreviewTab::PaletteEditor => {
+                    draw_palette_editor_tab(ui, state, cosine_palettes);
                 }
             }
         });
@@ -1680,6 +1860,215 @@ fn draw_playlists_tab(
         });
 }
 
+/// Contents of the "Palette Editor" tab.
+///
+/// Lays out, top-to-bottom:
+/// 1. Palette selector dropdown (cosine palettes + "New Palette")
+/// 2. Optional "Palette name" text field (new-palette mode only)
+/// 3. Four rows of R/G/B sliders: a (center), b (amplitude), c (frequency), d (phase)
+/// 4. Live gradient preview strip rendered as 256 egui rects
+/// 5. Save / Reset buttons + status line
+///
+/// Slider changes mark `state.palette_editor.dirty = true`. The render loop
+/// consumes that flag and uploads new uniform values — no shader recompile.
+fn draw_palette_editor_tab(
+    ui: &mut egui::Ui,
+    state: &mut PreviewPanelState,
+    cosine_palettes: &std::collections::BTreeMap<String, Palette>,
+) {
+    let avail_w = ui.available_width();
+    egui::ScrollArea::vertical()
+        .id_salt("palette_editor_scroll")
+        .auto_shrink([false; 2])
+        .show(ui, |ui| {
+            let ed = &mut state.palette_editor;
+
+            // ── Palette selector ────────────────────────────────────────
+            ui.label(egui::RichText::new("Palette").strong().small());
+            let prev_selection = ed.selected_name.clone();
+            egui::ComboBox::from_id_salt("palette_editor_combo")
+                .width(avail_w - 4.0)
+                .selected_text(&ed.selected_name)
+                .show_ui(ui, |ui| {
+                    for name in cosine_palettes.keys() {
+                        ui.selectable_value(&mut ed.selected_name, name.clone(), name);
+                    }
+                    ui.separator();
+                    ui.selectable_value(
+                        &mut ed.selected_name,
+                        NEW_PALETTE_SENTINEL.to_string(),
+                        NEW_PALETTE_SENTINEL,
+                    );
+                });
+
+            // Dropdown selection changed this frame — load the new palette
+            // into the sliders and mark dirty so uniforms get pushed.
+            if ed.selected_name != prev_selection {
+                if ed.selected_name == NEW_PALETTE_SENTINEL {
+                    let def = Palette::default();
+                    ed.current = def.clone();
+                    ed.original = def;
+                    ed.new_name.clear();
+                } else if let Some(p) = cosine_palettes.get(&ed.selected_name) {
+                    ed.current = p.clone();
+                    ed.original = p.clone();
+                }
+                ed.dirty = true;
+                ed.save_status.clear();
+            }
+
+            ui.add_space(6.0);
+
+            // ── New palette name field (shown only when creating new) ──
+            if ed.selected_name == NEW_PALETTE_SENTINEL {
+                ui.label(egui::RichText::new("New palette name").small());
+                ui.add(
+                    egui::TextEdit::singleline(&mut ed.new_name)
+                        .hint_text("my_palette")
+                        .desired_width(avail_w - 4.0),
+                );
+                ui.add_space(6.0);
+            }
+
+            // ── Slider rows ─────────────────────────────────────────────
+            // (a: center [0,1], b: amplitude [0,1], c: frequency [0,5], d: phase [0,1])
+            let label_col_w: f32 = 22.0;
+            let slider_col_w: f32 = ((avail_w - label_col_w - 12.0) / 3.0).max(40.0);
+
+            // Helper closure factored out so the four rows stay compact.
+            // Returns true if any of the three sliders changed this frame.
+            let row =
+                |ui: &mut egui::Ui, label: &str, vals: &mut [f32; 3], range: (f32, f32)| -> bool {
+                    let mut any_changed = false;
+                    ui.horizontal(|ui| {
+                        ui.add_sized(
+                            egui::Vec2::new(label_col_w, 18.0),
+                            egui::Label::new(egui::RichText::new(label).monospace().strong()),
+                        );
+                        for v in vals.iter_mut() {
+                            if ui
+                                .add_sized(
+                                    egui::Vec2::new(slider_col_w, 18.0),
+                                    egui::DragValue::new(v)
+                                        .range(range.0..=range.1)
+                                        .speed(0.01)
+                                        .fixed_decimals(2),
+                                )
+                                .changed()
+                            {
+                                any_changed = true;
+                            }
+                        }
+                    });
+                    any_changed
+                };
+
+            ui.label(egui::RichText::new("Cosine parameters").small().strong());
+            ui.add_space(2.0);
+            let mut changed = false;
+            changed |= row(ui, "a", &mut ed.current.a, (0.0, 1.0));
+            changed |= row(ui, "b", &mut ed.current.b, (0.0, 1.0));
+            changed |= row(ui, "c", &mut ed.current.c, (0.0, 5.0));
+            changed |= row(ui, "d", &mut ed.current.d, (0.0, 1.0));
+
+            if changed {
+                ed.dirty = true;
+            }
+
+            ui.add_space(10.0);
+
+            // ── Gradient preview strip ─────────────────────────────────
+            // Render 256 horizontally-tiled colored rects from palette(t)
+            // sampled at t = i/255 for i in 0..256. Width adapts to panel.
+            ui.label(egui::RichText::new("Preview").small().strong());
+            ui.add_space(2.0);
+            const STRIP_HEIGHT: f32 = 28.0;
+            const STEPS: usize = 256;
+            let (strip_rect, _) = ui.allocate_exact_size(
+                egui::Vec2::new(avail_w - 4.0, STRIP_HEIGHT),
+                egui::Sense::hover(),
+            );
+            let painter = ui.painter();
+            // Frame first so overdraw by the samples gives clean edges.
+            painter.rect_stroke(
+                strip_rect,
+                2.0,
+                egui::Stroke::new(1.0, egui::Color32::from_gray(80)),
+            );
+            let step_w = strip_rect.width() / STEPS as f32;
+            for i in 0..STEPS {
+                let t = i as f32 / (STEPS - 1) as f32;
+                let [r, g, b] = ed.current.color_at(t);
+                let color = egui::Color32::from_rgb(
+                    (r * 255.0) as u8,
+                    (g * 255.0) as u8,
+                    (b * 255.0) as u8,
+                );
+                let x0 = strip_rect.left() + i as f32 * step_w;
+                // Add half a pixel to x1 so adjacent rects overlap and no
+                // seam shows between samples at fractional widths.
+                let x1 = x0 + step_w + 0.5;
+                let rect = egui::Rect::from_min_max(
+                    egui::pos2(x0, strip_rect.top() + 1.0),
+                    egui::pos2(x1, strip_rect.bottom() - 1.0),
+                );
+                painter.rect_filled(rect, 0.0, color);
+            }
+
+            ui.add_space(10.0);
+            ui.separator();
+            ui.add_space(4.0);
+
+            // ── Save / Reset buttons ───────────────────────────────────
+            let accent = egui::Color32::from_rgb(0x5e, 0x81, 0xf4);
+            let is_new = ed.selected_name == NEW_PALETTE_SENTINEL;
+            let save_ok = if is_new {
+                !ed.new_name.trim().is_empty()
+            } else {
+                true
+            };
+            if ui
+                .add_enabled(
+                    save_ok,
+                    egui::Button::new(
+                        egui::RichText::new("Save Palette").color(egui::Color32::WHITE),
+                    )
+                    .fill(accent)
+                    .min_size(egui::Vec2::new(avail_w - 4.0, 28.0)),
+                )
+                .clicked()
+            {
+                ed.save_requested = true;
+            }
+
+            ui.add_space(4.0);
+            if ui
+                .add(egui::Button::new("Reset").min_size(egui::Vec2::new(avail_w - 4.0, 24.0)))
+                .clicked()
+            {
+                ed.reset_requested = true;
+            }
+
+            if !ed.save_status.is_empty() {
+                ui.add_space(4.0);
+                ui.label(
+                    egui::RichText::new(&ed.save_status)
+                        .small()
+                        .color(egui::Color32::from_gray(160)),
+                );
+            }
+
+            ui.add_space(8.0);
+            ui.separator();
+            ui.add_space(4.0);
+            ui.label(
+                egui::RichText::new("Tip: slider changes are applied live — no shader recompile.")
+                    .small()
+                    .color(egui::Color32::from_gray(120)),
+            );
+        });
+}
+
 /// Draw a compact drag-and-drop reorderable list.
 ///
 /// Each item row has a `⋮` drag handle on the left and the item name on the right.
@@ -1936,6 +2325,95 @@ fn save_playlist_config(
             ),
         );
     }
+
+    // Ensure the parent directory exists.
+    if let Some(parent) = cfg_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+
+    // Serialize and write.
+    let content = toml::to_string_pretty(&doc).map_err(|e| e.to_string())?;
+    std::fs::write(&cfg_path, &content).map_err(|e| e.to_string())?;
+
+    Ok(cfg_path.display().to_string())
+}
+
+/// Merge a single cosine palette into the on-disk config under
+/// `[palettes.<name>]` and write it back. The rest of the config is
+/// preserved (generic TOML merge — other tables, comments are not
+/// preserved since `toml::Value` round-trip drops them).
+///
+/// Path resolution matches `save_playlist_config`.
+fn save_palette_config(name: &str, palette: &Palette) -> Result<String, String> {
+    use std::path::PathBuf;
+
+    // Basic name validation: non-empty, no whitespace, no `.` or `[` which
+    // would make the TOML key ambiguous.
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return Err("palette name cannot be empty".to_string());
+    }
+    if trimmed
+        .chars()
+        .any(|c| c.is_whitespace() || c == '.' || c == '[' || c == ']')
+    {
+        return Err("palette name cannot contain whitespace or . [ ]".to_string());
+    }
+
+    // Resolve target path: prefer new location, fall back to legacy, else create new.
+    let cfg_path: PathBuf = {
+        let cfg_dir = dirs::config_dir().unwrap_or_else(|| PathBuf::from("."));
+        let new_path = cfg_dir.join("hypr").join("hyprsaver.toml");
+        let legacy_path = cfg_dir.join("hyprsaver").join("config.toml");
+        if new_path.exists() {
+            new_path
+        } else if legacy_path.exists() {
+            legacy_path
+        } else {
+            new_path // will be created below
+        }
+    };
+
+    // Read existing content (empty string if file doesn't exist yet).
+    let existing = if cfg_path.exists() {
+        std::fs::read_to_string(&cfg_path).map_err(|e| e.to_string())?
+    } else {
+        String::new()
+    };
+
+    // Parse as a generic TOML value so we can merge without losing other keys.
+    let mut doc: toml::Value = if existing.trim().is_empty() {
+        toml::Value::Table(Default::default())
+    } else {
+        existing.parse::<toml::Value>().map_err(|e| e.to_string())?
+    };
+
+    let root = doc
+        .as_table_mut()
+        .ok_or("TOML config root is not a table")?;
+
+    // Ensure [palettes] exists, then insert/replace [palettes.<name>].
+    if !root.contains_key("palettes") {
+        root.insert(
+            "palettes".to_string(),
+            toml::Value::Table(Default::default()),
+        );
+    }
+    let palettes = root
+        .get_mut("palettes")
+        .and_then(|v| v.as_table_mut())
+        .ok_or("[palettes] is not a table")?;
+
+    let to_vec3 = |v: [f32; 3]| -> toml::Value {
+        toml::Value::Array(v.iter().map(|f| toml::Value::Float(*f as f64)).collect())
+    };
+
+    let mut entry = toml::map::Map::new();
+    entry.insert("a".to_string(), to_vec3(palette.a));
+    entry.insert("b".to_string(), to_vec3(palette.b));
+    entry.insert("c".to_string(), to_vec3(palette.c));
+    entry.insert("d".to_string(), to_vec3(palette.d));
+    palettes.insert(trimmed.to_string(), toml::Value::Table(entry));
 
     // Ensure the parent directory exists.
     if let Some(parent) = cfg_path.parent() {
