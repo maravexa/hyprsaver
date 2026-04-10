@@ -8,8 +8,8 @@ precision highp float;
 // A single geometric shape rotates smoothly in the centre of the screen.
 // Every 10 s the shape morphs pseudo-randomly to another: vertices lerp to
 // their new positions over the last 30% of the cycle while edge topology
-// cross-fades between the two shapes.  Edges glow with a Gaussian core +
-// wide bloom, coloured via the active palette.
+// cross-fades between the two shapes.  Edges are rendered as clean, hard
+// lines with smoothstep anti-aliasing, coloured via the active palette.
 //
 // Shape roster (8 total — index 0-7):
 //   0  Cube               —  8 vertices, 12 edges
@@ -485,10 +485,11 @@ void main() {
         pts[i]  = project(v);
     }
 
-    // ── Accumulate edge glow ───────────────────────────────────────────────
-    // Each edge contributes a tight Gaussian core (neon wire) plus a wider
-    // soft bloom.  Shape-A edges fade out as shape-B edges fade in via morph_t.
-    // Edge opacity is increased ~40% over the original for readability.
+    // ── Accumulate edge intensity ──────────────────────────────────────────
+    // Each edge contributes a hard line with smoothstep anti-aliasing.
+    // Shape-A edges fade out as shape-B edges fade in via morph_t.
+
+    const float LINE_WIDTH = 0.003;
 
     vec3  col      = vec3(0.0);
     float base_hue = t * 0.06;   // full palette cycle ~16.7 s
@@ -500,8 +501,7 @@ void main() {
         ivec2 ea = shapeEdge(shape_a, i);
         if (ea.x >= 0) {
             float d  = segDist(uv, pts[ea.x], pts[ea.y]);
-            float ga = exp(-d * d * 2400.0) * 1.4    // +40% core
-                     + exp(-d * d * 180.0)  * 0.42;  // +40% bloom
+            float ga = 1.0 - smoothstep(0.0, LINE_WIDTH, d);
             col += palette(edge_hue) * ga * (1.0 - morph_t);
         }
 
@@ -509,13 +509,12 @@ void main() {
         ivec2 eb = shapeEdge(shape_b, i);
         if (eb.x >= 0) {
             float d  = segDist(uv, pts[eb.x], pts[eb.y]);
-            float gb = exp(-d * d * 2400.0) * 1.4
-                     + exp(-d * d * 180.0)  * 0.42;
+            float gb = 1.0 - smoothstep(0.0, LINE_WIDTH, d);
             col += palette(edge_hue) * gb * morph_t;
         }
     }
 
-    // Reinhard tone-map: compress overlapping-edge hot spots without clipping.
+    // Reinhard tone-map: compress overlapping-edge intersections without clipping.
     col = col / (col + 1.0);
 
     fragColor = vec4(col, 1.0);
