@@ -65,7 +65,7 @@ cargo build --release
 | fire          | Roiling procedural flames with ember particles           |
 | caustics      | Underwater caustic light patterns                        |
 | bezier        | Five animated Bézier curves with additive palette glow   |
-| aurora_sphere | Raymarched sphere with aurora borealis bands             |
+| planet        | Raymarched planet sphere with aurora borealis bands      |
 | tesla         | Tesla coil arcs — fractal-lightning between electrodes   |
 | wormhole      | Curving wormhole tunnel with ring-textured walls         |
 

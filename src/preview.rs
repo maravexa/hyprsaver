@@ -1176,6 +1176,14 @@ fn resolve_shader(
                     );
                     return "donut".to_string();
                 }
+                // Graceful alias: "aurora_sphere" was renamed to "planet".
+                if n == "aurora_sphere" {
+                    log::warn!(
+                        "Shader 'aurora_sphere' was renamed to 'planet'. \
+                         Please update your config. Falling back to 'planet'."
+                    );
+                    return "planet".to_string();
+                }
                 log::warn!("preview: unknown shader '{n}', falling back to mandelbrot");
                 shader_manager
                     .get("mandelbrot")
