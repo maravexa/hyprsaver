@@ -14,7 +14,7 @@ precision highp float;
 // Layer parameters (i = 0 nearest … 4 furthest):
 //   speed   = float[](0.144, 0.126, 0.108, 0.090, 0.072) + jitter
 //   size_px = float[](9.0, 5.5, 3.0, 1.6, 0.7)  (exponential depth falloff)
-//   density = 10 dots per layer      (50 total / 5 layers)
+//   density = 20 dots per layer      (100 total / 5 layers)
 // ---------------------------------------------------------------------------
 
 uniform float u_time;
@@ -57,7 +57,7 @@ vec3 snowLayer(vec2 uv, float fi, float aspect) {
 
     vec3 col = vec3(0.0);
 
-    for (int j = 0; j < 10; j++) {
+    for (int j = 0; j < 20; j++) {
         float fj = float(j);
 
         // Independent position hashes for each dot.
