@@ -118,6 +118,7 @@ cargo install hyprsaver
   | `bezier`        | Five animated Bézier curves with additive palette glow |
   | `aurora_sphere` | Raymarched sphere with aurora borealis bands and noise-perturbed curtains |
   | `tesla`         | Tesla coil arcs — fractal-lightning between three electrodes with branching |
+  | `wormhole`      | Fly-through a curving wormhole with ring-textured walls and point lights    |
 - **Built-in palette collection**: electric, autumn, vapor, frost, ember, ocean, monochrome, sunset, aurora, midnight
 - Configurable FPS and dismiss triggers
 - **Preview mode** for shader authoring (`--preview <shader>`) with speed/zoom control panel
