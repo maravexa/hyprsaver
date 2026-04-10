@@ -17,8 +17,10 @@ precision highp float;
 //     each driven by a smoothstep S-curve for natural easing.
 //   • Target switches only at zoom_t = 0.0 (camera at HOME_CENTER, scale 1×),
 //     so there is never a visible jump or pop between targets.
-//   • Center interpolates as mix(HOME_CENTER, target, zoom_t): the pan from
-//     home to the next target happens automatically during zoom-in.
+//   • Center uses cubic lag: center_t = zoom_t³ so the pan barely moves while
+//     zoomed out, then snaps to the target only as zoom deepens.  Fixes the
+//     black-screen artifact that occurred when the linear pan drifted through
+//     the set interior before reaching boundary detail.
 //   • Main cardioid + period-2 bulb early exit retained from v0.3.1.
 // ---------------------------------------------------------------------------
 
@@ -147,10 +149,22 @@ void main() {
 
     // -----------------------------------------------------------------------
     // Camera centre: HOME_CENTER at zoom_t = 0, target at zoom_t = 1.
-    // The pan from home toward the target happens naturally during zoom-in;
-    // the return pan happens during zoom-out — always through HOME_CENTER.
+    //
+    // center_t uses a cubic curve (zoom_t³) so the pan is negligible while
+    // zoomed out and only converges on the target when zoom is deep.  This
+    // prevents the camera from drifting through the black interior of the set
+    // (around the origin) before reaching the target boundary detail.
+    //
+    //   zoom_t = 0.0 → center_t = 0.000 → center = HOME_CENTER   ✓
+    //   zoom_t = 0.3 → center_t = 0.027 → barely moved            ✓
+    //   zoom_t = 0.7 → center_t = 0.343 → shifting toward target  ✓
+    //   zoom_t = 1.0 → center_t = 1.000 → center = target         ✓
+    //
+    // The zoom-out phase is the natural reverse: as zoom_t falls 1→0, the
+    // cubic centre tracks back to HOME_CENTER automatically.
     // -----------------------------------------------------------------------
-    vec2 center = mix(HOME_CENTER, zoom_target(cur_idx), zoom_t);
+    float center_t = zoom_t * zoom_t * zoom_t;
+    vec2 center = mix(HOME_CENTER, zoom_target(cur_idx), center_t);
 
     vec2 c = center + uv / scale;
 
