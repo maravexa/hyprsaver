@@ -10,9 +10,14 @@ precision highp float;
 // flowing motion. Control points stay within [-1.2, 1.2] normalized space.
 //
 // Per-pixel minimum distance is computed by sampling 256 parametric points
-// along t ∈ [0, 1] for each curve. Two glow layers are blended additively:
-//   • Primary:   exp(-d² × 400) — thin, bright core line
-//   • Secondary: exp(-d² × 100) × 0.3 — soft bloom halo at 2× width
+// along t ∈ [0, 1] for each curve. Hard-edged smoothstep lines replace the
+// original Gaussian glow, and a per-curve AABB test skips most curves for
+// most pixels.
+//
+// Optimisations vs v0.3.0:
+//   • smoothstep hard edges instead of exp(-d²×400) Gaussian glow
+//   • Secondary bloom pass removed entirely
+//   • Per-curve AABB early rejection — skips most curves for most pixels
 //
 // Curve hue cycles slowly using palette(curve_index/8.0 + time×0.03) so
 // any palette produces a distinct multi-colour result. Background is (0.02).
@@ -23,6 +28,9 @@ uniform vec2  u_resolution;
 uniform vec2  u_mouse;
 uniform int   u_frame;
 uniform float u_alpha;
+
+const float LINE_WIDTH  = 0.003;
+const float AABB_MARGIN = 0.05;
 
 // Evaluate a cubic Bézier at parameter t ∈ [0, 1].
 vec2 cubic_bezier(vec2 p0, vec2 p1, vec2 p2, vec2 p3, float t) {
@@ -52,7 +60,8 @@ void main() {
     vec2 uv = (gl_FragCoord.xy - 0.5 * u_resolution.xy) / u_resolution.y;
     uv /= u_zoom_scale;
 
-    vec3 col = vec3(0.02);
+    vec3  col    = vec3(0.02);
+    float thresh = LINE_WIDTH + AABB_MARGIN;
 
     for (int ci = 0; ci < 8; ci++) {
         float cf = float(ci);
@@ -88,15 +97,21 @@ void main() {
              cy   + 0.35 * sin(T * fa * 6.28318 + ph + 2.0)
         );
 
+        // AABB early rejection: skip this curve if the pixel lies outside the
+        // axis-aligned bounding box of the control-point hull, expanded by
+        // LINE_WIDTH + AABB_MARGIN. Skips most curves for most pixels.
+        vec2 bb_min = min(min(p0, p1), min(p2, p3)) - vec2(thresh);
+        vec2 bb_max = max(max(p0, p1), max(p2, p3)) + vec2(thresh);
+        if (uv.x < bb_min.x || uv.x > bb_max.x ||
+            uv.y < bb_min.y || uv.y > bb_max.y) continue;
+
         float dist = bezier_dist(p0, p1, p2, p3, uv);
 
-        // Primary glow: thin bright core.
-        float glow  = exp(-dist * dist * 400.0);
-        // Secondary glow: soft bloom at 2× width, 0.3× intensity.
-        float bloom = exp(-dist * dist * 100.0) * 0.3;
+        // Hard-edged anti-aliased line (replaces expensive Gaussian glow).
+        float intensity = 1.0 - smoothstep(0.0, LINE_WIDTH, dist);
 
         vec3 curve_col = palette(cf / 8.0 + T * 0.03);
-        col += curve_col * (glow + bloom);
+        col += curve_col * intensity;
     }
 
     fragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
