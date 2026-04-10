@@ -88,7 +88,7 @@ dismiss_on = ["key", "mouse_move", "mouse_click", "touch"]
 # palettes = ["all"]
 
 # [playlists.chill]
-# shaders = ["plasma", "flow_field", "bezier", "lissajous", "planet"]
+# shaders = ["plasma", "marble", "bezier", "lissajous", "planet"]
 # palettes = ["vaporwave", "frost", "ocean", "aurora"]
 
 # [playlists.intense]

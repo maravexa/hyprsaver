@@ -455,6 +455,14 @@ impl WaylandState {
                 if shader_manager.get(name).is_some() {
                     name.to_string()
                 } else {
+                    // Graceful alias: "flow_field" was renamed to "marble".
+                    if name == "flow_field" {
+                        log::warn!(
+                            "Unknown shader 'flow_field', did you mean 'marble'? \
+                             Please update your config. Falling back to 'marble'."
+                        );
+                        return "marble".to_string();
+                    }
                     // Graceful alias: "raymarcher" was renamed to "donut" in v0.3.1.
                     if name == "raymarcher" {
                         log::warn!(

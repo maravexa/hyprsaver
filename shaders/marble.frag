@@ -2,7 +2,7 @@
 precision highp float;
 
 // ---------------------------------------------------------------------------
-// hyprsaver — flow_field.frag
+// hyprsaver — marble.frag
 //
 // Curl-noise flow field. A divergence-free velocity field is derived from
 // 2-D simplex noise by rotating its numerical gradient 90°. Each fragment
