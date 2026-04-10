@@ -273,7 +273,7 @@ pub fn load_lut_from_png(path: &Path) -> anyhow::Result<Vec<[f32; 3]>> {
 pub fn builtin_palettes() -> HashMap<String, Palette> {
     let mut map = HashMap::new();
     map.insert(
-        "electric".into(),
+        "rainbow".into(),
         Palette {
             a: [0.5, 0.5, 0.5],
             b: [0.5, 0.5, 0.5],
@@ -327,7 +327,7 @@ pub fn builtin_palettes() -> HashMap<String, Palette> {
         },
     );
     map.insert(
-        "vapor".into(),
+        "vaporwave".into(),
         Palette {
             a: [0.55, 0.22, 0.65],
             b: [0.45, 0.30, 0.35],
@@ -509,11 +509,30 @@ impl PaletteManager {
             palettes.insert(k, v);
         }
 
+        // Resolve renamed-palette aliases so old config files don't crash.
+        let initial_palette = match initial_palette {
+            "electric" => {
+                log::warn!(
+                    "Palette 'electric' has been renamed to 'rainbow'. \
+                     Please update your config. Falling back to 'rainbow'."
+                );
+                "rainbow"
+            }
+            "vapor" => {
+                log::warn!(
+                    "Palette 'vapor' has been renamed to 'vaporwave'. \
+                     Please update your config. Falling back to 'vaporwave'."
+                );
+                "vaporwave"
+            }
+            other => other,
+        };
+
         // Resolve the initial name.
         let current_name = if palettes.contains_key(initial_palette) {
             initial_palette.to_string()
         } else {
-            "electric".to_string()
+            "rainbow".to_string()
         };
 
         Self {
@@ -815,7 +834,7 @@ impl PaletteManager {
 
 impl Default for PaletteManager {
     fn default() -> Self {
-        Self::new(HashMap::new(), Vec::new(), 0.0, "electric")
+        Self::new(HashMap::new(), Vec::new(), 0.0, "rainbow")
     }
 }
 
@@ -1046,9 +1065,9 @@ mod tests {
             c: [0.7, 0.8, 0.9],
             d: [0.0, 0.1, 0.2],
         };
-        custom.insert("electric".to_string(), custom_electric.clone());
-        let mgr = PaletteManager::new(custom, Vec::new(), 0.0, "electric");
-        match mgr.get("electric").unwrap() {
+        custom.insert("rainbow".to_string(), custom_electric.clone());
+        let mgr = PaletteManager::new(custom, Vec::new(), 0.0, "rainbow");
+        match mgr.get("rainbow").unwrap() {
             PaletteEntry::Cosine(p) => assert_eq!(p.a, custom_electric.a),
             _ => panic!("expected Cosine"),
         }
@@ -1064,7 +1083,7 @@ mod tests {
 
     #[test]
     fn test_transition_instant_snap() {
-        let mut mgr = PaletteManager::new(HashMap::new(), Vec::new(), 0.0, "electric");
+        let mut mgr = PaletteManager::new(HashMap::new(), Vec::new(), 0.0, "rainbow");
         let now = Instant::now();
         mgr.begin_transition("frost", now);
         assert_eq!(mgr.current_name(), "frost");
@@ -1073,7 +1092,7 @@ mod tests {
 
     #[test]
     fn test_transition_blend_advances() {
-        let mut mgr = PaletteManager::new(HashMap::new(), Vec::new(), 2.0, "electric");
+        let mut mgr = PaletteManager::new(HashMap::new(), Vec::new(), 2.0, "rainbow");
         let t0 = Instant::now();
         mgr.begin_transition("frost", t0);
         // At 1 second into a 2-second transition, blend ≈ 0.5.
@@ -1087,7 +1106,7 @@ mod tests {
 
     #[test]
     fn test_transition_completes() {
-        let mut mgr = PaletteManager::new(HashMap::new(), Vec::new(), 1.0, "electric");
+        let mut mgr = PaletteManager::new(HashMap::new(), Vec::new(), 1.0, "rainbow");
         let t0 = Instant::now();
         mgr.begin_transition("frost", t0);
         // After the duration elapses the transition should complete.
@@ -1120,14 +1139,14 @@ mod tests {
 
     #[test]
     fn test_tick_returns_false_when_idle() {
-        let mut mgr = PaletteManager::new(HashMap::new(), Vec::new(), 1.0, "electric");
+        let mut mgr = PaletteManager::new(HashMap::new(), Vec::new(), 1.0, "rainbow");
         assert!(!mgr.tick(Instant::now()));
         assert!(!mgr.is_transitioning());
     }
 
     #[test]
     fn test_transition_to_drives_tick_true_then_false() {
-        let mut mgr = PaletteManager::new(HashMap::new(), Vec::new(), 0.0, "electric");
+        let mut mgr = PaletteManager::new(HashMap::new(), Vec::new(), 0.0, "rainbow");
         let t0 = Instant::now();
         mgr.transition_to("ember", 1.0, t0);
         assert!(
@@ -1143,15 +1162,15 @@ mod tests {
 
     #[test]
     fn test_transition_to_cosine_to_cosine() {
-        // Cosine → Cosine: electric → ember.
-        let mut mgr = PaletteManager::new(HashMap::new(), Vec::new(), 0.0, "electric");
+        // Cosine → Cosine: rainbow → ember.
+        let mut mgr = PaletteManager::new(HashMap::new(), Vec::new(), 0.0, "rainbow");
         let t0 = Instant::now();
         mgr.transition_to("ember", 1.0, t0);
 
-        // Source palette (electric) and target palette (ember), as snapshots.
-        let source = match mgr.get("electric").expect("electric exists") {
+        // Source palette (rainbow) and target palette (ember), as snapshots.
+        let source = match mgr.get("rainbow").expect("rainbow exists") {
             PaletteEntry::Cosine(p) => p.clone(),
-            _ => panic!("electric must be cosine"),
+            _ => panic!("rainbow must be cosine"),
         };
         let target = match mgr.get("ember").expect("ember exists") {
             PaletteEntry::Cosine(p) => p.clone(),
@@ -1283,16 +1302,16 @@ mod tests {
 
     #[test]
     fn test_transition_to_cosine_to_lut() {
-        // Mixed: cosine (electric) → LUT (sunset). Must resolve cosine to 256
+        // Mixed: cosine (rainbow) → LUT (sunset). Must resolve cosine to 256
         // samples first, then LUT-to-LUT interpolate.
-        let mut mgr = PaletteManager::new(HashMap::new(), Vec::new(), 0.0, "electric");
+        let mut mgr = PaletteManager::new(HashMap::new(), Vec::new(), 0.0, "rainbow");
         let t0 = Instant::now();
         mgr.transition_to("sunset", 1.0, t0);
 
         // Expected source samples = cosine resolved to LUT.
-        let source_lut = match mgr.get("electric").expect("electric exists") {
+        let source_lut = match mgr.get("rainbow").expect("rainbow exists") {
             PaletteEntry::Cosine(p) => p.to_lut(),
-            _ => panic!("electric must be cosine"),
+            _ => panic!("rainbow must be cosine"),
         };
         let target_lut = match mgr.get("sunset").expect("sunset exists") {
             PaletteEntry::Lut(v) => v.clone(),
@@ -1350,16 +1369,16 @@ mod tests {
 
     #[test]
     fn test_transition_to_unknown_is_noop() {
-        let mut mgr = PaletteManager::new(HashMap::new(), Vec::new(), 0.0, "electric");
+        let mut mgr = PaletteManager::new(HashMap::new(), Vec::new(), 0.0, "rainbow");
         let t0 = Instant::now();
         mgr.transition_to("no_such_palette", 1.0, t0);
         assert!(!mgr.is_transitioning());
-        assert_eq!(mgr.current_name(), "electric");
+        assert_eq!(mgr.current_name(), "rainbow");
     }
 
     #[test]
     fn test_transition_to_zero_duration_snaps() {
-        let mut mgr = PaletteManager::new(HashMap::new(), Vec::new(), 0.0, "electric");
+        let mut mgr = PaletteManager::new(HashMap::new(), Vec::new(), 0.0, "rainbow");
         let t0 = Instant::now();
         mgr.transition_to("frost", 0.0, t0);
         assert!(!mgr.is_transitioning());
@@ -1402,20 +1421,20 @@ mod tests {
     fn test_set_playlist_restricts_cycle() {
         let mut mgr = PaletteManager::default();
         // cycle_index starts at 0; first call increments to 1.
-        // Playlist = ["electric", "frost"], so: call1→"frost", call2→"electric", call3→"frost".
-        mgr.set_playlist(vec!["electric".to_string(), "frost".to_string()]);
+        // Playlist = ["rainbow", "frost"], so: call1→"frost", call2→"rainbow", call3→"frost".
+        mgr.set_playlist(vec!["rainbow".to_string(), "frost".to_string()]);
         let name1 = mgr.cycle_next().expect("must return Some");
         let name2 = mgr.cycle_next().expect("must return Some");
         let name3 = mgr.cycle_next().expect("must return Some"); // wraps
         assert_eq!(name1, "frost");
-        assert_eq!(name2, "electric");
+        assert_eq!(name2, "rainbow");
         assert_eq!(name3, "frost", "must wrap around within playlist");
     }
 
     #[test]
     fn test_set_playlist_empty_resets_to_all() {
         let mut mgr = PaletteManager::default();
-        mgr.set_playlist(vec!["electric".to_string()]);
+        mgr.set_playlist(vec!["rainbow".to_string()]);
         mgr.set_playlist(vec![]); // reset
         let n = mgr.list().len();
         let mut seen = std::collections::HashSet::new();

@@ -496,13 +496,13 @@ impl WaylandState {
                 palette_manager
                     .current_cycle_name()
                     .map(str::to_string)
-                    .unwrap_or_else(|| "electric".to_string())
+                    .unwrap_or_else(|| "rainbow".to_string())
             }
             name => {
                 if palette_manager.get(name).is_some() {
                     name.to_string()
                 } else {
-                    "electric".to_string()
+                    "rainbow".to_string()
                 }
             }
         }
@@ -591,7 +591,7 @@ impl WaylandState {
             shader_pl
         };
         let palette_pl = if palette_pl.is_empty() {
-            vec!["electric".to_string()]
+            vec!["rainbow".to_string()]
         } else {
             palette_pl
         };
@@ -737,7 +737,7 @@ pub fn run(
                 shader_pl
             };
             let palette_pl = if palette_pl.is_empty() {
-                vec!["electric".to_string()]
+                vec!["rainbow".to_string()]
             } else {
                 palette_pl
             };
@@ -1405,7 +1405,7 @@ impl LayerShellHandler for WaylandState {
                     .palette_manager
                     .get(&palette_name)
                     .cloned()
-                    .unwrap_or_default(); // PaletteEntry::default() is cosine electric
+                    .unwrap_or_default(); // PaletteEntry::default() is cosine rainbow
                 let shader_compiled = self
                     .shader_manager
                     .get_compiled(&shader_name)

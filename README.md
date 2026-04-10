@@ -70,7 +70,7 @@ cargo install hyprsaver
    ```toml
    [general]
    shader = "julia"
-   palette = "vapor"
+   palette = "vaporwave"
 
    [behavior]
    fade_in_ms = 800
@@ -119,7 +119,7 @@ cargo install hyprsaver
   | `planet`        | Raymarched planet sphere with aurora borealis bands and noise-perturbed curtains |
   | `tesla`         | Tesla coil arcs — fractal-lightning between three electrodes with branching |
   | `wormhole`      | Fly-through a curving wormhole with ring-textured walls and point lights    |
-- **Built-in palette collection**: electric, autumn, vapor, frost, ember, ocean, monochrome, sunset, aurora, midnight
+- **Built-in palette collection**: rainbow, autumn, vaporwave, frost, ember, ocean, monochrome, sunset, aurora, midnight
 - Configurable FPS and dismiss triggers
 - **Preview mode** for shader authoring (`--preview <shader>`) with speed/zoom control panel
 - **PID file based instance management** (`--quit` to signal a running instance)
@@ -272,7 +272,7 @@ A full annotated example is provided at [`examples/hyprsaver.toml`](examples/hyp
 ```toml
 [general]
 shader = "julia"
-palette = "vapor"
+palette = "vaporwave"
 fps = 30
 ```
 
@@ -303,8 +303,8 @@ shaders = ["all"]
 palettes = ["all"]
 
 [playlists.chill]
-shaders = ["plasma", "flow_field", "bezier", "lissajous", "planet"]
-palettes = ["vapor", "frost", "ocean", "aurora"]
+shaders = ["plasma", "flow_field", "bezier", "lissajous", "aurora_sphere"]
+palettes = ["vaporwave", "frost", "ocean", "aurora"]
 
 # Custom palettes are defined as top-level [palettes.<name>] sections
 [palettes.my_palette]
@@ -339,7 +339,7 @@ shader_playlist = "chill"
 
 [playlists.chill]
 shaders = ["snowfall", "starfield", "tunnel", "plasma"]
-palettes = ["vapor", "frost", "ocean"]
+palettes = ["vaporwave", "frost", "ocean"]
 ```
 
 On startup, cycle mode begins at a random position in the playlist so each session looks different. Use `--list-shader-playlists` or `--list-palette-playlists` to inspect defined playlists.
@@ -358,12 +358,12 @@ shaders = ["all"]              # "all" = every built-in + user shader
 palettes = ["all"]
 
 [playlists.chill]
-shaders = ["plasma", "flow_field", "bezier", "lissajous", "planet"]
-palettes = ["vapor", "frost", "ocean", "aurora"]
+shaders = ["plasma", "flow_field", "bezier", "lissajous", "aurora_sphere"]
+palettes = ["vaporwave", "frost", "ocean", "aurora"]
 
 [playlists.intense]
 shaders = ["mandelbrot", "julia", "tesla", "kaleidoscope", "fire"]
-palettes = ["electric", "ember", "groovy"]
+palettes = ["rainbow", "ember", "groovy"]
 ```
 
 If the `"default"` playlist is not defined, it implicitly expands to `["all"]` for both shaders and palettes.
@@ -588,7 +588,7 @@ OPTIONS:
 
 ```sh
 # Start with a specific shader and palette
-hyprsaver --shader julia --palette vapor
+hyprsaver --shader julia --palette vaporwave
 
 # Cycle through all shaders every 2 minutes
 hyprsaver --shader cycle --shader-interval 120

@@ -88,12 +88,12 @@ dismiss_on = ["key", "mouse_move", "mouse_click", "touch"]
 # palettes = ["all"]
 
 # [playlists.chill]
-# shaders = ["plasma", "flow_field", "bezier", "lissajous", "planet"]
-# palettes = ["vapor", "frost", "ocean", "aurora"]
+# shaders = ["plasma", "flow_field", "bezier", "lissajous", "aurora_sphere"]
+# palettes = ["vaporwave", "frost", "ocean", "aurora"]
 
 # [playlists.intense]
 # shaders = ["mandelbrot", "julia", "tesla", "kaleidoscope", "fire"]
-# palettes = ["electric", "ember", "groovy"]
+# palettes = ["rainbow", "ember", "groovy"]
 
 # ---------------------------------------------------------------------------
 # Custom palette definitions
@@ -165,4 +165,4 @@ dismiss_on = ["key", "mouse_move", "mouse_click", "touch"]
 # [[monitor]]
 # name = "HDMI-A-1"
 # shader = "snowfall"
-# palette = "vapor"
+# palette = "vaporwave"
