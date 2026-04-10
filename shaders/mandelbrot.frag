@@ -95,10 +95,13 @@ vec2 zoom_target(int idx) {
 
 // ---------------------------------------------------------------------------
 // Home position — the standard full-fractal Mandelbrot view.
-// At scale 1.0 the camera shows the central region of the set centred on the
-// geometric midpoint of the main cardioid and period-2 bulb.
+// HOME_SCALE < 1.0 is required because the UV coordinate system divides by
+// resolution.y, giving a half-height of 0.5 in complex-plane units. At
+// HOME_SCALE = 0.35 the view spans ≈ ±1.43 imaginary and ≈ [-3.0, 2.0] real,
+// comfortably framing the entire set (which fits in ≈ [-2.5, 0.5] × [-1.25, 1.25]).
 // ---------------------------------------------------------------------------
-const vec2 HOME_CENTER = vec2(-0.5, 0.0);
+const vec2  HOME_CENTER = vec2(-0.5, 0.0);
+const float HOME_SCALE  = 0.35;
 
 // ---------------------------------------------------------------------------
 // Main
@@ -117,8 +120,8 @@ void main() {
 
     // -----------------------------------------------------------------------
     // Zoom depth: smoothstep S-curve for both in and out phases.
-    //   zoom_t = 0.0  →  home (scale 1×, center HOME_CENTER)
-    //   zoom_t = 1.0  →  maximum zoom (scale ~268×, center = target)
+    //   zoom_t = 0.0  →  home (scale = HOME_SCALE, full-fractal view)
+    //   zoom_t = 1.0  →  maximum zoom (scale = HOME_SCALE × 268, center = target)
     // -----------------------------------------------------------------------
     float zoom_t;
     if (t < 0.5) {
@@ -128,7 +131,9 @@ void main() {
     }
 
     // Exponential zoom: logarithmic feel — slow at start, faster in middle.
-    float scale = pow(1.5, zoom_t * max_zoom_exp);
+    // HOME_SCALE is the base (fully zoomed-out) scale; the power term provides
+    // the 268× zoom ratio from home to max regardless of the base value.
+    float scale = HOME_SCALE * pow(1.5, zoom_t * max_zoom_exp);
 
     // -----------------------------------------------------------------------
     // Target selection — stateless, deterministic, no consecutive repeats.
