@@ -13,6 +13,10 @@ precision highp float;
 // 21 nodes total (3 layers × 7), additive compositing over black.
 // Nodes rendered as single smoothstep circles (no layered glow) for GPU efficiency.
 // Same-layer connections capped at 3 per node; cross-layer at 2 per node.
+// Lines routed as 2-segment polylines through a hash-offset midpoint — doubles
+// visual line count at 2× segment checks per connection (no extra O(n²) cost).
+// Connection thresholds raised 40 % so more node-pairs connect (free — distance
+// is already computed, we just accept more results).
 // Fully stateless GLSL — no per-frame CPU work.
 // ---------------------------------------------------------------------------
 
@@ -23,8 +27,8 @@ uniform int   u_frame;
 
 const int   LAYERS          = 3;
 const int   NODES_PER_LAYER = 7;
-const float CONN_THRESH     = 0.45;   // same-layer cutoff (tightened from 0.55)
-const float CROSS_THRESH    = 0.40;   // cross-layer cutoff
+const float CONN_THRESH     = 0.63;   // +40 % from 0.45 — more pairs connect, free
+const float CROSS_THRESH    = 0.56;   // +40 % from 0.40 — free
 
 // ---------------------------------------------------------------------------
 // Hash — float -> float in [0, 1)
@@ -113,10 +117,12 @@ void main() {
         float fL   = float(L);
         int   base = L * NODES_PER_LAYER;
 
-        float lineW    = 0.003 + fL * 0.001;   // doubled vs prior version for visibility
+        float lineW    = 0.009 + fL * 0.003;   // tripled from 0.003+L*0.001
         float baseAlph = 0.12 + fL * 0.03;
 
-        // Same-layer connections — cap at 3 per node to bound O(n²) evaluations
+        // Same-layer connections — cap at 3 per node to bound O(n²) evaluations.
+        // Each connection is routed as a 2-segment polyline through a hash-offset
+        // midpoint — doubles visual density at 2× segment checks, no new node pairs.
         for (int a = 0; a < NODES_PER_LAYER; a++) {
             vec2 pA    = np[base + a];
             int  conns = 0;
@@ -127,7 +133,11 @@ void main() {
                 if (length(pA - pB) > CONN_THRESH) continue;
                 conns++;
 
-                float ld = segDist(uv, pA, pB);
+                float connId0  = hash11(float(base + a) * 13.37 + float(base + b) * 7.13);
+                vec2 midOff    = vec2(hash11(connId0 * 8.11) - 0.5,
+                                     hash11(connId0 * 8.99) - 0.5) * 0.03;
+                vec2 mid       = (pA + pB) * 0.5 + midOff;
+                float ld       = min(segDist(uv, pA, mid), segDist(uv, mid, pB));
                 float lg = 1.0 - smoothstep(0.0, lineW, ld);
                 if (lg < 0.001) continue;   // skip heavy work for off-line pixels
 
@@ -135,12 +145,11 @@ void main() {
                 float tB = hash11(float(base + b) * 7.77 + 0.5);
                 float ct = (tA + tB) * 0.5;
 
-                float connId   = hash11(float(base + a) * 13.37 + float(base + b) * 7.13);
-                float pulseSpd = 0.3 + hash11(connId * 1.23) * 1.2;
-                float pulsePh  = hash11(connId * 4.56) * 6.28318;
+                float pulseSpd = 0.3 + hash11(connId0 * 1.23) * 1.2;
+                float pulsePh  = hash11(connId0 * 4.56) * 6.28318;
                 float pulse    = sin(t * pulseSpd + pulsePh) * 0.5 + 0.5;
 
-                float connAlpha = connectionAlpha(connId, t);
+                float connAlpha = connectionAlpha(connId0, t);
 
                 float lineAlph = baseAlph + connAlpha * (0.50 - baseAlph) * pulse;
                 vec3  lineCol  = mix(palette(ct), vec3(1.0), 0.2 * pulse * connAlpha);
@@ -148,7 +157,8 @@ void main() {
             }
         }
 
-        // Cross-layer connections (L -> L+1) — cap at 2 per node
+        // Cross-layer connections (L -> L+1) — cap at 2 per node.
+        // Also routed as 2-segment polylines for visual density.
         if (L < LAYERS - 1) {
             int   baseN  = (L + 1) * NODES_PER_LAYER;
             float crossA = baseAlph * 0.55;
@@ -164,7 +174,11 @@ void main() {
                     if (length(pA - pB) > CROSS_THRESH) continue;
                     crossConns++;
 
-                    float ld = segDist(uv, pA, pB);
+                    float connId    = hash11(float(base + a) * 23.37 + float(baseN + b) * 5.13);
+                    vec2 midOff     = vec2(hash11(connId * 8.11) - 0.5,
+                                          hash11(connId * 8.99) - 0.5) * 0.03;
+                    vec2 mid        = (pA + pB) * 0.5 + midOff;
+                    float ld        = min(segDist(uv, pA, mid), segDist(uv, mid, pB));
                     float lg = 1.0 - smoothstep(0.0, crossW, ld);
                     if (lg < 0.001) continue;
 
@@ -172,7 +186,6 @@ void main() {
                     float tB = hash11(float(baseN + b) * 7.77 + 0.5);
                     float ct = (tA + tB) * 0.5;
 
-                    float connId    = hash11(float(base + a) * 23.37 + float(baseN + b) * 5.13);
                     float pulseSpd  = 0.3 + hash11(connId * 1.23) * 1.2;
                     float pulsePh   = hash11(connId * 4.56) * 6.28318;
                     float pulse     = sin(t * pulseSpd + pulsePh) * 0.5 + 0.5;
