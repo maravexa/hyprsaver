@@ -6,8 +6,9 @@ precision highp float;
 //
 // Network monitoring dashboard: 4 parallax layers of glowing nodes with
 // always-visible translucent connection lines that pulse in brightness to
-// simulate network activity.  ~35 % of lines pulse at any moment, rotating
-// slowly on a per-layer cycle.  Back layers (0) are small, dim, and slow;
+// simulate network activity.  ~35 % of connections are active at any moment;
+// each fades in/out over 1.5 s on its own independent timer so at most ~3
+// change simultaneously — no jarring pop.  Back layers (0) are small, dim, slow;
 // front layers (3) are large, bright, and faster.
 // 40 nodes total (4 layers × 10), additive compositing over black.
 // Fully stateless GLSL — no per-frame CPU work.
@@ -42,6 +43,31 @@ float segDist(vec2 p, vec2 a, vec2 b) {
     vec2 pa = p - a, ba = b - a;
     float h = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0);
     return length(pa - ba * h);
+}
+
+// ---------------------------------------------------------------------------
+// Per-connection lifecycle alpha — smooth fade in/out, no global-cycle pops.
+//
+// Each connection has its own pseudo-random period (10–25 s) and a staggered
+// phase offset so starts are not synchronised across the network.  Connections
+// are "active" (bright) for 35 % of their period and spend 1.5 s fading in at
+// the start of that window and 1.5 s fading out at the end.
+//
+// Statistical consequence: with ~15 in-range same-layer connections per layer
+// and a ~17 % probability of being mid-fade at any moment, roughly 2–3
+// connections are visually transitioning at once — naturally meets the ≤3
+// simultaneous-change target without any explicit counting.
+// ---------------------------------------------------------------------------
+
+float connectionAlpha(float connId, float t) {
+    float period    = 10.0 + hash11(connId * 7.77) * 15.0;   // 10–25 s per connection
+    float phaseOff  = hash11(connId * 13.17) * period;        // stagger: no two sync'd
+    float phase     = mod(t + phaseOff, period);              // 0..period
+    float activeEnd = 0.35 * period;                          // active 35 % of period
+    float fadeDur   = 1.5;                                    // 1.5 s fade-in AND fade-out
+    // Minimum activeEnd = 0.35 * 10 = 3.5 s > 2 * fadeDur = 3.0 s → no overlap.
+    return smoothstep(0.0, fadeDur, phase) *
+           (1.0 - smoothstep(activeEnd - fadeDur, activeEnd, phase));
 }
 
 // ---------------------------------------------------------------------------
@@ -90,10 +116,6 @@ void main() {
         float lineW    = 0.0012 + fL * 0.0004;
         float baseAlph = 0.12 + fL * 0.03;   // slightly brighter on front layers
 
-        // Activity rotation: different cycle length per layer keeps layers de-synced
-        float cycleDur  = 8.0 + fL * 2.0;
-        float cycleSeed = floor(t / cycleDur);
-
         // Same-layer connections
         for (int a = 0; a < NODES_PER_LAYER; a++) {
             vec2 pA = np[base + a];
@@ -117,12 +139,11 @@ void main() {
                 float pulsePh  = hash11(connId * 4.56) * 6.28318;
                 float pulse    = sin(t * pulseSpd + pulsePh) * 0.5 + 0.5;
 
-                // ~35 % of connections active per cycle window
-                float actHash = hash11(connId + cycleSeed * 17.11);
-                float connOn  = step(actHash, 0.35);
+                // Smooth lifecycle alpha — fades in/out over 1.5 s, ~35 % active
+                float connAlpha = connectionAlpha(connId, t);
 
-                float lineAlph = baseAlph + connOn * (0.50 - baseAlph) * pulse;
-                vec3  lineCol  = mix(palette(ct), vec3(1.0), 0.2 * pulse * connOn);
+                float lineAlph = baseAlph + connAlpha * (0.50 - baseAlph) * pulse;
+                vec3  lineCol  = mix(palette(ct), vec3(1.0), 0.2 * pulse * connAlpha);
 
                 col += lineCol * lg * lineAlph;
             }
@@ -154,11 +175,11 @@ void main() {
                     float pulsePh  = hash11(connId * 4.56) * 6.28318;
                     float pulse    = sin(t * pulseSpd + pulsePh) * 0.5 + 0.5;
 
-                    float actHash = hash11(connId + cycleSeed * 17.11);
-                    float connOn  = step(actHash, 0.35);
+                    // Smooth lifecycle alpha — same 1.5 s fade, independent timer
+                    float connAlpha = connectionAlpha(connId, t);
 
-                    float lineAlph = crossA + connOn * (0.35 - crossA) * pulse;
-                    vec3  lineCol  = mix(palette(ct), vec3(1.0), 0.2 * pulse * connOn);
+                    float lineAlph = crossA + connAlpha * (0.35 - crossA) * pulse;
+                    vec3  lineCol  = mix(palette(ct), vec3(1.0), 0.2 * pulse * connAlpha);
 
                     col += lineCol * lg * lineAlph;
                 }
