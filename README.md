@@ -116,6 +116,7 @@ cargo install hyprsaver
   | `fire`          | Roiling procedural flames with ember particles       |
   | `caustics`      | Underwater caustic light patterns                    |
   | `bezier`        | Five animated Bézier curves with additive palette glow |
+  | `aurora_sphere` | Raymarched sphere with aurora borealis bands and noise-perturbed curtains |
 - **Built-in palette collection**: electric, autumn, vapor, frost, ember, ocean, monochrome, sunset, aurora, midnight
 - Configurable FPS and dismiss triggers
 - **Preview mode** for shader authoring (`--preview <shader>`) with speed/zoom control panel
