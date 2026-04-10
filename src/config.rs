@@ -155,7 +155,7 @@ pub struct PalettePlaylist {
 /// ```toml
 /// [playlists.chill]
 /// shaders = ["plasma", "flow_field", "bezier", "lissajous", "aurora_sphere"]
-/// palettes = ["vapor", "frost", "ocean", "aurora"]
+/// palettes = ["vaporwave", "frost", "ocean", "aurora"]
 /// ```
 ///
 /// The special value `"all"` in either list expands to all available
@@ -284,7 +284,7 @@ pub struct PaletteConfigEntry {
 /// [[monitor]]
 /// name = "HDMI-A-1"
 /// shader = "snowfall"
-/// palette = "vapor"
+/// palette = "vaporwave"
 /// ```
 #[derive(Debug, Clone, Deserialize)]
 pub struct MonitorConfig {
@@ -510,9 +510,9 @@ mod tests {
 [general]
 fps = 60
 shader = "julia"
-palette = "vapor"
+palette = "vaporwave"
 shader_cycle_interval = 120
-palette_cycle = ["electric", "frost"]
+palette_cycle = ["rainbow", "frost"]
 palette_transition_duration = 1.5
 
 [behavior]
@@ -523,9 +523,9 @@ dismiss_on = ["key", "touch"]
         let cfg: Config = toml::from_str(toml_str).expect("full TOML must parse");
         assert_eq!(cfg.general.fps, 60);
         assert_eq!(cfg.general.shader, "julia");
-        assert_eq!(cfg.general.palette, "vapor");
+        assert_eq!(cfg.general.palette, "vaporwave");
         assert_eq!(cfg.general.shader_cycle_interval, 120);
-        assert_eq!(cfg.general.palette_cycle, vec!["electric", "frost"]);
+        assert_eq!(cfg.general.palette_cycle, vec!["rainbow", "frost"]);
         assert_eq!(cfg.general.palette_transition_duration, 1.5);
         assert_eq!(cfg.behavior.fade_in_ms, 200);
         assert_eq!(cfg.behavior.fade_out_ms, 100);
@@ -683,11 +683,11 @@ shader = "plasma"
         let mut cfg = Config::default();
         cfg.apply_cli_overrides(CliOverrides {
             shader: Some("julia"),
-            palette: Some("vapor"),
+            palette: Some("vaporwave"),
             ..Default::default()
         });
         assert_eq!(cfg.general.shader, "julia");
-        assert_eq!(cfg.general.palette, "vapor");
+        assert_eq!(cfg.general.palette, "vaporwave");
     }
 
     #[test]
@@ -798,7 +798,7 @@ shaders = ["plasma", "tunnel"]
 palettes = ["ember", "autumn", "groovy"]
 
 [palette_playlists.cool_vibes]
-palettes = ["frost", "ocean", "vapor"]
+palettes = ["frost", "ocean", "vaporwave"]
 "#;
         let cfg: Config = toml::from_str(toml_str).expect("playlist TOML must parse");
         assert_eq!(cfg.general.shader_playlist, "my_favorites");
@@ -834,11 +834,11 @@ palettes = ["all"]
 
 [playlists.chill]
 shaders = ["plasma", "flow_field", "bezier"]
-palettes = ["vapor", "frost", "ocean"]
+palettes = ["vaporwave", "frost", "ocean"]
 
 [playlists.intense]
 shaders = ["mandelbrot", "julia", "tesla"]
-palettes = ["electric", "ember"]
+palettes = ["rainbow", "ember"]
 "#;
         let cfg: Config = toml::from_str(toml_str).expect("unified playlist TOML must parse");
         assert_eq!(cfg.general.shader_playlist, "chill");
@@ -851,11 +851,11 @@ palettes = ["electric", "ember"]
 
         let chill = cfg.playlists.get("chill").expect("chill must exist");
         assert_eq!(chill.shaders, vec!["plasma", "flow_field", "bezier"]);
-        assert_eq!(chill.palettes, vec!["vapor", "frost", "ocean"]);
+        assert_eq!(chill.palettes, vec!["vaporwave", "frost", "ocean"]);
 
         let intense = cfg.playlists.get("intense").expect("intense must exist");
         assert_eq!(intense.shaders, vec!["mandelbrot", "julia", "tesla"]);
-        assert_eq!(intense.palettes, vec!["electric", "ember"]);
+        assert_eq!(intense.palettes, vec!["rainbow", "ember"]);
     }
 
     #[test]
