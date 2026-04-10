@@ -228,6 +228,17 @@ struct PreviewPanelState {
     playlist_editor: PlaylistEditorState,
     /// State for the Palette Editor tab.
     palette_editor: PaletteEditorState,
+    /// Set by the "Save Config" button on the Preview tab.
+    save_config_requested: bool,
+    /// While `Some(t)` and `Instant::now() < t`, the Preview tab shows a
+    /// transient "Saved ✓" toast. Cleared once the instant has passed.
+    save_config_toast_until: Option<Instant>,
+    /// Set by the "⟳ Test Transition" button on the Preview tab.
+    test_transition_requested: bool,
+    /// Names of cosine palettes the user saved via the Palette Editor tab
+    /// during this session. Re-written to `[palettes.<name>]` by
+    /// "Save Config" so the whole config file stays in sync.
+    session_created_palettes: Vec<String>,
 }
 
 /// egui resources bundled together so they can be `.take()`n out of
@@ -404,6 +415,10 @@ impl PreviewState {
                         active_tab: PreviewTab::Preview,
                         playlist_editor,
                         palette_editor,
+                        save_config_requested: false,
+                        save_config_toast_until: None,
+                        test_transition_requested: false,
+                        session_created_palettes: Vec::new(),
                     },
                 });
             }
@@ -709,12 +724,124 @@ impl PreviewState {
                         bundle.state.palette_editor.selected_name = name.clone();
                         bundle.state.palette_editor.new_name.clear();
                         bundle.state.palette_editor.save_status = format!("Saved to {path}");
+                        // Track for the Save Config merge so Tab 1 can
+                        // re-emit this palette into `[palettes.<name>]`.
+                        if !bundle.state.session_created_palettes.contains(&name) {
+                            bundle.state.session_created_palettes.push(name.clone());
+                        }
                         log::info!("preview: palette '{name}' saved to {path}");
                     }
                     Err(e) => {
                         bundle.state.palette_editor.save_status = format!("Error: {e}");
                         log::warn!("preview: palette save error: {e}");
                     }
+                }
+            }
+        }
+
+        // ── Preview tab: "⟳ Test Transition" button ───────────────────
+        // Pick a random shader different from the one currently displayed,
+        // compile it, and start a 2-second crossfade via the transition
+        // renderer. On any failure, log and leave the current shader as-is.
+        if bundle.state.test_transition_requested {
+            bundle.state.test_transition_requested = false;
+            let mut shader_list: Vec<String> = self
+                .shader_manager
+                .list()
+                .iter()
+                .map(|s| s.to_string())
+                .collect();
+            shader_list.sort();
+            let candidates: Vec<String> = shader_list
+                .into_iter()
+                .filter(|s| *s != self.active_shader)
+                .collect();
+            if candidates.is_empty() {
+                log::warn!("preview: no alternate shader available for transition");
+                bundle.state.status_message = "No other shader to transition to".to_string();
+            } else {
+                // Same nanos-mod-count PRNG the ShaderManager uses.
+                let idx = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .subsec_nanos() as usize
+                    % candidates.len();
+                let next_name = candidates[idx].clone();
+                if let Some(src) = self.shader_manager.get_compiled(&next_name) {
+                    let src = src.to_string();
+                    if let Some(r) = self.renderer.as_mut() {
+                        match r.start_shader_transition(&src, Some(2.0)) {
+                            Ok(()) => {
+                                log::info!(
+                                    "preview: test transition {} → {}",
+                                    self.active_shader,
+                                    next_name
+                                );
+                                self.active_shader = next_name.clone();
+                                bundle.state.selected_shader = next_name.clone();
+                                bundle.state.status_message =
+                                    format!("Transitioning to '{next_name}'");
+                                if let Some(win) = &self.window {
+                                    win.set_title(format!("hyprsaver preview — {next_name}"));
+                                }
+                            }
+                            Err(e) => {
+                                log::warn!("preview: test transition failed: {e:#}");
+                                bundle.state.status_message =
+                                    "Transition compile error (see log)".to_string();
+                            }
+                        }
+                    }
+                } else {
+                    log::warn!("preview: compiled source missing for '{next_name}'");
+                }
+            }
+        }
+
+        // ── Preview tab: "Save Config" button ─────────────────────────
+        // Merge the current preview state (active shader/palette, slider
+        // values, any edited playlists, any palettes saved this session)
+        // into `~/.config/hypr/hyprsaver.toml` and write it back. On
+        // success, trigger a 2-second "Saved ✓" toast.
+        if bundle.state.save_config_requested {
+            bundle.state.save_config_requested = false;
+
+            // Collect session-created cosine palettes from the live manager.
+            // Names are tracked in `session_created_palettes` — we look up
+            // the current values from the manager each time so the saved
+            // data reflects post-edit state (not a stale snapshot).
+            let session_palettes: Vec<(String, Palette)> = bundle
+                .state
+                .session_created_palettes
+                .iter()
+                .filter_map(|name| match self.palette_manager.get(name) {
+                    Some(PaletteEntry::Cosine(p)) => Some((name.clone(), p.clone())),
+                    _ => None,
+                })
+                .collect();
+
+            let ed = &bundle.state.playlist_editor;
+            let result = save_preview_config(
+                &self.active_shader,
+                &self.active_palette,
+                bundle.state.speed,
+                bundle.state.zoom,
+                &ed.shader_items,
+                &ed.palette_items,
+                ed.shader_interval,
+                ed.palette_interval,
+                ed.cycle_order_random,
+                &session_palettes,
+            );
+            match result {
+                Ok(path) => {
+                    bundle.state.save_config_toast_until =
+                        Some(Instant::now() + Duration::from_secs(2));
+                    log::info!("preview: config saved to {path}");
+                }
+                Err(e) => {
+                    bundle.state.status_message = format!("Save error: {e}");
+                    log::warn!("preview: save config error: {e}");
                 }
             }
         }
@@ -1550,6 +1677,18 @@ fn draw_preview_tab(
             }
         });
 
+    ui.add_space(4.0);
+    if ui
+        .add(
+            egui::Button::new("⟳ Test Transition")
+                .min_size(egui::Vec2::new(PANEL_WIDTH as f32 - 24.0, 22.0)),
+        )
+        .on_hover_text("Preview a 2-second crossfade to a random shader")
+        .clicked()
+    {
+        state.test_transition_requested = true;
+    }
+
     ui.add_space(6.0);
     ui.label("Palette");
     egui::ComboBox::from_id_salt("palette_combo")
@@ -1616,6 +1755,35 @@ fn draw_preview_tab(
                 .small()
                 .color(egui::Color32::from_gray(160)),
         );
+    }
+
+    ui.add_space(12.0);
+    let save_accent = egui::Color32::from_rgb(0x30, 0xa0, 0x60);
+    if ui
+        .add(
+            egui::Button::new(egui::RichText::new("Save Config").color(egui::Color32::WHITE))
+                .fill(save_accent)
+                .min_size(egui::Vec2::new(PANEL_WIDTH as f32 - 24.0, 28.0)),
+        )
+        .on_hover_text("Write current shader/palette/speed/zoom to hyprsaver.toml")
+        .clicked()
+    {
+        state.save_config_requested = true;
+    }
+
+    // "Saved ✓" toast — visible for ~2s after a successful save.
+    if let Some(until) = state.save_config_toast_until {
+        if Instant::now() < until {
+            ui.add_space(4.0);
+            ui.label(
+                egui::RichText::new("Saved ✓")
+                    .small()
+                    .strong()
+                    .color(egui::Color32::from_rgb(0x5e, 0xd0, 0x90)),
+            );
+        } else {
+            state.save_config_toast_until = None;
+        }
     }
 
     ui.add_space(16.0);
@@ -2421,6 +2589,186 @@ fn save_palette_config(name: &str, palette: &Palette) -> Result<String, String> 
     }
 
     // Serialize and write.
+    let content = toml::to_string_pretty(&doc).map_err(|e| e.to_string())?;
+    std::fs::write(&cfg_path, &content).map_err(|e| e.to_string())?;
+
+    Ok(cfg_path.display().to_string())
+}
+
+/// Merge the full preview state into the on-disk config and write it back.
+///
+/// Sets `[general].shader`, `[general].palette`, `[general].speed_scale`,
+/// `[general].zoom_scale`. If `shader_items` or `palette_items` are
+/// non-empty, also writes `[shader_playlists.custom]` /
+/// `[palette_playlists.custom]` plus the matching cycle-interval and
+/// order keys (same logic as [`save_playlist_config`]). For every
+/// `(name, palette)` in `session_palettes`, writes `[palettes.<name>]`
+/// with the four cosine vectors.
+///
+/// Existing fields in the file that are NOT managed by the preview (fade
+/// durations, `[[monitor]]` blocks, other `[palettes.*]` entries, etc.)
+/// are preserved by round-tripping through `toml::Value`.
+///
+/// Path resolution matches the rest of the module: prefers
+/// `$XDG_CONFIG_HOME/hypr/hyprsaver.toml`, falls back to the legacy
+/// `$XDG_CONFIG_HOME/hyprsaver/config.toml`, creates the new path if
+/// neither exists.
+#[allow(clippy::too_many_arguments)]
+fn save_preview_config(
+    shader: &str,
+    palette: &str,
+    speed: f32,
+    zoom: f32,
+    shader_items: &[String],
+    palette_items: &[String],
+    shader_interval: u64,
+    palette_interval: u64,
+    cycle_order_random: bool,
+    session_palettes: &[(String, Palette)],
+) -> Result<String, String> {
+    use std::path::PathBuf;
+
+    let cfg_path: PathBuf = {
+        let cfg_dir = dirs::config_dir().unwrap_or_else(|| PathBuf::from("."));
+        let new_path = cfg_dir.join("hypr").join("hyprsaver.toml");
+        let legacy_path = cfg_dir.join("hyprsaver").join("config.toml");
+        if new_path.exists() {
+            new_path
+        } else if legacy_path.exists() {
+            legacy_path
+        } else {
+            new_path
+        }
+    };
+
+    let existing = if cfg_path.exists() {
+        std::fs::read_to_string(&cfg_path).map_err(|e| e.to_string())?
+    } else {
+        String::new()
+    };
+
+    let mut doc: toml::Value = if existing.trim().is_empty() {
+        toml::Value::Table(Default::default())
+    } else {
+        existing.parse::<toml::Value>().map_err(|e| e.to_string())?
+    };
+
+    fn ensure_table<'a>(
+        parent: &'a mut toml::map::Map<String, toml::Value>,
+        key: &str,
+    ) -> &'a mut toml::map::Map<String, toml::Value> {
+        if !parent.contains_key(key) {
+            parent.insert(key.to_string(), toml::Value::Table(Default::default()));
+        }
+        parent.get_mut(key).unwrap().as_table_mut().unwrap()
+    }
+
+    let root = doc
+        .as_table_mut()
+        .ok_or("TOML config root is not a table")?;
+
+    // ── [general] ────────────────────────────────────────────────────
+    {
+        let general = ensure_table(root, "general");
+        general.insert(
+            "shader".to_string(),
+            toml::Value::String(shader.to_string()),
+        );
+        general.insert(
+            "palette".to_string(),
+            toml::Value::String(palette.to_string()),
+        );
+        general.insert("speed_scale".to_string(), toml::Value::Float(speed as f64));
+        general.insert("zoom_scale".to_string(), toml::Value::Float(zoom as f64));
+
+        // Only push playlist-related keys when the user actually has items
+        // in either list — otherwise Save Config should not mutate cycle
+        // behavior the user didn't touch.
+        if !shader_items.is_empty() || !palette_items.is_empty() {
+            general.insert(
+                "shader_cycle_interval".to_string(),
+                toml::Value::Integer(shader_interval as i64),
+            );
+            general.insert(
+                "palette_cycle_interval".to_string(),
+                toml::Value::Integer(palette_interval as i64),
+            );
+            general.insert(
+                "cycle_order".to_string(),
+                toml::Value::String(
+                    if cycle_order_random {
+                        "random"
+                    } else {
+                        "sequential"
+                    }
+                    .to_string(),
+                ),
+            );
+        }
+        if !shader_items.is_empty() {
+            general.insert(
+                "shader_playlist".to_string(),
+                toml::Value::String("custom".to_string()),
+            );
+        }
+        if !palette_items.is_empty() {
+            general.insert(
+                "palette_playlist".to_string(),
+                toml::Value::String("custom".to_string()),
+            );
+        }
+    }
+
+    // ── [shader_playlists.custom] ────────────────────────────────────
+    if !shader_items.is_empty() {
+        let playlists = ensure_table(root, "shader_playlists");
+        let custom = ensure_table(playlists, "custom");
+        custom.insert(
+            "shaders".to_string(),
+            toml::Value::Array(
+                shader_items
+                    .iter()
+                    .map(|s| toml::Value::String(s.clone()))
+                    .collect(),
+            ),
+        );
+    }
+
+    // ── [palette_playlists.custom] ───────────────────────────────────
+    if !palette_items.is_empty() {
+        let playlists = ensure_table(root, "palette_playlists");
+        let custom = ensure_table(playlists, "custom");
+        custom.insert(
+            "palettes".to_string(),
+            toml::Value::Array(
+                palette_items
+                    .iter()
+                    .map(|s| toml::Value::String(s.clone()))
+                    .collect(),
+            ),
+        );
+    }
+
+    // ── [palettes.<name>] for every session-created cosine palette ──
+    if !session_palettes.is_empty() {
+        let palettes_tbl = ensure_table(root, "palettes");
+        let to_vec3 = |v: [f32; 3]| -> toml::Value {
+            toml::Value::Array(v.iter().map(|f| toml::Value::Float(*f as f64)).collect())
+        };
+        for (name, p) in session_palettes {
+            let mut entry = toml::map::Map::new();
+            entry.insert("a".to_string(), to_vec3(p.a));
+            entry.insert("b".to_string(), to_vec3(p.b));
+            entry.insert("c".to_string(), to_vec3(p.c));
+            entry.insert("d".to_string(), to_vec3(p.d));
+            palettes_tbl.insert(name.clone(), toml::Value::Table(entry));
+        }
+    }
+
+    if let Some(parent) = cfg_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+
     let content = toml::to_string_pretty(&doc).map_err(|e| e.to_string())?;
     std::fs::write(&cfg_path, &content).map_err(|e| e.to_string())?;
 
