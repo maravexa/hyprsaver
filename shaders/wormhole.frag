@@ -26,6 +26,7 @@ uniform float u_time;
 uniform vec2  u_resolution;
 uniform vec2  u_mouse;
 uniform int   u_frame;
+uniform float u_alpha;
 
 const float PI  = 3.14159265359;
 const float TAU = 6.28318530718;
