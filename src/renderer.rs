@@ -5,7 +5,7 @@
 //!   LUT textures)
 //! - Compile and link vertex + fragment shaders
 //! - Upload per-frame uniforms: `u_time`, `u_resolution`, `u_frame`, `u_mouse`,
-//!   palette uniforms (cosine vec3s or LUT sampler), and `u_palette_blend`
+//!   palette LUT samplers (`u_lut_a/b`), and `u_palette_blend`
 //! - Draw the fullscreen quad each frame
 //! - Support swapping in a new fragment shader at runtime (hot-reload)
 //! - Does NOT know about Wayland — it only speaks OpenGL
@@ -13,7 +13,7 @@
 use glow::HasContext as _;
 use std::time::Instant;
 
-use crate::palette::{Palette, PaletteEntry};
+use crate::palette::PaletteEntry;
 
 // ---------------------------------------------------------------------------
 // Uniform locations cache
@@ -27,21 +27,9 @@ pub struct UniformLocations {
     pub u_resolution: Option<glow::UniformLocation>,
     pub u_frame: Option<glow::UniformLocation>,
     pub u_mouse: Option<glow::UniformLocation>,
-    // Cosine palette A (current)
-    pub u_palette_a_a: Option<glow::UniformLocation>,
-    pub u_palette_a_b: Option<glow::UniformLocation>,
-    pub u_palette_a_c: Option<glow::UniformLocation>,
-    pub u_palette_a_d: Option<glow::UniformLocation>,
-    // Cosine palette B (transition target)
-    pub u_palette_b_a: Option<glow::UniformLocation>,
-    pub u_palette_b_b: Option<glow::UniformLocation>,
-    pub u_palette_b_c: Option<glow::UniformLocation>,
-    pub u_palette_b_d: Option<glow::UniformLocation>,
     // LUT samplers (texture units 1 and 2)
     pub u_lut_a: Option<glow::UniformLocation>,
     pub u_lut_b: Option<glow::UniformLocation>,
-    // Control
-    pub u_use_lut: Option<glow::UniformLocation>,
     pub u_palette_blend: Option<glow::UniformLocation>,
     // Fade alpha
     pub u_alpha: Option<glow::UniformLocation>,
@@ -658,15 +646,8 @@ pub struct Renderer {
     // ------------------------------------------------------------------
     // Palette state
     // ------------------------------------------------------------------
-    /// Whether the active palette is a LUT (true) or cosine (false).
-    palette_is_lut: bool,
-
-    /// Cosine palette A (current).
-    pal_a: Palette,
-    /// Cosine palette B (transition target; same as A when not transitioning).
-    pal_b: Palette,
-
     /// LUT texture for the current palette (texture unit 1).
+    /// Cosine palettes are pre-baked to 256-sample LUTs on the CPU before upload.
     lut_texture_a: Option<glow::Texture>,
     /// LUT texture for the transition target (texture unit 2; `None` = same as A).
     lut_texture_b: Option<glow::Texture>,
@@ -780,9 +761,6 @@ impl Renderer {
             frame: 0,
             start_time: Instant::now(),
             mouse_pos: [0.0, 0.0],
-            palette_is_lut: false,
-            pal_a: Palette::default(),
-            pal_b: Palette::default(),
             lut_texture_a: None,
             lut_texture_b: None,
             palette_blend: 0.0,
@@ -952,8 +930,8 @@ impl Renderer {
 
     /// Set the active palette. Replaces the current palette A, resets blend to 0.
     ///
-    /// For a `Lut` entry, uploads a 256×1 RGBA8 texture to GPU (texture unit 1).
-    /// For a `Cosine` entry, stores the params for uniform upload during `render()`.
+    /// Cosine palettes are pre-baked to a 256-sample LUT on the CPU before upload.
+    /// All palette types are stored as a 256×1 RGBA8 texture on texture unit 1.
     pub fn set_palette(&mut self, entry: &PaletteEntry) -> anyhow::Result<()> {
         let old_a = self.lut_texture_a.take();
         let old_b = self.lut_texture_b.take();
@@ -961,59 +939,20 @@ impl Renderer {
         self.delete_texture(old_b);
         self.palette_blend = 0.0;
 
-        match entry {
-            PaletteEntry::Cosine(p) => {
-                self.palette_is_lut = false;
-                self.pal_a = p.clone();
-                self.pal_b = p.clone();
-            }
-            PaletteEntry::Lut(samples) => {
-                self.palette_is_lut = true;
-                self.lut_texture_a = Some(self.upload_lut(samples)?);
-            }
-        }
+        let lut = entry.to_lut();
+        self.lut_texture_a = Some(self.upload_lut(&lut)?);
         Ok(())
     }
 
     /// Begin a cross-fade transition toward `next`.
     ///
-    /// Uploads the next palette as palette B. The caller must update
-    /// `palette_blend` every frame via `set_blend()`.
-    ///
-    /// For mixed-type transitions (cosine ↔ LUT), both sides are converted to LUT
-    /// so the shader uses a single code path.
+    /// Uploads the next palette as a pre-baked LUT on texture unit 2.
+    /// The caller must update `palette_blend` every frame via `set_blend()`.
     pub fn begin_transition(&mut self, next: &PaletteEntry) -> anyhow::Result<()> {
-        match (self.palette_is_lut, next) {
-            (false, PaletteEntry::Cosine(p)) => {
-                // Cosine → Cosine: purely uniform-based blend.
-                self.pal_b = p.clone();
-                let old_b = self.lut_texture_b.take();
-                self.delete_texture(old_b);
-            }
-            (true, PaletteEntry::Lut(samples)) => {
-                // LUT → LUT: upload second texture.
-                let old_b = self.lut_texture_b.take();
-                self.delete_texture(old_b);
-                let new_tex = self.upload_lut(samples)?;
-                self.lut_texture_b = Some(new_tex);
-            }
-            _ => {
-                // Mixed types: convert everything to LUT for a homogeneous blend.
-                // Pre-compute LUTs before touching any fields.
-                let cur_lut = self.pal_a.to_lut();
-                let next_lut = next.to_lut();
-
-                let old_a = self.lut_texture_a.take();
-                let old_b = self.lut_texture_b.take();
-                self.delete_texture(old_a);
-                self.delete_texture(old_b);
-                self.palette_is_lut = true;
-                let tex_a = self.upload_lut(&cur_lut)?;
-                self.lut_texture_a = Some(tex_a);
-                let tex_b = self.upload_lut(&next_lut)?;
-                self.lut_texture_b = Some(tex_b);
-            }
-        }
+        let old_b = self.lut_texture_b.take();
+        self.delete_texture(old_b);
+        let lut = next.to_lut();
+        self.lut_texture_b = Some(self.upload_lut(&lut)?);
         Ok(())
     }
 
@@ -1226,50 +1165,22 @@ impl Renderer {
                 self.gl.uniform_1_f32(Some(loc), self.zoom_scale);
             }
 
-            if self.palette_is_lut {
-                // --- LUT path ---
-                if let Some(ref loc) = uniforms.u_use_lut {
-                    self.gl.uniform_1_i32(Some(loc), 1);
-                }
-                // Texture unit 1 → u_lut_a
-                self.gl.active_texture(glow::TEXTURE1);
-                self.gl.bind_texture(glow::TEXTURE_2D, self.lut_texture_a);
-                if let Some(ref loc) = uniforms.u_lut_a {
-                    self.gl.uniform_1_i32(Some(loc), 1);
-                }
-                // Texture unit 2 → u_lut_b (fall back to A when not transitioning)
-                self.gl.active_texture(glow::TEXTURE2);
-                let tex_b = self.lut_texture_b.or(self.lut_texture_a);
-                self.gl.bind_texture(glow::TEXTURE_2D, tex_b);
-                if let Some(ref loc) = uniforms.u_lut_b {
-                    self.gl.uniform_1_i32(Some(loc), 2);
-                }
-                // Reset active texture unit to 0
-                self.gl.active_texture(glow::TEXTURE0);
-            } else {
-                // --- Cosine path ---
-                if let Some(ref loc) = uniforms.u_use_lut {
-                    self.gl.uniform_1_i32(Some(loc), 0);
-                }
-                // Unbind texture slots (prevents spurious sampler warnings)
-                self.gl.active_texture(glow::TEXTURE1);
-                self.gl.bind_texture(glow::TEXTURE_2D, None);
-                self.gl.active_texture(glow::TEXTURE2);
-                self.gl.bind_texture(glow::TEXTURE_2D, None);
-                self.gl.active_texture(glow::TEXTURE0);
-
-                // Upload palette A params
-                self.set_uniform_vec3(&uniforms.u_palette_a_a, self.pal_a.a);
-                self.set_uniform_vec3(&uniforms.u_palette_a_b, self.pal_a.b);
-                self.set_uniform_vec3(&uniforms.u_palette_a_c, self.pal_a.c);
-                self.set_uniform_vec3(&uniforms.u_palette_a_d, self.pal_a.d);
-
-                // Upload palette B params (same as A when not transitioning → blend=0 no-op)
-                self.set_uniform_vec3(&uniforms.u_palette_b_a, self.pal_b.a);
-                self.set_uniform_vec3(&uniforms.u_palette_b_b, self.pal_b.b);
-                self.set_uniform_vec3(&uniforms.u_palette_b_c, self.pal_b.c);
-                self.set_uniform_vec3(&uniforms.u_palette_b_d, self.pal_b.d);
+            // All palettes are pre-baked to LUT on the CPU. Always sample via texture.
+            // Texture unit 1 → u_lut_a (current)
+            self.gl.active_texture(glow::TEXTURE1);
+            self.gl.bind_texture(glow::TEXTURE_2D, self.lut_texture_a);
+            if let Some(ref loc) = uniforms.u_lut_a {
+                self.gl.uniform_1_i32(Some(loc), 1);
             }
+            // Texture unit 2 → u_lut_b (fall back to A when not transitioning)
+            self.gl.active_texture(glow::TEXTURE2);
+            let tex_b = self.lut_texture_b.or(self.lut_texture_a);
+            self.gl.bind_texture(glow::TEXTURE_2D, tex_b);
+            if let Some(ref loc) = uniforms.u_lut_b {
+                self.gl.uniform_1_i32(Some(loc), 2);
+            }
+            // Reset active texture unit to 0
+            self.gl.active_texture(glow::TEXTURE0);
 
             self.gl.bind_vertex_array(self.vao);
             self.gl.draw_arrays(glow::TRIANGLES, 0, 6);
@@ -1461,30 +1372,13 @@ impl Renderer {
                 u_resolution: self.gl.get_uniform_location(prog, "u_resolution"),
                 u_frame: self.gl.get_uniform_location(prog, "u_frame"),
                 u_mouse: self.gl.get_uniform_location(prog, "u_mouse"),
-                u_palette_a_a: self.gl.get_uniform_location(prog, "u_palette_a_a"),
-                u_palette_a_b: self.gl.get_uniform_location(prog, "u_palette_a_b"),
-                u_palette_a_c: self.gl.get_uniform_location(prog, "u_palette_a_c"),
-                u_palette_a_d: self.gl.get_uniform_location(prog, "u_palette_a_d"),
-                u_palette_b_a: self.gl.get_uniform_location(prog, "u_palette_b_a"),
-                u_palette_b_b: self.gl.get_uniform_location(prog, "u_palette_b_b"),
-                u_palette_b_c: self.gl.get_uniform_location(prog, "u_palette_b_c"),
-                u_palette_b_d: self.gl.get_uniform_location(prog, "u_palette_b_d"),
                 u_lut_a: self.gl.get_uniform_location(prog, "u_lut_a"),
                 u_lut_b: self.gl.get_uniform_location(prog, "u_lut_b"),
-                u_use_lut: self.gl.get_uniform_location(prog, "u_use_lut"),
                 u_palette_blend: self.gl.get_uniform_location(prog, "u_palette_blend"),
                 u_alpha: self.gl.get_uniform_location(prog, "u_alpha"),
                 u_speed_scale: self.gl.get_uniform_location(prog, "u_speed_scale"),
                 u_zoom_scale: self.gl.get_uniform_location(prog, "u_zoom_scale"),
             };
-        }
-    }
-
-    /// Upload a vec3 uniform by cached location (no-op if location is None).
-    #[inline]
-    fn set_uniform_vec3(&self, loc: &Option<glow::UniformLocation>, v: [f32; 3]) {
-        if let Some(l) = loc {
-            unsafe { self.gl.uniform_3_f32(Some(l), v[0], v[1], v[2]) }
         }
     }
 }
