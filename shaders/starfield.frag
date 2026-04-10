@@ -39,14 +39,18 @@ void main() {
     for (int i = 0; i < N; i++) {
         float fi = float(i);
 
-        // Fixed seed position in UV space; x scaled by aspect for uniform coverage.
-        vec2  seed_xy = vec2((h11(fi * 17.37 + 1.0) - 0.5) * aspect,
-                              h11(fi * 53.19 + 2.0) - 0.5);
-        float hash_d  = h11(fi * 91.73 + 3.0);   // per-star depth phase
-        float hc      = h11(fi * 37.11 + 4.0);   // color selector
+        float hash_d = h11(fi * 91.73 + 3.0);   // per-star depth phase
+        float hc     = h11(fi * 37.11 + 4.0);   // color selector
 
         // d: zoom phase in [0,1). d≈0 = born near center; d→1 = exits screen.
-        float d     = fract(hash_d + u_time * zoom_speed);
+        float phase = hash_d + u_time * zoom_speed;
+        float d     = fract(phase);
+        float cycle = floor(phase);   // increments each time this star resets
+
+        // Seed position is re-randomized each cycle so no two passes look identical.
+        vec2 seed_xy = vec2((h11(fi * 17.37 + cycle * 127.1 + 1.0) - 0.5) * aspect,
+                             h11(fi * 53.19 + cycle * 311.7 + 2.0) - 0.5);
+
         float depth = 1.0 - d;
         vec2  p     = seed_xy / max(depth, 0.001);   // project outward from center
 
@@ -67,7 +71,7 @@ void main() {
         // Analytical tracer tail: oriented strip behind the star, linearly faded.
         // Replaces the old 16-sample exp() loop. The tail extends from the star tip
         // back toward the vanishing point along the radial direction of travel.
-        float tail_len = d * 0.12 + 0.002;    // grows longer as star nears screen edge
+        float tail_len = d * 0.36 + 0.006;    // tripled — dramatic streaks as star nears screen edge
         float tail_wid = core_r * 1.4;         // slightly wider than the core
 
         float p_len = length(p);
