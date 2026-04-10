@@ -719,40 +719,18 @@ fn prepare_shader(raw: &str) -> String {
     }
 
     // ---- inject palette block (if not already present) ----
-    // Guard on the palette() function signature — avoids injecting twice even if
-    // the shader already declares u_palette_a_* uniforms by another name.
+    // Cosine palettes are pre-baked to 256-sample LUTs on the CPU before upload,
+    // so all palette types share the same texture-sampling path on the GPU.
     if !source.contains("vec3 palette(") {
-        // Cosine palette A (current) — four RGB vec3 params.
-        out.push_str("uniform vec3 u_palette_a_a;\n"); // brightness offset
-        out.push_str("uniform vec3 u_palette_a_b;\n"); // amplitude
-        out.push_str("uniform vec3 u_palette_a_c;\n"); // frequency
-        out.push_str("uniform vec3 u_palette_a_d;\n"); // phase
-                                                       // Cosine palette B (next / cross-fade target).
-        out.push_str("uniform vec3 u_palette_b_a;\n");
-        out.push_str("uniform vec3 u_palette_b_b;\n");
-        out.push_str("uniform vec3 u_palette_b_c;\n");
-        out.push_str("uniform vec3 u_palette_b_d;\n");
         // LUT textures — 256×1 RGBA8 strips on texture units 1 and 2.
         // On OpenGL ES there is no sampler1D; we use sampler2D with height=1.
         out.push_str("uniform sampler2D u_lut_a;\n");
         out.push_str("uniform sampler2D u_lut_b;\n");
-        // Control uniforms.
-        out.push_str("uniform int u_use_lut;\n"); // 0=cosine, 1=LUT
         out.push_str("uniform float u_palette_blend;\n"); // 0.0=A, 1.0=B
-                                                          // palette(t) — evaluates either cosine or LUT, with optional cross-fade.
         out.push_str("vec3 palette(float t) {\n");
-        out.push_str("    vec3 col_a, col_b;\n");
-        out.push_str("    if (u_use_lut == 1) {\n");
-        out.push_str("        col_a = texture(u_lut_a, vec2(t, 0.5)).rgb;\n");
-        out.push_str("        col_b = texture(u_lut_b, vec2(t, 0.5)).rgb;\n");
-        out.push_str("    } else {\n");
-        out.push_str(
-            "        col_a = u_palette_a_a + u_palette_a_b * cos(6.28318 * (u_palette_a_c * t + u_palette_a_d));\n",
-        );
-        out.push_str(
-            "        col_b = u_palette_b_a + u_palette_b_b * cos(6.28318 * (u_palette_b_c * t + u_palette_b_d));\n",
-        );
-        out.push_str("    }\n");
+        out.push_str("    float tc = clamp(t, 0.0, 1.0);\n");
+        out.push_str("    vec3 col_a = texture(u_lut_a, vec2(tc, 0.5)).rgb;\n");
+        out.push_str("    vec3 col_b = texture(u_lut_b, vec2(tc, 0.5)).rgb;\n");
         out.push_str("    return mix(col_a, col_b, u_palette_blend);\n");
         out.push_str("}\n");
     }
