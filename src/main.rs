@@ -20,7 +20,7 @@ mod renderer;
 mod shaders;
 mod wayland;
 
-use crate::config::Config;
+use crate::config::{CliOverrides, Config};
 use crate::palette::{GradientStop, PaletteEntry, PaletteManager};
 use crate::shaders::ShaderManager;
 
@@ -125,6 +125,12 @@ struct Cli {
     /// Each monitor cycles independently. Overrides config `synced = true`.
     #[arg(long, overrides_with = "synced")]
     no_synced: bool,
+
+    /// Set both shader and palette playlist by name.
+    /// Overrides config `shader_playlist` and `palette_playlist` simultaneously.
+    /// Use with `--shader cycle --palette cycle` for full playlist control.
+    #[arg(long, value_name = "NAME")]
+    playlist: Option<String>,
 }
 
 fn main() {
@@ -686,103 +692,135 @@ fn install_signal_handlers(running: Arc<AtomicBool>) -> anyhow::Result<()> {
 
 /// Validate playlist config and wire resolved playlists into the managers.
 ///
-/// For each named playlist:
-/// - Warn if the playlist name is set but the mode is not "cycle".
-/// - Warn and skip unknown shader/palette names within the playlist.
-/// - Warn and fall back to "cycle all" if the playlist resolves to empty.
-/// - Call `set_playlist()` on the manager with the resolved list.
+/// Resolution order for shader playlists:
+/// 1. `[playlists.<name>].shaders` (v0.4.0 unified format)
+/// 2. `[shader_playlists.<name>].shaders` (v0.3.0 legacy format)
+/// 3. If the playlist name is `"default"` and not found, treat as `["all"]`
+///
+/// The special value `"all"` in a playlist expands to all available shaders/palettes.
 fn validate_and_apply_playlists(
     cfg: &Config,
     shader_manager: &mut ShaderManager,
     palette_manager: &mut PaletteManager,
 ) {
+    let playlist_name = &cfg.general.shader_playlist;
+
     // --- Shader playlist ---
-    if let Some(ref playlist_name) = cfg.general.shader_playlist {
-        if cfg.general.shader != "cycle" {
-            log::warn!(
-                "shader_playlist is set but shader mode is not 'cycle', playlist will be ignored"
-            );
-        } else {
-            match cfg.shader_playlists.get(playlist_name) {
-                None => {
+    if cfg.general.shader == "cycle" {
+        let shader_names = resolve_shader_playlist(cfg, playlist_name);
+        if let Some(names) = shader_names {
+            if names.iter().any(|n| n == "all") {
+                log::info!("Shader cycle: all shaders");
+                // Don't call set_playlist — default behavior is cycle all.
+            } else {
+                let resolved: Vec<String> = names
+                    .iter()
+                    .filter_map(|name| {
+                        if shader_manager.get(name).is_some() {
+                            Some(name.clone())
+                        } else {
+                            log::warn!(
+                                "Shader '{name}' in playlist '{playlist_name}' not found; skipping"
+                            );
+                            None
+                        }
+                    })
+                    .collect();
+                if resolved.is_empty() {
                     log::warn!(
-                        "shader_playlist '{playlist_name}' not found in [shader_playlists]; cycling all shaders"
+                        "Shader playlist '{playlist_name}' is empty after filtering; cycling all shaders"
                     );
-                }
-                Some(pl) => {
-                    let resolved: Vec<String> = pl
-                        .shaders
-                        .iter()
-                        .filter_map(|name| {
-                            if shader_manager.get(name).is_some() {
-                                Some(name.clone())
-                            } else {
-                                log::warn!(
-                                    "Shader '{name}' in playlist '{playlist_name}' not found; skipping"
-                                );
-                                None
-                            }
-                        })
-                        .collect();
-                    if resolved.is_empty() {
-                        log::warn!(
-                            "Shader playlist '{playlist_name}' is empty after filtering; cycling all shaders"
-                        );
-                    } else {
-                        log::info!(
-                            "Shader cycle playlist: {playlist_name} ({} shaders)",
-                            resolved.len()
-                        );
-                        shader_manager.set_playlist(resolved);
-                    }
+                } else {
+                    log::info!(
+                        "Shader cycle playlist: {playlist_name} ({} shaders)",
+                        resolved.len()
+                    );
+                    shader_manager.set_playlist(resolved);
                 }
             }
         }
     }
 
+    let palette_playlist_name = &cfg.general.palette_playlist;
+
     // --- Palette playlist ---
-    if let Some(ref playlist_name) = cfg.general.palette_playlist {
-        if cfg.general.palette != "cycle" {
-            log::warn!(
-                "palette_playlist is set but palette mode is not 'cycle', playlist will be ignored"
-            );
-        } else {
-            match cfg.palette_playlists.get(playlist_name) {
-                None => {
+    if cfg.general.palette == "cycle" {
+        let palette_names = resolve_palette_playlist(cfg, palette_playlist_name);
+        if let Some(names) = palette_names {
+            if names.iter().any(|n| n == "all") {
+                log::info!("Palette cycle: all palettes");
+            } else {
+                let resolved: Vec<String> = names
+                    .iter()
+                    .filter_map(|name| {
+                        if palette_manager.get(name).is_some() {
+                            Some(name.clone())
+                        } else {
+                            log::warn!(
+                                "Palette '{name}' in playlist '{palette_playlist_name}' not found; skipping"
+                            );
+                            None
+                        }
+                    })
+                    .collect();
+                if resolved.is_empty() {
                     log::warn!(
-                        "palette_playlist '{playlist_name}' not found in [palette_playlists]; cycling all palettes"
+                        "Palette playlist '{palette_playlist_name}' is empty after filtering; cycling all palettes"
                     );
-                }
-                Some(pl) => {
-                    let resolved: Vec<String> = pl
-                        .palettes
-                        .iter()
-                        .filter_map(|name| {
-                            if palette_manager.get(name).is_some() {
-                                Some(name.clone())
-                            } else {
-                                log::warn!(
-                                    "Palette '{name}' in playlist '{playlist_name}' not found; skipping"
-                                );
-                                None
-                            }
-                        })
-                        .collect();
-                    if resolved.is_empty() {
-                        log::warn!(
-                            "Palette playlist '{playlist_name}' is empty after filtering; cycling all palettes"
-                        );
-                    } else {
-                        log::info!(
-                            "Palette cycle playlist: {playlist_name} ({} palettes)",
-                            resolved.len()
-                        );
-                        palette_manager.set_playlist(resolved);
-                    }
+                } else {
+                    log::info!(
+                        "Palette cycle playlist: {palette_playlist_name} ({} palettes)",
+                        resolved.len()
+                    );
+                    palette_manager.set_playlist(resolved);
                 }
             }
         }
     }
+}
+
+/// Resolve the shader list for a named playlist.
+///
+/// Checks unified `[playlists]` first, then legacy `[shader_playlists]`.
+/// Returns `None` only if `"default"` is not found anywhere (implicit "all").
+fn resolve_shader_playlist(cfg: &Config, name: &str) -> Option<Vec<String>> {
+    // 1. Check unified [playlists.<name>]
+    if let Some(pl) = cfg.playlists.get(name) {
+        return Some(pl.shaders.clone());
+    }
+    // 2. Check legacy [shader_playlists.<name>]
+    if let Some(pl) = cfg.shader_playlists.get(name) {
+        return Some(pl.shaders.clone());
+    }
+    // 3. "default" playlist not found → implicit ["all"]
+    if name == "default" {
+        return Some(vec!["all".to_string()]);
+    }
+    // 4. Named playlist not found at all
+    log::warn!("Shader playlist '{name}' not found; cycling all shaders");
+    None
+}
+
+/// Resolve the palette list for a named playlist.
+///
+/// Checks unified `[playlists]` first, then legacy `[palette_playlists]`.
+/// Returns `None` only if `"default"` is not found anywhere (implicit "all").
+fn resolve_palette_playlist(cfg: &Config, name: &str) -> Option<Vec<String>> {
+    // 1. Check unified [playlists.<name>]
+    if let Some(pl) = cfg.playlists.get(name) {
+        return Some(pl.palettes.clone());
+    }
+    // 2. Check legacy [palette_playlists.<name>]
+    if let Some(pl) = cfg.palette_playlists.get(name) {
+        return Some(pl.palettes.clone());
+    }
+    // 3. "default" playlist not found → implicit ["all"]
+    if name == "default" {
+        return Some(vec!["all".to_string()]);
+    }
+    // 4. Named playlist not found at all
+    log::warn!("Palette playlist '{name}' not found; cycling all palettes");
+    None
 }
 
 // ---------------------------------------------------------------------------
@@ -790,30 +828,60 @@ fn validate_and_apply_playlists(
 // ---------------------------------------------------------------------------
 
 fn print_shader_playlists(cfg: &Config) {
-    if cfg.shader_playlists.is_empty() {
+    let has_unified = !cfg.playlists.is_empty();
+    let has_legacy = !cfg.shader_playlists.is_empty();
+    if !has_unified && !has_legacy {
         println!("No shader playlists defined.");
+        println!("  (\"default\" playlist implicitly cycles all shaders)");
         return;
     }
     println!("Shader playlists:");
-    let mut names: Vec<&String> = cfg.shader_playlists.keys().collect();
+    // Print unified playlists first
+    let mut names: Vec<&String> = cfg.playlists.keys().collect();
     names.sort_unstable();
-    for name in names {
-        let shaders = cfg.shader_playlists[name].shaders.join(", ");
+    for name in &names {
+        let shaders = cfg.playlists[*name].shaders.join(", ");
         println!("  {name}: {shaders}");
+    }
+    // Print legacy playlists not already covered by unified
+    let mut legacy_names: Vec<&String> = cfg
+        .shader_playlists
+        .keys()
+        .filter(|n| !cfg.playlists.contains_key(*n))
+        .collect();
+    legacy_names.sort_unstable();
+    for name in legacy_names {
+        let shaders = cfg.shader_playlists[name].shaders.join(", ");
+        println!("  {name}: {shaders}  (legacy)");
     }
 }
 
 fn print_palette_playlists(cfg: &Config) {
-    if cfg.palette_playlists.is_empty() {
+    let has_unified = !cfg.playlists.is_empty();
+    let has_legacy = !cfg.palette_playlists.is_empty();
+    if !has_unified && !has_legacy {
         println!("No palette playlists defined.");
+        println!("  (\"default\" playlist implicitly cycles all palettes)");
         return;
     }
     println!("Palette playlists:");
-    let mut names: Vec<&String> = cfg.palette_playlists.keys().collect();
+    // Print unified playlists first
+    let mut names: Vec<&String> = cfg.playlists.keys().collect();
     names.sort_unstable();
-    for name in names {
-        let palettes = cfg.palette_playlists[name].palettes.join(", ");
+    for name in &names {
+        let palettes = cfg.playlists[*name].palettes.join(", ");
         println!("  {name}: {palettes}");
+    }
+    // Print legacy playlists not already covered by unified
+    let mut legacy_names: Vec<&String> = cfg
+        .palette_playlists
+        .keys()
+        .filter(|n| !cfg.playlists.contains_key(*n))
+        .collect();
+    legacy_names.sort_unstable();
+    for name in legacy_names {
+        let palettes = cfg.palette_playlists[name].palettes.join(", ");
+        println!("  {name}: {palettes}  (legacy)");
     }
 }
 
@@ -837,13 +905,14 @@ fn load_config(cli: &Cli) -> anyhow::Result<Config> {
         None
     };
 
-    cfg.apply_cli_overrides(
-        cli.shader.as_deref(),
-        cli.palette.as_deref(),
-        shader_interval,
-        palette_interval,
-        cli.cycle_order.as_deref(),
+    cfg.apply_cli_overrides(CliOverrides {
+        shader: cli.shader.as_deref(),
+        palette: cli.palette.as_deref(),
+        shader_cycle_interval: shader_interval,
+        palette_cycle_interval: palette_interval,
+        cycle_order: cli.cycle_order.as_deref(),
         synced,
-    );
+        playlist: cli.playlist.as_deref(),
+    });
     Ok(cfg)
 }

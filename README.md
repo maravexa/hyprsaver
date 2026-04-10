@@ -281,17 +281,30 @@ fps = 30
 ```toml
 [general]
 fps = 30                          # render frame rate
-shader = "mandelbrot"             # a shader name, "random", or "cycle"
-palette = "electric"              # a palette name, "random", or "cycle"
+shader = "cycle"                  # a shader name, "random", or "cycle" (default)
+palette = "cycle"                 # a palette name, "random", or "cycle" (default)
 shader_cycle_interval = 300       # seconds per shader when shader = "cycle"
 palette_cycle_interval = 60       # seconds per palette when palette = "cycle"
-# shader_playlist = "my_favorites"  # restrict cycle to a named playlist
-# palette_playlist = "warm_tones"   # restrict palette cycle to a named playlist
+cycle_order = "random"            # "random" (default) or "sequential"
+synced = true                     # sync monitors in cycle mode (default: true)
+shader_playlist = "default"       # playlist name for shader cycling
+palette_playlist = "default"      # playlist name for palette cycling
 
 [behavior]
 fade_in_ms = 800               # fade-in duration
 fade_out_ms = 400              # fade-out duration
 dismiss_on = ["key", "mouse_move", "mouse_click", "touch"]
+
+# Playlists group shaders and palettes together for cycle mode.
+# "all" = all available shaders/palettes. If "default" is not defined, it
+# implicitly expands to ["all"] for both.
+[playlists.default]
+shaders = ["all"]
+palettes = ["all"]
+
+[playlists.chill]
+shaders = ["plasma", "flow_field", "bezier", "lissajous", "aurora_sphere"]
+palettes = ["vapor", "frost", "ocean", "aurora"]
 
 # Custom palettes are defined as top-level [palettes.<name>] sections
 [palettes.my_palette]
@@ -303,7 +316,7 @@ d = [0.00, 0.33, 0.67]
 
 ### Cycle Mode
 
-Set `shader = "cycle"` (or `palette = "cycle"`) to rotate through shaders automatically:
+By default, hyprsaver cycles through all shaders and palettes (`shader = "cycle"`, `palette = "cycle"`):
 
 ```toml
 [general]
@@ -312,6 +325,9 @@ shader_cycle_interval = 300   # advance every 5 minutes
 
 palette = "cycle"
 palette_cycle_interval = 60   # advance every minute
+
+cycle_order = "random"        # "random" (default) or "sequential"
+synced = true                 # all monitors cycle together (default)
 ```
 
 To cycle only a subset, define a playlist and reference it:
@@ -321,33 +337,43 @@ To cycle only a subset, define a playlist and reference it:
 shader = "cycle"
 shader_playlist = "chill"
 
-[shader_playlists.chill]
+[playlists.chill]
 shaders = ["snowfall", "starfield", "tunnel", "plasma"]
+palettes = ["vapor", "frost", "ocean"]
 ```
 
 On startup, cycle mode begins at a random position in the playlist so each session looks different. Use `--list-shader-playlists` or `--list-palette-playlists` to inspect defined playlists.
 
 ### Playlists
 
-Playlists are named subsets used with cycle mode. Define them in the config and reference by name in `[general]`:
+Playlists are named subsets used with cycle mode. Each playlist can contain both a `shaders` and `palettes` list. Define them under `[playlists]` and reference by name in `[general]`:
 
 ```toml
-# Shader playlists
-[shader_playlists.my_favorites]
-shaders = ["mandelbrot", "julia", "fire", "caustics"]
+[general]
+shader_playlist = "chill"      # use the "chill" playlist for shaders
+palette_playlist = "chill"     # use the "chill" playlist for palettes
 
-[shader_playlists.chill]
-shaders = ["snowfall", "starfield", "tunnel", "plasma"]
+[playlists.default]
+shaders = ["all"]              # "all" = every built-in + user shader
+palettes = ["all"]
 
-# Palette playlists
-[palette_playlists.warm_tones]
-palettes = ["ember", "autumn", "sunset"]
+[playlists.chill]
+shaders = ["plasma", "flow_field", "bezier", "lissajous", "aurora_sphere"]
+palettes = ["vapor", "frost", "ocean", "aurora"]
 
-[palette_playlists.cool_vibes]
-palettes = ["frost", "ocean", "vapor"]
+[playlists.intense]
+shaders = ["mandelbrot", "julia", "tesla", "kaleidoscope", "fire"]
+palettes = ["electric", "ember", "groovy"]
 ```
 
+If the `"default"` playlist is not defined, it implicitly expands to `["all"]` for both shaders and palettes.
+
+`shader_playlist` and `palette_playlist` can reference different playlists, or the same one.
+
 Unknown shader or palette names in a playlist are skipped with a warning. If a playlist resolves to empty, all available shaders/palettes are cycled instead.
+
+> **Upgrading from v0.3.0?** The separate `[shader_playlists.*]` and `[palette_playlists.*]` sections
+> still work for backward compatibility. The new unified `[playlists.*]` format is preferred.
 
 ### Cosine Gradient Palettes
 
@@ -540,13 +566,19 @@ OPTIONS:
     -s, --shader <NAME>              Shader to use (name, "random", or "cycle")
     -p, --palette <NAME>             Palette to use (name, "random", or "cycle")
         --shader-cycle-interval <N>  Override shader cycle interval (seconds)
+        --shader-interval <N>        Shorter alias for --shader-cycle-interval
         --palette-cycle-interval <N> Override palette cycle interval (seconds)
+        --palette-interval <N>       Shorter alias for --palette-cycle-interval
+        --cycle-order <ORDER>        Cycle order: "random" (default) or "sequential"
+        --synced                     All monitors cycle in sync (default)
+        --no-synced                  Each monitor cycles independently
+        --playlist <NAME>            Set both shader and palette playlist by name
         --list-shaders               Print all available shader names and exit
         --list-palettes              Print all available palette names and exit
         --list-shader-playlists      Print all defined shader playlists and exit
         --list-palette-playlists     Print all defined palette playlists and exit
         --quit                       Send SIGTERM to the running hyprsaver instance
-        --preview <SHADER>           Open a windowed preview of the named shader
+        --preview                    Open a windowed preview (combine with --shader)
     -v, --verbose                    Enable debug logging (RUST_LOG=hyprsaver=debug)
     -h, --help                       Print help
     -V, --version                    Print version
@@ -559,10 +591,19 @@ OPTIONS:
 hyprsaver --shader julia --palette vapor
 
 # Cycle through all shaders every 2 minutes
-hyprsaver --shader cycle --shader-cycle-interval 120
+hyprsaver --shader cycle --shader-interval 120
+
+# Cycle through a specific playlist
+hyprsaver --shader cycle --playlist chill
+
+# Cycle sequentially instead of randomly
+hyprsaver --shader cycle --cycle-order sequential
+
+# Each monitor cycles independently
+hyprsaver --no-synced
 
 # Preview a custom shader while editing it
-hyprsaver --preview my_shader
+hyprsaver --preview --shader my_shader
 
 # See what's available
 hyprsaver --list-shaders
