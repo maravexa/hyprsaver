@@ -51,6 +51,12 @@ void main() {
         vec2 seed_xy = vec2((h11(fi * 17.37 + cycle * 127.1 + 1.0) - 0.5) * aspect,
                              h11(fi * 53.19 + cycle * 311.7 + 2.0) - 0.5);
 
+        // Dead zone: skip stars seeded within 5% of screen height from center.
+        // Stars this close to origin have a near-zero radial vector; normalizing it
+        // produces an unstable tail direction that flickers or points the wrong way.
+        // The zone is too small to be perceptible — viewers track the rushing outer stars.
+        if (length(seed_xy) < 0.05) continue;
+
         float depth = 1.0 - d;
         vec2  p     = seed_xy / max(depth, 0.001);   // project outward from center
 
