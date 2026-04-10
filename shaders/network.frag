@@ -4,13 +4,14 @@ precision highp float;
 // ---------------------------------------------------------------------------
 // hyprsaver — network.frag
 //
-// Network monitoring dashboard: 4 parallax layers of glowing nodes with
+// Network monitoring dashboard: 4 parallax layers of nodes with
 // always-visible translucent connection lines that pulse in brightness to
 // simulate network activity.  ~35 % of connections are active at any moment;
 // each fades in/out over 1.5 s on its own independent timer so at most ~3
 // change simultaneously — no jarring pop.  Back layers (0) are small, dim, slow;
 // front layers (3) are large, bright, and faster.
 // 40 nodes total (4 layers × 10), additive compositing over black.
+// Nodes rendered as hard smoothstep circles (no exp glow) for GPU efficiency.
 // Fully stateless GLSL — no per-frame CPU work.
 // ---------------------------------------------------------------------------
 
@@ -125,7 +126,7 @@ void main() {
                 if (length(pA - pB) > CONN_THRESH) continue;
 
                 float ld = segDist(uv, pA, pB);
-                float lg = smoothstep(lineW, 0.0, ld);
+                float lg = 1.0 - smoothstep(0.0, lineW, ld);
                 if (lg < 0.001) continue;   // skip heavy work for off-line pixels
 
                 // Color: average palette t of the two endpoint nodes
@@ -163,7 +164,7 @@ void main() {
                     if (length(pA - pB) > CROSS_THRESH) continue;
 
                     float ld = segDist(uv, pA, pB);
-                    float lg = smoothstep(crossW, 0.0, ld);
+                    float lg = 1.0 - smoothstep(0.0, crossW, ld);
                     if (lg < 0.001) continue;
 
                     float tA = hash11(float(base + a) * 7.77 + 0.5);
@@ -203,19 +204,22 @@ void main() {
             vec2  pos  = np[base + j];
             float dist = length(uv - pos);
 
+            // Early-exit pixels clearly outside the node
+            if (dist > nodeR) continue;
+
             // Subtle pulse
             float phase = hash11(float(base + j) * 91.73 + 3.33) * 6.28318;
             float pulse = 0.85 + 0.15 * sin(t * 1.2 + phase);
 
-            // Outer glow — palette-colored
-            float glow = exp(-dist * dist / (nodeR * nodeR));
-            float pt   = hash11(float(base + j) * 7.77 + 0.5);
-            col += palette(pt) * glow * bright * pulse;
+            // Hard-edged circle — palette-colored, anti-aliased at rim
+            float pt        = hash11(float(base + j) * 7.77 + 0.5);
+            float intensity = 1.0 - smoothstep(nodeR * 0.7, nodeR, dist);
+            col += palette(pt) * intensity * bright * pulse;
 
-            // Bright core — white
-            float coreR = nodeR * 0.30;
-            col += vec3(1.0) * exp(-dist * dist / (coreR * coreR))
-                   * bright * 0.35 * pulse;
+            // Bright white core — smaller hard circle
+            float coreR          = nodeR * 0.30;
+            float coreIntensity  = 1.0 - smoothstep(coreR * 0.7, coreR, dist);
+            col += vec3(1.0) * coreIntensity * bright * 0.35 * pulse;
         }
     }
 
