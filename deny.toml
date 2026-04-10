@@ -28,6 +28,8 @@ skip = [
     { name = "linux-raw-sys" },
     # memmap2 0.8 (xkbcommon) vs 0.9 (smithay-client-toolkit)
     { name = "memmap2" },
+    # redox_syscall 0.5 (parking_lot_core via egui) vs 0.7 (libredox via notify/dirs)
+    { name = "redox_syscall" },
     # rustix 0.38 (calloop / sctk) vs 1.x (wayland-backend / polling)
     { name = "rustix" },
     # windows-sys: 0.48 (dirs-sys), 0.52 (glutin/notify), 0.59 (rustix 0.38), 0.61 (clap/anstream)
