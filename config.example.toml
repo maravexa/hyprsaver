@@ -26,7 +26,7 @@ shader = "mandelbrot"
 #   - A name defined in [[palettes.custom]] below
 #   - "random"  — random built-in palette on start
 #   - "cycle"   — step through palettes alongside shaders
-palette = "electric"
+palette = "rainbow"
 
 # When shader = "cycle", how many seconds to display each shader before advancing.
 shader_cycle_interval = 300   # 5 minutes
@@ -40,8 +40,8 @@ shader_cycle_interval = 300   # 5 minutes
 #     "frost",      # Feb
 #     "ocean",      # Mar
 #     "groovy",     # Apr
-#     "electric",   # May
-#     "electric",   # Jun
+#     "rainbow",    # May
+#     "rainbow",    # Jun
 #     "ember",      # Jul
 #     "ember",      # Aug
 #     "autumn",     # Sep
@@ -132,7 +132,7 @@ d = [0.70, 0.30, 0.10]
 # copy them here unless you want to customise them).
 # ---------------------------------------------------------------------------
 #
-# [palettes.custom.electric]
+# [palettes.custom.rainbow]
 # # Classic rainbow — full hue rotation
 # a = [0.5, 0.5, 0.5]
 # b = [0.5, 0.5, 0.5]
@@ -174,7 +174,7 @@ d = [0.70, 0.30, 0.10]
 # c = [1.0, 1.0, 0.8]
 # d = [0.30, 0.20, 0.10]
 #
-# [palettes.custom.vapor]
+# [palettes.custom.vaporwave]
 # # Neon magenta, electric blue, and cyberpunk cyan
 # a = [0.5, 0.2, 0.6]
 # b = [0.5, 0.3, 0.4]

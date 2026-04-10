@@ -324,7 +324,7 @@ mod tests {
     fn single_shader_never_cycles() {
         let mut mgr = make_mgr(
             &["mandelbrot"],
-            &["electric", "frost"],
+            &["rainbow", "frost"],
             CycleOrder::Sequential,
         );
         let far = Instant::now() + Duration::from_secs(100_000);
@@ -343,7 +343,7 @@ mod tests {
     fn single_palette_never_cycles() {
         let mut mgr = make_mgr(
             &["mandelbrot", "julia"],
-            &["electric"],
+            &["rainbow"],
             CycleOrder::Sequential,
         );
         let far = Instant::now() + Duration::from_secs(100_000);

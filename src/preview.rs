@@ -1208,7 +1208,7 @@ fn resolve_palette(config: &Config, palette_manager: &PaletteManager) -> String 
             if palette_manager.get(n).is_some() {
                 n.to_string()
             } else {
-                "electric".to_string()
+                "rainbow".to_string()
             }
         }
     }

@@ -573,7 +573,7 @@ fn palette_descriptions() -> std::collections::HashMap<&'static str, &'static st
     [
         ("aurora", "Deep indigo → teal → mint → violet"),
         ("autumn", "Golds, rusts, deep reds"),
-        ("electric", "Classic rainbow (default)"),
+        ("rainbow", "Classic rainbow (default)"),
         ("ember", "Deep reds to bright orange"),
         (
             "forest",
@@ -585,7 +585,7 @@ fn palette_descriptions() -> std::collections::HashMap<&'static str, &'static st
         ("monochrome", "Grayscale"),
         ("ocean", "Deep navy to cyan to white"),
         ("sunset", "Deep violet → burnt orange → warm cream"),
-        ("vapor", "Vaporwave pinks, teals, purples"),
+        ("vaporwave", "Vaporwave pinks, teals, purples"),
     ]
     .into_iter()
     .collect()
