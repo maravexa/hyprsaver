@@ -553,6 +553,10 @@ fn shader_descriptions() -> std::collections::HashMap<&'static str, &'static str
             "starfield",
             "Hyperspace zoom tunnel with motion-blur tracers",
         ),
+        (
+            "tesla",
+            "Tesla coil arcs — fractal-lightning between three electrodes with branching and a wandering endpoint",
+        ),
         ("tunnel", "Infinite tunnel flythrough"),
         ("voronoi", "Animated Voronoi cells"),
         (
