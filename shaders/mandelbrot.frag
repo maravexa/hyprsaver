@@ -8,19 +8,15 @@ precision highp float;
 // Cycles through 12 verified boundary targets every 50 s; max zoom ~268×
 // (1.5^14) — safely within float32 precision limits.
 //
-// v0.3.2 changes:
-//   • Home position: every cycle starts and ends at HOME_CENTER = (-0.5, 0.0)
-//     with scale 1.0, showing the classic full-fractal view.  The prior
-//     ping-pong zoom kept the camera near the active target even at the widest
-//     point; now it always returns to the standard textbook framing.
-//   • Three-phase cycle: zoom-in (zoom_t 0→1) then zoom-out (zoom_t 1→0),
-//     each driven by a smoothstep S-curve for natural easing.
-//   • Target switches only at zoom_t = 0.0 (camera at HOME_CENTER, scale 1×),
-//     so there is never a visible jump or pop between targets.
-//   • Center uses cubic lag: center_t = zoom_t³ so the pan barely moves while
-//     zoomed out, then snaps to the target only as zoom deepens.  Fixes the
-//     black-screen artifact that occurred when the linear pan drifted through
-//     the set interior before reaching boundary detail.
+// v0.3.3 changes:
+//   • No center panning. At HOME_SCALE the entire Mandelbrot set is on screen,
+//     so moving the center from one target to another is visually imperceptible.
+//     The camera is always centered exactly on the current target — no mix(),
+//     no cubic lag, no transit through the black interior of the set.
+//   • Target switches at zoom_t = 0.0 during a 5 % dwell at home zoom. The
+//     wide-angle view shifts slightly; at this zoom level the shift spans only
+//     a fraction of the visible area and is not a jarring jump.
+//   • Removed: HOME_CENTER constant, center_t cubic, mix() call.
 //   • Main cardioid + period-2 bulb early exit retained from v0.3.1.
 // ---------------------------------------------------------------------------
 
@@ -96,14 +92,13 @@ vec2 zoom_target(int idx) {
 }
 
 // ---------------------------------------------------------------------------
-// Home position — the standard full-fractal Mandelbrot view.
+// Home zoom scale — the standard full-fractal Mandelbrot view.
 // HOME_SCALE < 1.0 is required because the UV coordinate system divides by
 // resolution.y, giving a half-height of 0.5 in complex-plane units. At
 // HOME_SCALE = 0.35 the view spans ≈ ±1.43 imaginary and ≈ [-3.0, 2.0] real,
 // comfortably framing the entire set (which fits in ≈ [-2.5, 0.5] × [-1.25, 1.25]).
 // ---------------------------------------------------------------------------
-const vec2  HOME_CENTER = vec2(-0.5, 0.0);
-const float HOME_SCALE  = 0.35;
+const float HOME_SCALE = 0.35;
 
 // ---------------------------------------------------------------------------
 // Main
@@ -118,53 +113,56 @@ void main() {
     // Decompose time into whole-cycle index and fractional phase [0, 1).
     float total_t  = u_time * u_speed_scale / cycle_duration;
     float cycle_id = floor(total_t);
-    float t        = fract(total_t);
+    float t        = fract(total_t);  // phase within current cycle
 
     // -----------------------------------------------------------------------
-    // Zoom depth: smoothstep S-curve for both in and out phases.
-    //   zoom_t = 0.0  →  home (scale = HOME_SCALE, full-fractal view)
-    //   zoom_t = 1.0  →  maximum zoom (scale = HOME_SCALE × 268, center = target)
+    // Zoom depth with a 5 % dwell at home zoom at each cycle boundary.
+    //
+    //   t ∈ [0.00, 0.05)        → zoom_t = 0.0  (dwell; target just snapped)
+    //   t ∈ [0.05, 0.50)        → zoom_t 0 → 1  (zoom in, smoothstep)
+    //   t ∈ [0.50, 0.95)        → zoom_t 1 → 0  (zoom out, smoothstep)
+    //   t ∈ [0.95, 1.00)        → zoom_t = 0.0  (dwell; eye settles before next snap)
+    //
+    // The dwell windows are when the target center snaps to the new value.
+    // Because zoom_t = 0 → scale = HOME_SCALE, the full set is on screen and
+    // the snap shifts the view by at most a fraction of the visible area.
     // -----------------------------------------------------------------------
+    const float DWELL = 0.05;
     float zoom_t;
-    if (t < 0.5) {
-        zoom_t = smoothstep(0.0, 0.5, t);        // 0 → 1  (zoom in)
+    if (t < DWELL) {
+        zoom_t = 0.0;
+    } else if (t < 0.5) {
+        zoom_t = smoothstep(0.0, 0.5 - DWELL, t - DWELL);
+    } else if (t < 1.0 - DWELL) {
+        zoom_t = 1.0 - smoothstep(0.0, 0.5 - DWELL, t - 0.5);
     } else {
-        zoom_t = 1.0 - smoothstep(0.5, 1.0, t); // 1 → 0  (zoom out)
+        zoom_t = 0.0;
     }
 
     // Exponential zoom: logarithmic feel — slow at start, faster in middle.
-    // HOME_SCALE is the base (fully zoomed-out) scale; the power term provides
-    // the 268× zoom ratio from home to max regardless of the base value.
     float scale = HOME_SCALE * pow(1.5, zoom_t * max_zoom_exp);
 
     // -----------------------------------------------------------------------
     // Target selection — stateless, deterministic, no consecutive repeats.
     //
-    // Target advances at the cycle boundary (zoom_t = 0.0, camera at
-    // HOME_CENTER) so switching targets never causes a visible jump.
+    // Target advances at the cycle boundary (zoom_t = 0.0, dwell window) so
+    // the snap always happens while the full-fractal home view is on screen.
     // -----------------------------------------------------------------------
     int cur_raw  = int(hash(cycle_id)       * float(NUM_TARGETS));
     int prev_raw = int(hash(cycle_id - 1.0) * float(NUM_TARGETS));
     int cur_idx  = (cur_raw == prev_raw) ? (cur_raw + 1) % NUM_TARGETS : cur_raw;
 
     // -----------------------------------------------------------------------
-    // Camera centre: HOME_CENTER at zoom_t = 0, target at zoom_t = 1.
+    // Camera centre — always exactly the current target, no interpolation.
     //
-    // center_t uses a cubic curve (zoom_t³) so the pan is negligible while
-    // zoomed out and only converges on the target when zoom is deep.  This
-    // prevents the camera from drifting through the black interior of the set
-    // (around the origin) before reaching the target boundary detail.
-    //
-    //   zoom_t = 0.0 → center_t = 0.000 → center = HOME_CENTER   ✓
-    //   zoom_t = 0.3 → center_t = 0.027 → barely moved            ✓
-    //   zoom_t = 0.7 → center_t = 0.343 → shifting toward target  ✓
-    //   zoom_t = 1.0 → center_t = 1.000 → center = target         ✓
-    //
-    // The zoom-out phase is the natural reverse: as zoom_t falls 1→0, the
-    // cubic centre tracks back to HOME_CENTER automatically.
+    // At HOME_SCALE the visible complex-plane region spans ~3.5 × 2.4 units,
+    // which comfortably contains the entire Mandelbrot set (~2.5 × 2.5 units).
+    // Every zoom target lies within that frame, so the exact centre value is
+    // irrelevant while zoomed out. At deep zoom the centre is precisely on the
+    // target boundary detail. No mix(), no cubic lag, no transit through the
+    // black interior.
     // -----------------------------------------------------------------------
-    float center_t = zoom_t * zoom_t * zoom_t;
-    vec2 center = mix(HOME_CENTER, zoom_target(cur_idx), center_t);
+    vec2 center = zoom_target(cur_idx);
 
     vec2 c = center + uv / scale;
 
