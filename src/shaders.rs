@@ -706,7 +706,9 @@ fn prepare_shader(raw: &str) -> String {
     }
 
     // Fade alpha uniform — multiplied into the final fragColor for fade in/out.
-    if !source.contains("u_alpha") {
+    // Check for the *declaration* (not just usage) so shaders that reference
+    // "u_alpha" in a comment don't accidentally suppress the injection.
+    if !source.contains("uniform float u_alpha") {
         out.push_str("uniform float u_alpha;\n");
     }
 

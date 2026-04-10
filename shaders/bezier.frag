@@ -22,6 +22,7 @@ uniform float u_time;
 uniform vec2  u_resolution;
 uniform vec2  u_mouse;
 uniform int   u_frame;
+uniform float u_alpha;
 
 // Evaluate a cubic Bézier at parameter t ∈ [0, 1].
 vec2 cubic_bezier(vec2 p0, vec2 p1, vec2 p2, vec2 p3, float t) {
