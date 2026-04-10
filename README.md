@@ -20,18 +20,6 @@ It is designed to complement [hyprlock](https://github.com/hyprwm/hyprlock) and 
 
 ## Quick Start
 
-### Debian / Ubuntu
-```bash
-# Download the .deb from the latest release
-sudo dpkg -i hyprsaver_0.3.0_amd64.deb
-```
-
-### Fedora / RHEL / openSUSE
-```bash
-# Download the .rpm from the latest release
-sudo rpm -i hyprsaver-0.3.0-1.x86_64.rpm
-```
-
 ### Arch Linux
 ```bash
 yay -S hyprsaver
@@ -162,7 +150,21 @@ make uninstall
 ### AUR
 
 ```sh
-paru -S hyprsaver  # or yay, or manual makepkg
+yay -S hyprsaver
+```
+
+### Debian / Ubuntu
+
+```bash
+# Download the .deb from the latest release
+sudo dpkg -i hyprsaver_0.3.0_amd64.deb
+```
+
+### Fedora / RHEL / openSUSE
+
+```bash
+# Download the .rpm from the latest release
+sudo rpm -i hyprsaver-0.3.0-1.x86_64.rpm
 ```
 
 ### Nix / NixOS
@@ -682,9 +684,13 @@ graph TD
 
 ### v0.4.0
 - Per-monitor shader/palette assignment
-- Screencopy texture pipeline (sample the desktop as a shader input)
-- Rain-on-glass shader with real blurred desktop background
+- ~~Screencopy texture pipeline (sample the desktop as a shader input)~~
+- ~~Rain-on-glass shader with real blurred desktop background~~
 - Palette crossfade transitions on cycle
+
+### v0.5.0
+- Screencopy pipeline
+- Rain-on-Glass shader
 
 ### v1.0.0
 - Stable install story
