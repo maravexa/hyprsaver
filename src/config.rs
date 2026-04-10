@@ -45,13 +45,19 @@ pub struct Config {
     #[serde(default, rename = "monitor")]
     pub monitors: Vec<MonitorConfig>,
 
-    /// Named shader playlists (`[shader_playlists.name]` TOML syntax).
-    /// Used when `general.shader_playlist` selects a named subset for cycle mode.
+    /// Unified playlists (`[playlists.name]` TOML syntax, v0.4.0+).
+    /// Each playlist can contain both `shaders` and `palettes` lists.
+    /// The `"default"` playlist expands to `["all"]` if not explicitly defined.
+    #[serde(default)]
+    pub playlists: HashMap<String, PlaylistConfig>,
+
+    /// Named shader playlists (`[shader_playlists.name]` TOML syntax, legacy v0.3.0).
+    /// Superseded by `[playlists]` in v0.4.0; kept for backward compatibility.
     #[serde(default)]
     pub shader_playlists: HashMap<String, ShaderPlaylist>,
 
-    /// Named palette playlists (`[palette_playlists.name]` TOML syntax).
-    /// Used when `general.palette_playlist` selects a named subset for cycle mode.
+    /// Named palette playlists (`[palette_playlists.name]` TOML syntax, legacy v0.3.0).
+    /// Superseded by `[playlists]` in v0.4.0; kept for backward compatibility.
     #[serde(default)]
     pub palette_playlists: HashMap<String, PalettePlaylist>,
 }
@@ -84,11 +90,15 @@ pub struct GeneralConfig {
     /// Cross-fade duration when switching palettes, in seconds. `0.0` = instant snap (default).
     pub palette_transition_duration: f32,
 
-    /// Named shader playlist to use when `shader = "cycle"`. If unset, cycles all shaders.
-    pub shader_playlist: Option<String>,
+    /// Named playlist to use for shader cycling. Default: `"default"`.
+    /// Looks up `[playlists.<name>].shaders` first, then `[shader_playlists.<name>]` (legacy).
+    /// If the named playlist is not defined, cycles all shaders.
+    pub shader_playlist: String,
 
-    /// Named palette playlist to use when `palette = "cycle"`. If unset, cycles all palettes.
-    pub palette_playlist: Option<String>,
+    /// Named playlist to use for palette cycling. Default: `"default"`.
+    /// Looks up `[playlists.<name>].palettes` first, then `[palette_playlists.<name>]` (legacy).
+    /// If the named playlist is not defined, cycles all palettes.
+    pub palette_playlist: String,
 
     /// Cycle selection order: `"random"` (default) or `"sequential"`.
     pub cycle_order: String,
@@ -113,8 +123,8 @@ impl Default for GeneralConfig {
             palette_cycle_interval: 60,
             palette_cycle: Vec::new(),
             palette_transition_duration: 0.0,
-            shader_playlist: None,
-            palette_playlist: None,
+            shader_playlist: "default".to_string(),
+            palette_playlist: "default".to_string(),
             cycle_order: "random".to_string(),
             synced: true,
         }
@@ -125,18 +135,47 @@ impl Default for GeneralConfig {
 // Playlist config
 // ---------------------------------------------------------------------------
 
-/// A named ordered list of shader names for use in cycle mode.
+/// A named ordered list of shader names for use in cycle mode (legacy v0.3.0 format).
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ShaderPlaylist {
     /// Shader names in cycle order.
     pub shaders: Vec<String>,
 }
 
-/// A named ordered list of palette names for use in cycle mode.
+/// A named ordered list of palette names for use in cycle mode (legacy v0.3.0 format).
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PalettePlaylist {
     /// Palette names in cycle order.
     pub palettes: Vec<String>,
+}
+
+/// Unified playlist containing both shader and palette lists (v0.4.0 format).
+///
+/// Example TOML:
+/// ```toml
+/// [playlists.chill]
+/// shaders = ["plasma", "flow_field", "bezier", "lissajous", "aurora_sphere"]
+/// palettes = ["vapor", "frost", "ocean", "aurora"]
+/// ```
+///
+/// The special value `"all"` in either list expands to all available
+/// shaders or palettes at runtime.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(default)]
+pub struct PlaylistConfig {
+    /// Shader names in cycle order. `["all"]` = all built-ins + user shaders.
+    pub shaders: Vec<String>,
+    /// Palette names in cycle order. `["all"]` = all available palettes.
+    pub palettes: Vec<String>,
+}
+
+impl Default for PlaylistConfig {
+    fn default() -> Self {
+        Self {
+            shaders: vec!["all".to_string()],
+            palettes: vec!["all".to_string()],
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -231,14 +270,16 @@ pub struct PaletteConfigEntry {
 // Per-monitor config — [[monitor]] table-array
 // ---------------------------------------------------------------------------
 
-/// Per-monitor shader and palette override.
+/// Per-monitor shader, palette, and playlist overrides.
 ///
 /// Example TOML:
 /// ```toml
 /// [[monitor]]
 /// name = "DP-1"
-/// shader = "raymarcher"
-/// palette = "frost"
+/// shader = "cycle"
+/// palette = "cycle"
+/// shader_playlist = "chill"
+/// palette_playlist = "default"
 ///
 /// [[monitor]]
 /// name = "HDMI-A-1"
@@ -256,6 +297,12 @@ pub struct MonitorConfig {
 
     /// Palette override for this monitor. `None` = use global `[general].palette`.
     pub palette: Option<String>,
+
+    /// Shader playlist override for this monitor. `None` = use global `[general].shader_playlist`.
+    pub shader_playlist: Option<String>,
+
+    /// Palette playlist override for this monitor. `None` = use global `[general].palette_playlist`.
+    pub palette_playlist: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -370,34 +417,42 @@ pub fn load_config(path: Option<&str>) -> anyhow::Result<Config> {
     }
 }
 
+/// CLI overrides that get applied on top of the TOML config.
+#[derive(Debug, Default)]
+pub struct CliOverrides<'a> {
+    pub shader: Option<&'a str>,
+    pub palette: Option<&'a str>,
+    pub shader_cycle_interval: Option<u64>,
+    pub palette_cycle_interval: Option<u64>,
+    pub cycle_order: Option<&'a str>,
+    pub synced: Option<bool>,
+    pub playlist: Option<&'a str>,
+}
+
 impl Config {
     /// Override `general` fields from CLI arguments.
-    pub fn apply_cli_overrides(
-        &mut self,
-        shader: Option<&str>,
-        palette: Option<&str>,
-        shader_cycle_interval: Option<u64>,
-        palette_cycle_interval: Option<u64>,
-        cycle_order: Option<&str>,
-        synced: Option<bool>,
-    ) {
-        if let Some(s) = shader {
+    pub fn apply_cli_overrides(&mut self, overrides: CliOverrides<'_>) {
+        if let Some(s) = overrides.shader {
             self.general.shader = s.to_string();
         }
-        if let Some(p) = palette {
+        if let Some(p) = overrides.palette {
             self.general.palette = p.to_string();
         }
-        if let Some(interval) = shader_cycle_interval {
+        if let Some(interval) = overrides.shader_cycle_interval {
             self.general.shader_cycle_interval = interval;
         }
-        if let Some(interval) = palette_cycle_interval {
+        if let Some(interval) = overrides.palette_cycle_interval {
             self.general.palette_cycle_interval = interval;
         }
-        if let Some(order) = cycle_order {
+        if let Some(order) = overrides.cycle_order {
             self.general.cycle_order = order.to_string();
         }
-        if let Some(s) = synced {
+        if let Some(s) = overrides.synced {
             self.general.synced = s;
+        }
+        if let Some(pl) = overrides.playlist {
+            self.general.shader_playlist = pl.to_string();
+            self.general.palette_playlist = pl.to_string();
         }
     }
 }
@@ -420,15 +475,17 @@ mod tests {
         assert_eq!(cfg.general.palette_cycle_interval, 60);
         assert!(cfg.general.palette_cycle.is_empty());
         assert_eq!(cfg.general.palette_transition_duration, 0.0);
-        assert!(cfg.general.shader_playlist.is_none());
-        assert!(cfg.general.palette_playlist.is_none());
+        assert_eq!(cfg.general.shader_playlist, "default");
+        assert_eq!(cfg.general.palette_playlist, "default");
         assert_eq!(cfg.general.cycle_order, "random");
+        assert!(cfg.general.synced);
         assert_eq!(cfg.behavior.fade_in_ms, 800);
         assert_eq!(cfg.behavior.fade_out_ms, 400);
         assert!(cfg.behavior.dismiss_on.contains(&DismissEvent::Key));
         assert!(cfg.palettes.is_empty());
         assert!(cfg.palette_entries.is_empty());
         assert!(cfg.monitors.is_empty());
+        assert!(cfg.playlists.is_empty());
         assert!(cfg.shader_playlists.is_empty());
         assert!(cfg.palette_playlists.is_empty());
     }
@@ -440,6 +497,8 @@ mod tests {
         assert_eq!(cfg.general.shader, "cycle");
         assert_eq!(cfg.general.palette, "cycle");
         assert_eq!(cfg.general.cycle_order, "random");
+        assert_eq!(cfg.general.shader_playlist, "default");
+        assert_eq!(cfg.general.palette_playlist, "default");
         assert_eq!(cfg.behavior.fade_in_ms, 800);
         assert_eq!(cfg.behavior.fade_out_ms, 400);
         assert_eq!(cfg.behavior.dismiss_on.len(), 4);
@@ -552,9 +611,51 @@ shader = "snowfall"
         assert_eq!(cfg.monitors[0].name, "DP-1");
         assert_eq!(cfg.monitors[0].shader.as_deref(), Some("raymarcher"));
         assert_eq!(cfg.monitors[0].palette.as_deref(), Some("frost"));
+        assert_eq!(cfg.monitors[0].shader_playlist, None);
+        assert_eq!(cfg.monitors[0].palette_playlist, None);
         assert_eq!(cfg.monitors[1].name, "HDMI-A-1");
         assert_eq!(cfg.monitors[1].shader.as_deref(), Some("snowfall"));
         assert_eq!(cfg.monitors[1].palette, None); // falls back to global
+    }
+
+    #[test]
+    fn test_parse_monitor_with_playlists() {
+        let toml_str = r#"
+[[monitor]]
+name = "DP-1"
+shader = "cycle"
+palette = "cycle"
+shader_playlist = "chill"
+palette_playlist = "default"
+
+[[monitor]]
+name = "HDMI-A-1"
+shader = "cycle"
+"#;
+        let cfg: Config = toml::from_str(toml_str).expect("monitor TOML must parse");
+        assert_eq!(cfg.monitors.len(), 2);
+        assert_eq!(cfg.monitors[0].shader_playlist.as_deref(), Some("chill"));
+        assert_eq!(cfg.monitors[0].palette_playlist.as_deref(), Some("default"));
+        assert_eq!(cfg.monitors[1].shader_playlist, None); // falls back to global
+        assert_eq!(cfg.monitors[1].palette_playlist, None);
+    }
+
+    /// A bare v0.2.0 config with just `shader = "plasma"` must continue to work
+    /// identically — no cycling, no playlists, just plasma.
+    #[test]
+    fn test_v020_backward_compat() {
+        let toml_str = r#"
+[general]
+shader = "plasma"
+"#;
+        let cfg: Config = toml::from_str(toml_str).expect("v0.2.0 TOML must parse");
+        assert_eq!(cfg.general.shader, "plasma");
+        assert_eq!(cfg.general.palette, "cycle"); // new default is cycle
+        assert_eq!(cfg.general.shader_playlist, "default");
+        assert_eq!(cfg.general.palette_playlist, "default");
+        assert!(cfg.playlists.is_empty());
+        assert!(cfg.shader_playlists.is_empty());
+        assert!(cfg.palette_playlists.is_empty());
     }
 
     #[test]
@@ -571,6 +672,8 @@ shader = "snowfall"
         assert_eq!(cfg.general.shader, "cycle");
         assert_eq!(cfg.general.palette, "cycle");
         assert_eq!(cfg.general.cycle_order, "random");
+        assert_eq!(cfg.general.shader_playlist, "default");
+        assert_eq!(cfg.general.palette_playlist, "default");
         assert_eq!(cfg.behavior.fade_in_ms, 800);
         assert_eq!(cfg.behavior.fade_out_ms, 400);
     }
@@ -578,7 +681,11 @@ shader = "snowfall"
     #[test]
     fn test_cli_overrides() {
         let mut cfg = Config::default();
-        cfg.apply_cli_overrides(Some("julia"), Some("vapor"), None, None, None, None);
+        cfg.apply_cli_overrides(CliOverrides {
+            shader: Some("julia"),
+            palette: Some("vapor"),
+            ..Default::default()
+        });
         assert_eq!(cfg.general.shader, "julia");
         assert_eq!(cfg.general.palette, "vapor");
     }
@@ -586,7 +693,10 @@ shader = "snowfall"
     #[test]
     fn test_cli_overrides_partial() {
         let mut cfg = Config::default();
-        cfg.apply_cli_overrides(Some("julia"), None, None, None, None, None);
+        cfg.apply_cli_overrides(CliOverrides {
+            shader: Some("julia"),
+            ..Default::default()
+        });
         assert_eq!(cfg.general.shader, "julia");
         assert_eq!(cfg.general.palette, "cycle"); // unchanged default
     }
@@ -594,7 +704,11 @@ shader = "snowfall"
     #[test]
     fn test_cli_overrides_cycle_intervals() {
         let mut cfg = Config::default();
-        cfg.apply_cli_overrides(None, None, Some(120), Some(45), None, None);
+        cfg.apply_cli_overrides(CliOverrides {
+            shader_cycle_interval: Some(120),
+            palette_cycle_interval: Some(45),
+            ..Default::default()
+        });
         assert_eq!(cfg.general.shader_cycle_interval, 120);
         assert_eq!(cfg.general.palette_cycle_interval, 45);
     }
@@ -602,7 +716,10 @@ shader = "snowfall"
     #[test]
     fn test_cli_overrides_cycle_intervals_partial() {
         let mut cfg = Config::default();
-        cfg.apply_cli_overrides(None, None, Some(90), None, None, None);
+        cfg.apply_cli_overrides(CliOverrides {
+            shader_cycle_interval: Some(90),
+            ..Default::default()
+        });
         assert_eq!(cfg.general.shader_cycle_interval, 90);
         assert_eq!(cfg.general.palette_cycle_interval, 60); // unchanged default
     }
@@ -610,8 +727,22 @@ shader = "snowfall"
     #[test]
     fn test_cli_overrides_cycle_order() {
         let mut cfg = Config::default();
-        cfg.apply_cli_overrides(None, None, None, None, Some("sequential"), None);
+        cfg.apply_cli_overrides(CliOverrides {
+            cycle_order: Some("sequential"),
+            ..Default::default()
+        });
         assert_eq!(cfg.general.cycle_order, "sequential");
+    }
+
+    #[test]
+    fn test_cli_overrides_playlist() {
+        let mut cfg = Config::default();
+        cfg.apply_cli_overrides(CliOverrides {
+            playlist: Some("chill"),
+            ..Default::default()
+        });
+        assert_eq!(cfg.general.shader_playlist, "chill");
+        assert_eq!(cfg.general.palette_playlist, "chill");
     }
 
     #[test]
@@ -638,14 +769,20 @@ shader = "snowfall"
     fn test_cli_override_synced() {
         let mut cfg = Config::default();
         assert!(cfg.general.synced);
-        cfg.apply_cli_overrides(None, None, None, None, None, Some(false));
+        cfg.apply_cli_overrides(CliOverrides {
+            synced: Some(false),
+            ..Default::default()
+        });
         assert!(!cfg.general.synced);
-        cfg.apply_cli_overrides(None, None, None, None, None, Some(true));
+        cfg.apply_cli_overrides(CliOverrides {
+            synced: Some(true),
+            ..Default::default()
+        });
         assert!(cfg.general.synced);
     }
 
     #[test]
-    fn test_parse_playlists() {
+    fn test_parse_legacy_playlists() {
         let toml_str = r#"
 [general]
 shader_playlist = "my_favorites"
@@ -664,8 +801,8 @@ palettes = ["ember", "autumn", "groovy"]
 palettes = ["frost", "ocean", "vapor"]
 "#;
         let cfg: Config = toml::from_str(toml_str).expect("playlist TOML must parse");
-        assert_eq!(cfg.general.shader_playlist.as_deref(), Some("my_favorites"));
-        assert_eq!(cfg.general.palette_playlist.as_deref(), Some("warm_tones"));
+        assert_eq!(cfg.general.shader_playlist, "my_favorites");
+        assert_eq!(cfg.general.palette_playlist, "warm_tones");
 
         assert_eq!(cfg.shader_playlists.len(), 2);
         let fav = cfg
@@ -685,12 +822,50 @@ palettes = ["frost", "ocean", "vapor"]
     }
 
     #[test]
+    fn test_parse_unified_playlists() {
+        let toml_str = r#"
+[general]
+shader_playlist = "chill"
+palette_playlist = "chill"
+
+[playlists.default]
+shaders = ["all"]
+palettes = ["all"]
+
+[playlists.chill]
+shaders = ["plasma", "flow_field", "bezier"]
+palettes = ["vapor", "frost", "ocean"]
+
+[playlists.intense]
+shaders = ["mandelbrot", "julia", "tesla"]
+palettes = ["electric", "ember"]
+"#;
+        let cfg: Config = toml::from_str(toml_str).expect("unified playlist TOML must parse");
+        assert_eq!(cfg.general.shader_playlist, "chill");
+        assert_eq!(cfg.general.palette_playlist, "chill");
+
+        assert_eq!(cfg.playlists.len(), 3);
+        let default_pl = cfg.playlists.get("default").expect("default must exist");
+        assert_eq!(default_pl.shaders, vec!["all"]);
+        assert_eq!(default_pl.palettes, vec!["all"]);
+
+        let chill = cfg.playlists.get("chill").expect("chill must exist");
+        assert_eq!(chill.shaders, vec!["plasma", "flow_field", "bezier"]);
+        assert_eq!(chill.palettes, vec!["vapor", "frost", "ocean"]);
+
+        let intense = cfg.playlists.get("intense").expect("intense must exist");
+        assert_eq!(intense.shaders, vec!["mandelbrot", "julia", "tesla"]);
+        assert_eq!(intense.palettes, vec!["electric", "ember"]);
+    }
+
+    #[test]
     fn test_parse_no_playlists_backward_compat() {
         let cfg: Config = toml::from_str("").expect("empty TOML must parse");
+        assert!(cfg.playlists.is_empty());
         assert!(cfg.shader_playlists.is_empty());
         assert!(cfg.palette_playlists.is_empty());
-        assert!(cfg.general.shader_playlist.is_none());
-        assert!(cfg.general.palette_playlist.is_none());
+        assert_eq!(cfg.general.shader_playlist, "default");
+        assert_eq!(cfg.general.palette_playlist, "default");
     }
 
     #[test]
