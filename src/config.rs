@@ -154,7 +154,7 @@ pub struct PalettePlaylist {
 /// Example TOML:
 /// ```toml
 /// [playlists.chill]
-/// shaders = ["plasma", "flow_field", "bezier", "lissajous", "planet"]
+/// shaders = ["plasma", "marble", "bezier", "lissajous", "planet"]
 /// palettes = ["vaporwave", "frost", "ocean", "aurora"]
 /// ```
 ///
@@ -833,7 +833,7 @@ shaders = ["all"]
 palettes = ["all"]
 
 [playlists.chill]
-shaders = ["plasma", "flow_field", "bezier"]
+shaders = ["plasma", "marble", "bezier"]
 palettes = ["vaporwave", "frost", "ocean"]
 
 [playlists.intense]
@@ -850,7 +850,7 @@ palettes = ["rainbow", "ember"]
         assert_eq!(default_pl.palettes, vec!["all"]);
 
         let chill = cfg.playlists.get("chill").expect("chill must exist");
-        assert_eq!(chill.shaders, vec!["plasma", "flow_field", "bezier"]);
+        assert_eq!(chill.shaders, vec!["plasma", "marble", "bezier"]);
         assert_eq!(chill.palettes, vec!["vaporwave", "frost", "ocean"]);
 
         let intense = cfg.playlists.get("intense").expect("intense must exist");
