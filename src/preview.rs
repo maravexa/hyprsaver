@@ -532,13 +532,11 @@ impl PreviewState {
                 ed.cycle_order_random,
             ) {
                 Ok(path) => {
-                    bundle.state.playlist_editor.save_status =
-                        format!("Saved to {path}");
+                    bundle.state.playlist_editor.save_status = format!("Saved to {path}");
                     log::info!("preview: playlist saved to {path}");
                 }
                 Err(e) => {
-                    bundle.state.playlist_editor.save_status =
-                        format!("Error: {e}");
+                    bundle.state.playlist_editor.save_status = format!("Error: {e}");
                     log::warn!("preview: playlist save error: {e}");
                 }
             }
@@ -555,12 +553,11 @@ impl PreviewState {
                 bundle.state.playlist_editor.shader_interval;
             self.config.general.palette_cycle_interval =
                 bundle.state.playlist_editor.palette_interval;
-            self.config.general.cycle_order =
-                if bundle.state.playlist_editor.cycle_order_random {
-                    "random".to_string()
-                } else {
-                    "sequential".to_string()
-                };
+            self.config.general.cycle_order = if bundle.state.playlist_editor.cycle_order_random {
+                "random".to_string()
+            } else {
+                "sequential".to_string()
+            };
             bundle.state.playlist_editor.save_status =
                 "Applied! Cycle manager updated.".to_string();
             log::info!("preview: playlist applied and cycle restarted");
@@ -1297,21 +1294,18 @@ fn draw_panel(
             // Tab bar — pre-compute active flags to avoid closure capture conflicts.
             let on_preview = state.active_tab == PreviewTab::Preview;
             let on_playlists = state.active_tab == PreviewTab::Playlists;
-            let tab_fill_active =
-                egui::Color32::from_rgba_unmultiplied(60, 80, 130, 220);
+            let tab_fill_active = egui::Color32::from_rgba_unmultiplied(60, 80, 130, 220);
 
             ui.add_space(4.0);
             ui.horizontal(|ui| {
                 let half_w = (PANEL_WIDTH as f32 - 16.0) / 2.0;
                 if ui
                     .add(
-                        egui::Button::new(
-                            egui::RichText::new("Preview").color(if on_preview {
-                                egui::Color32::WHITE
-                            } else {
-                                egui::Color32::from_gray(150)
-                            }),
-                        )
+                        egui::Button::new(egui::RichText::new("Preview").color(if on_preview {
+                            egui::Color32::WHITE
+                        } else {
+                            egui::Color32::from_gray(150)
+                        }))
                         .fill(if on_preview {
                             tab_fill_active
                         } else {
@@ -1325,13 +1319,13 @@ fn draw_panel(
                 }
                 if ui
                     .add(
-                        egui::Button::new(
-                            egui::RichText::new("Playlists").color(if on_playlists {
+                        egui::Button::new(egui::RichText::new("Playlists").color(
+                            if on_playlists {
                                 egui::Color32::WHITE
                             } else {
                                 egui::Color32::from_gray(150)
-                            }),
-                        )
+                            },
+                        ))
                         .fill(if on_playlists {
                             tab_fill_active
                         } else {
@@ -1503,11 +1497,7 @@ fn draw_playlists_tab(
                     .selected_text(combo_text)
                     .show_ui(ui, |ui| {
                         for name in &available {
-                            ui.selectable_value(
-                                &mut ed.add_shader_selected,
-                                name.clone(),
-                                name,
-                            );
+                            ui.selectable_value(&mut ed.add_shader_selected, name.clone(), name);
                         }
                     });
                 let can_add = !ed.add_shader_selected.is_empty()
@@ -1528,8 +1518,7 @@ fn draw_playlists_tab(
             if ui
                 .add_enabled(
                     ed.selected_shader_idx.is_some(),
-                    egui::Button::new("− Remove selected")
-                        .min_size(egui::Vec2::new(avail_w, 0.0)),
+                    egui::Button::new("− Remove selected").min_size(egui::Vec2::new(avail_w, 0.0)),
                 )
                 .clicked()
             {
@@ -1579,11 +1568,7 @@ fn draw_playlists_tab(
                     .selected_text(combo_text)
                     .show_ui(ui, |ui| {
                         for name in &available {
-                            ui.selectable_value(
-                                &mut ed.add_palette_selected,
-                                name.clone(),
-                                name,
-                            );
+                            ui.selectable_value(&mut ed.add_palette_selected, name.clone(), name);
                         }
                     });
                 let can_add = !ed.add_palette_selected.is_empty()
@@ -1604,8 +1589,7 @@ fn draw_playlists_tab(
             if ui
                 .add_enabled(
                     ed.selected_palette_idx.is_some(),
-                    egui::Button::new("− Remove selected")
-                        .min_size(egui::Vec2::new(avail_w, 0.0)),
+                    egui::Button::new("− Remove selected").min_size(egui::Vec2::new(avail_w, 0.0)),
                 )
                 .clicked()
             {
@@ -1717,10 +1701,8 @@ fn draw_reorderable_list(
     let n = items.len();
 
     if n == 0 {
-        let (rect, _) = ui.allocate_exact_size(
-            egui::Vec2::new(avail_w, ITEM_H),
-            egui::Sense::hover(),
-        );
+        let (rect, _) =
+            ui.allocate_exact_size(egui::Vec2::new(avail_w, ITEM_H), egui::Sense::hover());
         ui.painter().text(
             rect.left_center() + egui::vec2(8.0, 0.0),
             egui::Align2::LEFT_CENTER,
@@ -1743,7 +1725,7 @@ fn draw_reorderable_list(
         }
     }
 
-    for i in 0..n {
+    for (i, item) in items.iter().enumerate() {
         let is_selected = *selected == Some(i);
         let is_dragging = *drag_src == Some(i);
 
@@ -1778,7 +1760,7 @@ fn draw_reorderable_list(
         painter.text(
             rect.left_center() + egui::vec2(18.0, 0.0),
             egui::Align2::LEFT_CENTER,
-            &items[i],
+            item,
             egui::FontId::proportional(12.0),
             if is_dragging {
                 egui::Color32::from_gray(130)
@@ -1800,10 +1782,7 @@ fn draw_reorderable_list(
     if let (Some(_src), Some(tgt)) = (*drag_src, *drag_tgt) {
         let y = list_top + tgt as f32 * ITEM_H;
         ui.painter().line_segment(
-            [
-                egui::pos2(list_left, y),
-                egui::pos2(list_left + avail_w, y),
-            ],
+            [egui::pos2(list_left, y), egui::pos2(list_left + avail_w, y)],
             egui::Stroke::new(2.0, egui::Color32::from_rgb(0x5e, 0x81, 0xf4)),
         );
     }
@@ -1816,8 +1795,7 @@ fn draw_reorderable_list(
                 let item = items.remove(src);
                 let insert_at = if tgt > src { tgt - 1 } else { tgt };
                 items.insert(insert_at.min(items.len()), item);
-                *selected =
-                    Some(insert_at.min(items.len().saturating_sub(1)));
+                *selected = Some(insert_at.min(items.len().saturating_sub(1)));
             }
         }
         *drag_src = None;
@@ -1867,9 +1845,7 @@ fn save_playlist_config(
     let mut doc: toml::Value = if existing.trim().is_empty() {
         toml::Value::Table(Default::default())
     } else {
-        existing
-            .parse::<toml::Value>()
-            .map_err(|e| e.to_string())?
+        existing.parse::<toml::Value>().map_err(|e| e.to_string())?
     };
 
     // Helper: ensure `key` maps to a Table inside `parent`, then return it.
@@ -1878,10 +1854,7 @@ fn save_playlist_config(
         key: &str,
     ) -> &'a mut toml::map::Map<String, toml::Value> {
         if !parent.contains_key(key) {
-            parent.insert(
-                key.to_string(),
-                toml::Value::Table(Default::default()),
-            );
+            parent.insert(key.to_string(), toml::Value::Table(Default::default()));
         }
         parent.get_mut(key).unwrap().as_table_mut().unwrap()
     }
@@ -1904,7 +1877,12 @@ fn save_playlist_config(
         general.insert(
             "cycle_order".to_string(),
             toml::Value::String(
-                if cycle_order_random { "random" } else { "sequential" }.to_string(),
+                if cycle_order_random {
+                    "random"
+                } else {
+                    "sequential"
+                }
+                .to_string(),
             ),
         );
         if !shader_items.is_empty() {
