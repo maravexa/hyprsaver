@@ -1064,6 +1064,13 @@ pub fn run(
             if state.synced {
                 let was_transitioning = state.palette_manager.next_palette().is_some();
                 let blend = state.palette_manager.advance_transition(now);
+                // True only when the transition just completed this frame (next_name was
+                // cleared by advance_transition promoting next→current).  On the very first
+                // frame of a new transition elapsed=0 so blend=0, but next_name is still
+                // set — that must NOT be treated as a completion or we'd call set_palette()
+                // prematurely, destroying the lut_texture_b uploaded by begin_transition().
+                let just_completed =
+                    was_transitioning && state.palette_manager.next_palette().is_none();
                 if blend > 0.0 {
                     for surf in state.surfaces.values_mut() {
                         if let Some(r) = surf.renderer.as_mut() {
@@ -1076,7 +1083,7 @@ pub fn run(
                             r.set_blend(0.0);
                         }
                     }
-                    if was_transitioning {
+                    if just_completed {
                         if let Some(entry) = state.palette_manager.current_palette().cloned() {
                             let egl_ptr = state.egl.as_ref().map(|e| e as *const EglState);
                             for surf in state.surfaces.values_mut() {
