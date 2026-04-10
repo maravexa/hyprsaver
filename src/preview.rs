@@ -1743,7 +1743,7 @@ fn draw_reorderable_list(
         }
     }
 
-    for i in 0..n {
+    for (i, item) in items.iter().enumerate() {
         let is_selected = *selected == Some(i);
         let is_dragging = *drag_src == Some(i);
 
@@ -1778,7 +1778,7 @@ fn draw_reorderable_list(
         painter.text(
             rect.left_center() + egui::vec2(18.0, 0.0),
             egui::Align2::LEFT_CENTER,
-            &items[i],
+            item,
             egui::FontId::proportional(12.0),
             if is_dragging {
                 egui::Color32::from_gray(130)
