@@ -540,6 +540,15 @@ impl PaletteManager {
         names
     }
 
+    /// Insert or replace a cosine palette at runtime.
+    ///
+    /// Used by the preview-mode palette editor so that a palette saved from
+    /// the UI becomes immediately available for selection in the current
+    /// session without requiring a restart.
+    pub fn insert_cosine(&mut self, name: String, palette: Palette) {
+        self.palettes.insert(name, PaletteEntry::Cosine(palette));
+    }
+
     /// Return the effective cycle playlist as an owned `Vec<String>`.
     ///
     /// If a playlist was set via [`set_playlist`], returns that list.
