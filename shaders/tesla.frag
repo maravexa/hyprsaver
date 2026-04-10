@@ -5,12 +5,15 @@ precision highp float;
 // hyprsaver — tesla.frag
 //
 // Tesla coil / electric arc screensaver.
-// Three fixed electrodes form a triangle: (-0.5,-0.3), (0.5,-0.3), (0.0,0.5).
+// One fixed center electrode at (0.0, 0.0) and three triangle electrodes
+// that orbit it as a rigid body: base positions (-0.45,-0.27), (0.45,-0.27),
+// (0.0,0.45), rotated slowly by u_time * 0.15 * u_speed_scale.
 // Between each pair a fractal-lightning arc is rendered using 4-octave jagged
 // (C0-continuous) noise displacement. Arcs restrike every 0.1 s — the seed
-// is floor(t * 10.0) — so they flicker like real tesla coils. Each main arc
-// has up to two branch arcs (≈30 % probability each). A slow-drifting
-// "wanderer" electrode adds visual variety.
+// is floor(t * 10.0) — so they flicker like real tesla coils. Each triangle
+// ↔ triangle arc has up to two branch arcs (≈30 % probability each). 6 arcs
+// total: A↔B, B↔C, A↔C, A↔center, B↔center, C↔center. The center node is
+// 6× the size of the triangle nodes.
 //
 // Colour: palette(t) where t ∈ [0.5, 1.0] — outer glow at 0.5, core at 1.0.
 // Electrode nodes: bright discs with radial haloes pulsing at each restrike.
@@ -114,13 +117,18 @@ void main() {
     // ---------------------------------------------------------------------------
     // Electrode positions
     // ---------------------------------------------------------------------------
-    vec2 e0 = vec2(-0.5, -0.3);
-    vec2 e1 = vec2( 0.5, -0.3);
-    vec2 e2 = vec2( 0.0,  0.5);
 
-    // Wandering free endpoint — slow Lissajous drift across the scene.
-    vec2 wand = vec2( sin(t * 0.137) * 0.30,
-                      cos(t * 0.091) * 0.22 - 0.05);
+    // Center node: fixed at origin, does not rotate.
+    vec2 node_center = vec2(0.0, 0.0);
+
+    // Three triangle nodes orbit the center as a rigid body.
+    float orbit_angle = t * 0.15;
+    mat2 rot = mat2(cos(orbit_angle), -sin(orbit_angle),
+                    sin(orbit_angle),  cos(orbit_angle));
+
+    vec2 e0 = rot * vec2(-0.45, -0.27);
+    vec2 e1 = rot * vec2( 0.45, -0.27);
+    vec2 e2 = rot * vec2( 0.0,   0.45);
 
     // Pixel-size metrics (resolution-independent).
     float px     = 1.0 / u_resolution.y;
@@ -132,7 +140,9 @@ void main() {
     float s01 = hash11(seed_t * 17.31 + 1.0) * 300.0;
     float s12 = hash11(seed_t * 17.31 + 2.0) * 300.0;
     float s20 = hash11(seed_t * 17.31 + 3.0) * 300.0;
-    float s0w = hash11(seed_t * 17.31 + 4.0) * 300.0;
+    float s0c = hash11(seed_t * 17.31 + 4.0) * 300.0;
+    float s1c = hash11(seed_t * 17.31 + 5.0) * 300.0;
+    float s2c = hash11(seed_t * 17.31 + 6.0) * 300.0;
 
     float intensity = 0.0;
 
@@ -211,9 +221,13 @@ void main() {
     }
 
     // ---------------------------------------------------------------------------
-    // Wandering arc: e2 → wand (dimmer than main arcs)
+    // Arcs to center: e0 → center, e1 → center, e2 → center (dimmer than main arcs)
     // ---------------------------------------------------------------------------
-    intensity += arc_glow(arc_dist(uv, e2, wand, s0w, disp0),
+    intensity += arc_glow(arc_dist(uv, e0, node_center, s0c, disp0),
+                           core_w * 0.8, halo_w * 0.8) * 0.65;
+    intensity += arc_glow(arc_dist(uv, e1, node_center, s1c, disp0),
+                           core_w * 0.8, halo_w * 0.8) * 0.65;
+    intensity += arc_glow(arc_dist(uv, e2, node_center, s2c, disp0),
                            core_w * 0.8, halo_w * 0.8) * 0.65;
 
     // ---------------------------------------------------------------------------
@@ -223,7 +237,7 @@ void main() {
     float restrike_phase = fract(t * 10.0);
     float pulse = 1.0 + 1.5 * exp(-restrike_phase * 12.0);
 
-    // Main electrodes (radius 0.03).
+    // Triangle electrodes (radius 0.03).
     vec2 elec[3];
     elec[0] = e0;
     elec[1] = e1;
@@ -235,11 +249,11 @@ void main() {
         intensity += (disc * 2.5 + halo * halo * 0.5) * pulse;
     }
 
-    // Wanderer electrode (smaller, radius 0.018).
+    // Center electrode: 6× larger — all spatial params scaled proportionally.
     {
-        float ed   = length(uv - wand);
-        float disc = smoothstep(0.018, 0.007, ed);
-        float halo = 0.015 / (ed + 0.008);
+        float ed   = length(uv - node_center);
+        float disc = smoothstep(0.108, 0.042, ed);   // 0.018*6, 0.007*6
+        float halo = 0.090 / (ed + 0.048);            // 0.015*6 / (ed + 0.008*6)
         intensity += (disc * 1.5 + halo * halo * 0.35) * pulse;
     }
 
