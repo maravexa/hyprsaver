@@ -7,8 +7,7 @@ precision highp float;
 // Hyperspace zoom tunnel. 120 stars radiate outward from a central vanishing
 // point. Each star zooms from its seed position toward the screen edge,
 // leaving a motion-blur tracer behind it. Close stars have large cores and
-// long bright tracers; distant stars are tiny pinpricks. ~15% of stars are
-// tinted by the active palette; the rest are white-ish blue. Black void.
+// long bright tracers; distant stars are tiny pinpricks.
 // Fully stateless GLSL — no per-frame CPU work.
 // ---------------------------------------------------------------------------
 
@@ -29,9 +28,6 @@ float h11(float p) {
 }
 
 // ---------------------------------------------------------------------------
-
-const int   TRACER_SAMPLES  = 16;
-const float TRACER_LIFETIME = 0.5;     // seconds
 
 void main() {
     float aspect = u_resolution.x / u_resolution.y;
@@ -57,38 +53,38 @@ void main() {
         // Cull stars that are too far off screen.
         if (abs(p.x) > 1.6 || abs(p.y) > 1.6) continue;
 
-        // Core: pinpoint at birth (d≈0, r≈0.001), swells as star flies outward (d→1, r≈0.015).
+        // Core radius: pinpoint at birth (d≈0, r≈0.001), swells as star flies outward (d→1, r≈0.015).
         float core_r    = d * 0.014 + 0.001;
-        float core_dist = length(uv - p);
-        float core_glow = smoothstep(core_r, core_r * 0.1, core_dist);
+        vec2  delta_uv  = uv - p;
+        float core_dist = length(delta_uv);
 
-        // All stars sample palette at their unique hc value.
+        // Star color from palette.
         vec3 star_color = palette(hc);
 
-        // Core contribution.
-        col += star_color * core_glow;
+        // Hard-edged circle with single-pixel anti-aliased rim — no exp() glow.
+        col += star_color * (1.0 - smoothstep(core_r * 0.8, core_r, core_dist));
 
-        // Tracer: multi-sample trail over TRACER_LIFETIME seconds.
-        float tracer_accum = 0.0;
-        for (int s = 1; s <= TRACER_SAMPLES; s++) {
-            float age      = (float(s) / float(TRACER_SAMPLES)) * TRACER_LIFETIME;
-            float past_d   = fract(hash_d + (u_time - age) * zoom_speed);
-            vec2  past_pos = seed_xy / max(1.0 - past_d, 0.001);
+        // Analytical tracer tail: oriented strip behind the star, linearly faded.
+        // Replaces the old 16-sample exp() loop. The tail extends from the star tip
+        // back toward the vanishing point along the radial direction of travel.
+        float tail_len = d * 0.12 + 0.002;    // grows longer as star nears screen edge
+        float tail_wid = core_r * 1.4;         // slightly wider than the core
 
-            // Cull sample if it was off-screen at that moment.
-            if (abs(past_pos.x) > 1.6 || abs(past_pos.y) > 1.6) continue;
+        float p_len = length(p);
+        if (p_len > 0.002) {
+            vec2  tail_dir  = p / p_len;                      // unit: center → star (direction of travel)
+            vec2  tail_perp = vec2(-tail_dir.y, tail_dir.x);  // perpendicular axis
 
-            float dist        = length(uv - past_pos);
-            float age_fade    = 1.0 - (float(s) / float(TRACER_SAMPLES)); // 1.0→0.0 oldest
-            float size_at_age = past_d * 0.008;  // tracer width scales with star size at that moment
-            float sample_glow = exp(-dist * dist / (size_at_age * size_at_age)) * age_fade * 0.35;
-            tracer_accum += sample_glow;
+            // along: positive when the pixel is behind the star tip (toward the center).
+            float along   = -dot(delta_uv, tail_dir);
+            float lateral = abs(dot(delta_uv, tail_perp));
+
+            if (along > 0.0 && along < tail_len && lateral < tail_wid) {
+                float fade_along   = 1.0 - (along / tail_len);
+                float fade_lateral = 1.0 - smoothstep(tail_wid * 0.5, tail_wid, lateral);
+                col += star_color * 0.55 * fade_along * fade_lateral;
+            }
         }
-        tracer_accum = clamp(tracer_accum, 0.0, 1.0);
-
-        // Tracer: same star color but dimmer.
-        vec3 tracer_color = star_color * 0.65;
-        col += tracer_color * tracer_accum;
     }
 
     fragColor = vec4(col, 1.0);
