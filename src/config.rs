@@ -599,7 +599,7 @@ stops = [
         let toml_str = r#"
 [[monitor]]
 name = "DP-1"
-shader = "raymarcher"
+shader = "donut"
 palette = "frost"
 
 [[monitor]]
@@ -609,7 +609,7 @@ shader = "snowfall"
         let cfg: Config = toml::from_str(toml_str).expect("monitor TOML must parse");
         assert_eq!(cfg.monitors.len(), 2);
         assert_eq!(cfg.monitors[0].name, "DP-1");
-        assert_eq!(cfg.monitors[0].shader.as_deref(), Some("raymarcher"));
+        assert_eq!(cfg.monitors[0].shader.as_deref(), Some("donut"));
         assert_eq!(cfg.monitors[0].palette.as_deref(), Some("frost"));
         assert_eq!(cfg.monitors[0].shader_playlist, None);
         assert_eq!(cfg.monitors[0].palette_playlist, None);
