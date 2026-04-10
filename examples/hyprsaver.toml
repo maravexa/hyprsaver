@@ -18,15 +18,15 @@ fps = 30
 #   - A shader name from the built-in library (see --list-shaders)
 #   - A filename stem from ~/.config/hypr/hyprsaver/shaders/ (without .frag)
 #   - "random"  -- pick a random shader each time hyprsaver starts
-#   - "cycle"   -- rotate through all available shaders on shader_cycle_interval
-shader = "mandelbrot"
+#   - "cycle"   -- rotate through shaders on shader_cycle_interval (default)
+shader = "cycle"
 
 # Which palette to apply. Options:
 #   - A palette name from the built-in library (see --list-palettes)
 #   - A name defined in [palettes] below
 #   - "random"  -- random built-in palette on start
-#   - "cycle"   -- step through palettes alongside shaders
-palette = "electric"
+#   - "cycle"   -- step through palettes on palette_cycle_interval (default)
+palette = "cycle"
 
 # When shader = "cycle", how many seconds to display each shader before advancing.
 shader_cycle_interval = 300   # 5 minutes
@@ -34,13 +34,24 @@ shader_cycle_interval = 300   # 5 minutes
 # When palette = "cycle", how many seconds to display each palette before advancing.
 palette_cycle_interval = 60   # 1 minute
 
-# When shader = "cycle", you can restrict cycling to a named playlist instead of
-# iterating all available shaders. Set to the playlist name defined in
-# [shader_playlists.<name>] below.
-# shader_playlist = "my_favorites"
+# Cycle selection order: "random" (default) shuffles; "sequential" goes in order.
+cycle_order = "random"
 
-# When palette = "cycle", restrict cycling to a named palette playlist.
-# palette_playlist = "warm_tones"
+# Whether all monitors cycle in sync (default: true).
+# When true, all monitors display the same shader and palette at all times.
+# When false, each monitor cycles independently with a different RNG seed.
+synced = true
+
+# Named playlist for shader cycling. Default: "default" (cycles all shaders).
+# Set to a playlist name defined in [playlists.<name>] below.
+shader_playlist = "default"
+
+# Named playlist for palette cycling. Default: "default" (cycles all palettes).
+# Set to a playlist name defined in [playlists.<name>] below.
+palette_playlist = "default"
+
+# Cross-fade duration when switching palettes, in seconds. 0.0 = instant snap.
+# palette_transition_duration = 2.0
 
 # ---------------------------------------------------------------------------
 # [behavior] -- Input and transition settings
@@ -61,6 +72,28 @@ fade_out_ms = 400
 # Remove any entry to ignore that input type (e.g. remove "mouse_move" if you
 # have a pet that walks on the desk).
 dismiss_on = ["key", "mouse_move", "mouse_click", "touch"]
+
+# ---------------------------------------------------------------------------
+# [playlists] -- Named subsets for cycle mode (v0.4.0+)
+# ---------------------------------------------------------------------------
+# Playlists group shaders and palettes together. When shader = "cycle" and
+# shader_playlist = "<name>", only the shaders in that playlist are cycled.
+# Same for palettes.
+#
+# The special value "all" means all available shaders or palettes.
+# If no "default" playlist is defined, it implicitly expands to ["all"].
+
+# [playlists.default]
+# shaders = ["all"]
+# palettes = ["all"]
+
+# [playlists.chill]
+# shaders = ["plasma", "flow_field", "bezier", "lissajous", "aurora_sphere"]
+# palettes = ["vapor", "frost", "ocean", "aurora"]
+
+# [playlists.intense]
+# shaders = ["mandelbrot", "julia", "tesla", "kaleidoscope", "fire"]
+# palettes = ["electric", "ember", "groovy"]
 
 # ---------------------------------------------------------------------------
 # Custom palette definitions
@@ -102,44 +135,32 @@ dismiss_on = ["key", "mouse_move", "mouse_click", "touch"]
 # d = [0.70, 0.30, 0.10]
 
 # ---------------------------------------------------------------------------
-# Shader playlists -- named subsets for cycle mode
+# Legacy shader/palette playlists (v0.3.0 format, still supported)
 # ---------------------------------------------------------------------------
-# When shader = "cycle" and shader_playlist is set, hyprsaver cycles only
-# the shaders listed here (in order). Unknown names are skipped with a warning.
-# If the playlist resolves to empty, all shaders are cycled instead.
+# These separate playlist sections are superseded by [playlists] in v0.4.0
+# but continue to work for backward compatibility.
 #
 # [shader_playlists.my_favorites]
 # shaders = ["mandelbrot", "julia", "plasma"]
 #
-# [shader_playlists.chill]
-# shaders = ["snowfall", "starfield", "tunnel"]
-
-# ---------------------------------------------------------------------------
-# Palette playlists -- named subsets for palette cycle mode
-# ---------------------------------------------------------------------------
-# When palette = "cycle" and palette_playlist is set, hyprsaver cycles only
-# the palettes listed here (in order). Unknown names are skipped with a warning.
-#
 # [palette_playlists.warm_tones]
 # palettes = ["ember", "autumn", "groovy"]
-#
-# [palette_playlists.cool_vibes]
-# palettes = ["frost", "ocean", "vapor"]
 
 # ---------------------------------------------------------------------------
-# Per-monitor shader / palette assignment
+# Per-monitor shader / palette / playlist assignment
 # ---------------------------------------------------------------------------
-# Assign different shaders and palettes to specific monitors. Each [[monitor]]
-# entry matches a Wayland output by name (run `hyprctl monitors` to see names).
-# Monitors without an entry use the global shader/palette from [general].
+# Assign different shaders, palettes, and playlists to specific monitors.
+# Each [[monitor]] entry matches a Wayland output by name (run `hyprctl monitors`
+# to see names). Monitors without an entry use the global settings from [general].
 #
-# Both shader and palette are optional per entry -- omit either to inherit the
-# global setting.
+# All fields are optional per entry -- omit any to inherit the global setting.
 #
 # [[monitor]]
 # name = "DP-1"
-# shader = "raymarcher"
-# palette = "frost"
+# shader = "cycle"
+# palette = "cycle"
+# shader_playlist = "chill"       # overrides global shader_playlist for this monitor
+# palette_playlist = "default"    # overrides global palette_playlist for this monitor
 #
 # [[monitor]]
 # name = "HDMI-A-1"
