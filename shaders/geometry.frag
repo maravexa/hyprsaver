@@ -489,7 +489,7 @@ void main() {
     // Each edge contributes a hard line with smoothstep anti-aliasing.
     // Shape-A edges fade out as shape-B edges fade in via morph_t.
 
-    const float LINE_WIDTH = 0.003;
+    const float LINE_WIDTH = 0.009;
 
     vec3  col      = vec3(0.0);
     float base_hue = t * 0.06;   // full palette cycle ~16.7 s
