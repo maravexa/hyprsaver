@@ -154,7 +154,7 @@ pub struct PalettePlaylist {
 /// Example TOML:
 /// ```toml
 /// [playlists.chill]
-/// shaders = ["plasma", "flow_field", "bezier", "lissajous", "aurora_sphere"]
+/// shaders = ["plasma", "flow_field", "bezier", "lissajous", "planet"]
 /// palettes = ["vaporwave", "frost", "ocean", "aurora"]
 /// ```
 ///

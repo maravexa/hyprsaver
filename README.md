@@ -303,7 +303,7 @@ shaders = ["all"]
 palettes = ["all"]
 
 [playlists.chill]
-shaders = ["plasma", "flow_field", "bezier", "lissajous", "aurora_sphere"]
+shaders = ["plasma", "flow_field", "bezier", "lissajous", "planet"]
 palettes = ["vaporwave", "frost", "ocean", "aurora"]
 
 # Custom palettes are defined as top-level [palettes.<name>] sections
@@ -358,7 +358,7 @@ shaders = ["all"]              # "all" = every built-in + user shader
 palettes = ["all"]
 
 [playlists.chill]
-shaders = ["plasma", "flow_field", "bezier", "lissajous", "aurora_sphere"]
+shaders = ["plasma", "flow_field", "bezier", "lissajous", "planet"]
 palettes = ["vaporwave", "frost", "ocean", "aurora"]
 
 [playlists.intense]
