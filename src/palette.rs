@@ -2,7 +2,8 @@
 //!
 //! Three palette kinds are supported:
 //! - **Cosine** (`Palette`): Inigo Quilez cosine gradient. Defined by four RGB vec3 params
-//!   (a,b,c,d) and evaluated on the GPU via `palette(t)`. Zero texture overhead.
+//!   (a,b,c,d). Pre-baked to a 256-sample LUT on the CPU before upload — the GPU always
+//!   samples via texture lookup, eliminating per-pixel `cos()` evaluations.
 //! - **LUT**: A 256-sample RGB strip loaded from a PNG file. Uploaded as a 256×1 RGBA8
 //!   `GL_TEXTURE_2D` and sampled in the fragment shader via `sampler2D u_lut_a/b`.
 //! - **Gradient**: CSS-style stops interpolated at load time into a 256-sample LUT.
@@ -72,7 +73,8 @@ impl Default for Palette {
 /// Both variants ultimately produce RGB colors in `[0, 1]`.
 #[derive(Debug, Clone)]
 pub enum PaletteEntry {
-    /// Cosine gradient — uploaded as four vec3 uniforms, evaluated on the GPU.
+    /// Cosine gradient — pre-baked to a 256-sample LUT on the CPU via [`Palette::to_lut`]
+    /// before being uploaded to the GPU as a 256×1 RGBA8 texture.
     Cosine(Palette),
     /// 256-sample LUT — uploaded as a 256×1 RGBA8 texture and sampled in GLSL.
     Lut(Vec<[f32; 3]>),
@@ -442,8 +444,8 @@ pub fn builtin_gradient_palettes() -> Vec<(String, PaletteEntry)> {
 ///    active palette should change.
 /// 2. Call [`Self::advance_transition`] every frame; it returns the blend
 ///    factor in `[0.0, 1.0]` which is forwarded to the shader's
-///    `u_palette_blend` uniform. Palette A and palette B are uploaded
-///    separately and the shader mixes on-GPU.
+///    `u_palette_blend` uniform. Both palettes are pre-baked to LUT textures
+///    and the shader blends between them via `mix()`.
 /// 3. When `advance_transition` returns `1.0` the transition is complete;
 ///    subsequent calls return `0.0` (no blend) until the next transition.
 ///
