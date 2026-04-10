@@ -1168,6 +1168,14 @@ fn resolve_shader(
             if shader_manager.get(n).is_some() {
                 n.to_string()
             } else {
+                // Graceful alias: "raymarcher" was renamed to "donut" in v0.3.1.
+                if n == "raymarcher" {
+                    log::warn!(
+                        "Unknown shader 'raymarcher', did you mean 'donut'? \
+                         Falling back to 'donut'."
+                    );
+                    return "donut".to_string();
+                }
                 log::warn!("preview: unknown shader '{n}', falling back to mandelbrot");
                 shader_manager
                     .get("mandelbrot")

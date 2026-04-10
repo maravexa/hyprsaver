@@ -39,7 +39,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Shaders**: kaleidoscope, flow_field, raymarcher, lissajous, starfield, snowfall
+- **Shaders**: kaleidoscope, flow_field, donut, lissajous, starfield, snowfall
 - **Preview mode**: xdg-toplevel window with docked egui control panel (shader/palette
   dropdowns, speed/zoom sliders with reset buttons)
 - **LUT palette support**: load 256-color PNG strips as palettes via `type = "lut"` in

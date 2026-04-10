@@ -455,6 +455,14 @@ impl WaylandState {
                 if shader_manager.get(name).is_some() {
                     name.to_string()
                 } else {
+                    // Graceful alias: "raymarcher" was renamed to "donut" in v0.3.1.
+                    if name == "raymarcher" {
+                        log::warn!(
+                            "Unknown shader 'raymarcher', did you mean 'donut'? \
+                             Falling back to 'donut'."
+                        );
+                        return "donut".to_string();
+                    }
                     // Fallback to mandelbrot or first available.
                     shader_manager
                         .get("mandelbrot")

@@ -44,7 +44,7 @@ pub const BUILTIN_KALEIDOSCOPE: &str = include_str!("../shaders/kaleidoscope.fra
 pub const BUILTIN_FLOW_FIELD: &str = include_str!("../shaders/flow_field.frag");
 
 /// Raymarched torus with Phong lighting and palette-mapped surface color.
-pub const BUILTIN_RAYMARCHER: &str = include_str!("../shaders/raymarcher.frag");
+pub const BUILTIN_DONUT: &str = include_str!("../shaders/donut.frag");
 
 /// Three overlapping Lissajous curves with smooth glow and drifting hue.
 pub const BUILTIN_LISSAJOUS: &str = include_str!("../shaders/lissajous.frag");
@@ -242,7 +242,7 @@ impl ShaderManager {
             ("matrix", BUILTIN_MATRIX),
             ("network", BUILTIN_NETWORK),
             ("plasma", BUILTIN_PLASMA),
-            ("raymarcher", BUILTIN_RAYMARCHER),
+            ("donut", BUILTIN_DONUT),
             ("snowfall", BUILTIN_SNOWFALL),
             ("starfield", BUILTIN_STARFIELD),
             ("tesla", BUILTIN_TESLA),
@@ -834,7 +834,7 @@ mod tests {
             "matrix",
             "network",
             "plasma",
-            "raymarcher",
+            "donut",
             "snowfall",
             "starfield",
             "tesla",

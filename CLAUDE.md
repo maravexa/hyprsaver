@@ -56,7 +56,7 @@ cargo build --release
 | starfield     | Hyperspace zoom tunnel with motion-blur tracers          |
 | kaleidoscope  | 6-fold kaleidoscope driven by domain-warped FBM          |
 | flow_field    | Curl-noise flow field with 8-step particle tracing       |
-| raymarcher    | Raymarched torus with Phong lighting                     |
+| donut         | Raymarched torus with Phong lighting                     |
 | lissajous     | Three overlapping Lissajous curves with glow             |
 | geometry      | Wireframe polyhedron morphing (cube→icosahedron→...)     |
 | hypercube     | Rotating 4D tesseract projected to 2D, neon glow         |

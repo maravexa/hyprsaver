@@ -2,7 +2,7 @@
 precision highp float;
 
 // ---------------------------------------------------------------------------
-// hyprsaver — raymarcher.frag
+// hyprsaver — donut.frag
 //
 // Raymarched torus scene. A torus (major radius 0.8, minor radius 0.3)
 // rotates slowly on XY and XZ axes. 64-step sphere-marching with ε = 0.001.
