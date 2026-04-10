@@ -66,8 +66,8 @@ pub const BUILTIN_FIRE: &str = include_str!("../shaders/fire.frag");
 /// Underwater caustic light patterns — sine-wave summation caustics with water-surface heave.
 pub const BUILTIN_CAUSTICS: &str = include_str!("../shaders/caustics.frag");
 
-/// Aurora borealis bands wrapping a raymarched unit sphere with value-noise curtain perturbation.
-pub const BUILTIN_AURORA_SPHERE: &str = include_str!("../shaders/aurora_sphere.frag");
+/// Raymarched planet sphere with aurora borealis bands and value-noise curtain perturbation.
+pub const BUILTIN_PLANET: &str = include_str!("../shaders/planet.frag");
 
 /// Five animated cubic Bézier curves with slow-drifting control points and additive palette glow.
 pub const BUILTIN_BEZIER: &str = include_str!("../shaders/bezier.frag");
@@ -228,7 +228,7 @@ impl ShaderManager {
 
         // Register built-in shaders.
         let builtins: &[(&str, &str)] = &[
-            ("aurora_sphere", BUILTIN_AURORA_SPHERE),
+            ("planet", BUILTIN_PLANET),
             ("bezier", BUILTIN_BEZIER),
             ("caustics", BUILTIN_CAUSTICS),
             ("fire", BUILTIN_FIRE),
@@ -820,7 +820,7 @@ mod tests {
         let mgr = manager();
         let names = mgr.list();
         for expected in &[
-            "aurora_sphere",
+            "planet",
             "bezier",
             "caustics",
             "fire",

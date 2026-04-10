@@ -463,6 +463,14 @@ impl WaylandState {
                         );
                         return "donut".to_string();
                     }
+                    // Graceful alias: "aurora_sphere" was renamed to "planet".
+                    if name == "aurora_sphere" {
+                        log::warn!(
+                            "Shader 'aurora_sphere' was renamed to 'planet'. \
+                             Please update your config. Falling back to 'planet'."
+                        );
+                        return "planet".to_string();
+                    }
                     // Fallback to mandelbrot or first available.
                     shader_manager
                         .get("mandelbrot")
