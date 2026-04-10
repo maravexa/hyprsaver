@@ -143,7 +143,9 @@ void main() {
     float intensity = clamp(n * height_mask * 2.2 - 0.05, 0.0, 1.0);
 
     // Map intensity to palette. t≈0 → cool embers/dark, t≈1 → hot bright tips.
-    vec3 col = palette(intensity);
+    // Multiply by smoothstep so near-zero intensity fades to pure black regardless
+    // of what palette() returns at t=0 — prevents colored backgrounds with bright palettes.
+    vec3 col = palette(intensity) * smoothstep(0.0, 0.05, intensity);
 
     // Ember particles additively blended on top.
     float ember_glow = embers(uv, t * 0.7);
