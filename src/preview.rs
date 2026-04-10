@@ -120,9 +120,20 @@ enum PreviewTab {
 /// "create a new palette" option.
 const NEW_PALETTE_SENTINEL: &str = "— New Palette —";
 
+/// Which sub-tab is active inside the Playlists tab.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PlaylistSubTab {
+    Shaders,
+    Palettes,
+}
+
 /// All state for the Playlists editor tab.
 struct PlaylistEditorState {
+    // Which sub-tab is currently visible.
+    active_subtab: PlaylistSubTab,
+
     // Shader playlist
+    shader_playlist_name: String,
     shader_items: Vec<String>,
     selected_shader_idx: Option<usize>,
     add_shader_selected: String,
@@ -130,6 +141,7 @@ struct PlaylistEditorState {
     shader_drag_tgt: Option<usize>,
 
     // Palette playlist
+    palette_playlist_name: String,
     palette_items: Vec<String>,
     selected_palette_idx: Option<usize>,
     add_palette_selected: String,
@@ -461,12 +473,16 @@ impl PreviewState {
             .unwrap_or_default();
 
         PlaylistEditorState {
+            active_subtab: PlaylistSubTab::Shaders,
+
+            shader_playlist_name: self.config.general.shader_playlist.clone(),
             shader_items,
             selected_shader_idx: None,
             add_shader_selected: String::new(),
             shader_drag_src: None,
             shader_drag_tgt: None,
 
+            palette_playlist_name: self.config.general.palette_playlist.clone(),
             palette_items,
             selected_palette_idx: None,
             add_palette_selected: String::new(),
@@ -646,6 +662,8 @@ impl PreviewState {
             bundle.state.playlist_editor.save_requested = false;
             let ed = &bundle.state.playlist_editor;
             match save_playlist_config(
+                &ed.shader_playlist_name,
+                &ed.palette_playlist_name,
                 &ed.shader_items,
                 &ed.palette_items,
                 ed.shader_interval,
@@ -836,6 +854,8 @@ impl PreviewState {
                 &self.active_palette,
                 bundle.state.speed,
                 bundle.state.zoom,
+                &ed.shader_playlist_name,
+                &ed.palette_playlist_name,
                 &ed.shader_items,
                 &ed.palette_items,
                 ed.shader_interval,
@@ -1833,148 +1853,216 @@ fn draw_playlists_tab(
     palette_list: &[String],
 ) {
     let avail_w = ui.available_width();
+
+    // ── Sub-tab bar ──────────────────────────────────────────────────
+    // Visually distinct from the main tab bar: uses SelectableLabel with
+    // small text instead of full button widgets.
+    {
+        let ed = &mut state.playlist_editor;
+        ui.horizontal(|ui| {
+            if ui
+                .add(egui::SelectableLabel::new(
+                    ed.active_subtab == PlaylistSubTab::Shaders,
+                    egui::RichText::new("Shaders").small(),
+                ))
+                .clicked()
+            {
+                ed.active_subtab = PlaylistSubTab::Shaders;
+            }
+            ui.separator();
+            if ui
+                .add(egui::SelectableLabel::new(
+                    ed.active_subtab == PlaylistSubTab::Palettes,
+                    egui::RichText::new("Palettes").small(),
+                ))
+                .clicked()
+            {
+                ed.active_subtab = PlaylistSubTab::Palettes;
+            }
+        });
+    }
+    ui.add_space(4.0);
+    ui.separator();
+    ui.add_space(6.0);
+
     egui::ScrollArea::vertical()
         .id_salt("playlists_scroll")
         .auto_shrink([false; 2])
         .show(ui, |ui| {
             let ed = &mut state.playlist_editor;
 
-            // ── Shader Playlist ─────────────────────────────────────────
-            ui.label(egui::RichText::new("Shader Playlist").strong().small());
-            egui::ScrollArea::vertical()
-                .id_salt("shader_list_scroll")
-                .max_height(120.0)
-                .show(ui, |ui| {
-                    draw_reorderable_list(
-                        ui,
-                        &mut ed.shader_items,
-                        &mut ed.selected_shader_idx,
-                        &mut ed.shader_drag_src,
-                        &mut ed.shader_drag_tgt,
+            match ed.active_subtab {
+                // ── Shaders sub-tab ──────────────────────────────────
+                PlaylistSubTab::Shaders => {
+                    // a. Playlist name field
+                    ui.label(egui::RichText::new("Playlist name").small());
+                    ui.add(
+                        egui::TextEdit::singleline(&mut ed.shader_playlist_name)
+                            .hint_text("New Playlist")
+                            .desired_width(avail_w - 4.0),
                     );
-                });
+                    ui.add_space(6.0);
 
-            // Add row
-            ui.horizontal(|ui| {
-                let available: Vec<String> = shader_list
-                    .iter()
-                    .filter(|s| !ed.shader_items.contains(*s))
-                    .cloned()
-                    .collect();
-                let combo_text = if ed.add_shader_selected.is_empty() {
-                    "— add —"
-                } else {
-                    &ed.add_shader_selected
-                };
-                egui::ComboBox::from_id_salt("add_shader_combo")
-                    .width(avail_w - 48.0)
-                    .selected_text(combo_text)
-                    .show_ui(ui, |ui| {
-                        for name in &available {
-                            ui.selectable_value(&mut ed.add_shader_selected, name.clone(), name);
+                    // b. Dropdown to select items to add
+                    // c. Add button
+                    ui.horizontal(|ui| {
+                        let available: Vec<String> = shader_list
+                            .iter()
+                            .filter(|s| !ed.shader_items.contains(*s))
+                            .cloned()
+                            .collect();
+                        let combo_text = if ed.add_shader_selected.is_empty() {
+                            "— add —"
+                        } else {
+                            &ed.add_shader_selected
+                        };
+                        egui::ComboBox::from_id_salt("add_shader_combo")
+                            .width(avail_w - 48.0)
+                            .selected_text(combo_text)
+                            .show_ui(ui, |ui| {
+                                for name in &available {
+                                    ui.selectable_value(
+                                        &mut ed.add_shader_selected,
+                                        name.clone(),
+                                        name,
+                                    );
+                                }
+                            });
+                        let can_add = !ed.add_shader_selected.is_empty()
+                            && !ed.shader_items.contains(&ed.add_shader_selected);
+                        if ui
+                            .add_enabled(
+                                can_add,
+                                egui::Button::new("+").min_size(egui::Vec2::new(28.0, 0.0)),
+                            )
+                            .clicked()
+                        {
+                            ed.shader_items.push(ed.add_shader_selected.clone());
+                            ed.add_shader_selected.clear();
                         }
                     });
-                let can_add = !ed.add_shader_selected.is_empty()
-                    && !ed.shader_items.contains(&ed.add_shader_selected);
-                if ui
-                    .add_enabled(
-                        can_add,
-                        egui::Button::new("+").min_size(egui::Vec2::new(28.0, 0.0)),
-                    )
-                    .clicked()
-                {
-                    ed.shader_items.push(ed.add_shader_selected.clone());
-                    ed.add_shader_selected.clear();
-                }
-            });
 
-            // Remove button
-            if ui
-                .add_enabled(
-                    ed.selected_shader_idx.is_some(),
-                    egui::Button::new("− Remove selected").min_size(egui::Vec2::new(avail_w, 0.0)),
-                )
-                .clicked()
-            {
-                if let Some(idx) = ed.selected_shader_idx {
-                    if idx < ed.shader_items.len() {
-                        ed.shader_items.remove(idx);
-                        ed.selected_shader_idx = if ed.shader_items.is_empty() {
-                            None
-                        } else {
-                            Some(idx.min(ed.shader_items.len() - 1))
-                        };
+                    ui.add_space(4.0);
+
+                    // d. Scrollable list of current playlist entries
+                    egui::ScrollArea::vertical()
+                        .id_salt("shader_list_scroll")
+                        .max_height(140.0)
+                        .show(ui, |ui| {
+                            draw_reorderable_list(
+                                ui,
+                                &mut ed.shader_items,
+                                &mut ed.selected_shader_idx,
+                                &mut ed.shader_drag_src,
+                                &mut ed.shader_drag_tgt,
+                            );
+                        });
+
+                    if ui
+                        .add_enabled(
+                            ed.selected_shader_idx.is_some(),
+                            egui::Button::new("− Remove selected")
+                                .min_size(egui::Vec2::new(avail_w, 0.0)),
+                        )
+                        .clicked()
+                    {
+                        if let Some(idx) = ed.selected_shader_idx {
+                            if idx < ed.shader_items.len() {
+                                ed.shader_items.remove(idx);
+                                ed.selected_shader_idx = if ed.shader_items.is_empty() {
+                                    None
+                                } else {
+                                    Some(idx.min(ed.shader_items.len() - 1))
+                                };
+                            }
+                        }
                     }
                 }
-            }
 
-            ui.add_space(8.0);
-
-            // ── Palette Playlist ────────────────────────────────────────
-            ui.label(egui::RichText::new("Palette Playlist").strong().small());
-            egui::ScrollArea::vertical()
-                .id_salt("palette_list_scroll")
-                .max_height(90.0)
-                .show(ui, |ui| {
-                    draw_reorderable_list(
-                        ui,
-                        &mut ed.palette_items,
-                        &mut ed.selected_palette_idx,
-                        &mut ed.palette_drag_src,
-                        &mut ed.palette_drag_tgt,
+                // ── Palettes sub-tab ─────────────────────────────────
+                PlaylistSubTab::Palettes => {
+                    // a. Playlist name field
+                    ui.label(egui::RichText::new("Playlist name").small());
+                    ui.add(
+                        egui::TextEdit::singleline(&mut ed.palette_playlist_name)
+                            .hint_text("New Playlist")
+                            .desired_width(avail_w - 4.0),
                     );
-                });
+                    ui.add_space(6.0);
 
-            // Add row
-            ui.horizontal(|ui| {
-                let available: Vec<String> = palette_list
-                    .iter()
-                    .filter(|s| !ed.palette_items.contains(*s))
-                    .cloned()
-                    .collect();
-                let combo_text = if ed.add_palette_selected.is_empty() {
-                    "— add —"
-                } else {
-                    &ed.add_palette_selected
-                };
-                egui::ComboBox::from_id_salt("add_palette_combo")
-                    .width(avail_w - 48.0)
-                    .selected_text(combo_text)
-                    .show_ui(ui, |ui| {
-                        for name in &available {
-                            ui.selectable_value(&mut ed.add_palette_selected, name.clone(), name);
+                    // b. Dropdown to select items to add
+                    // c. Add button
+                    ui.horizontal(|ui| {
+                        let available: Vec<String> = palette_list
+                            .iter()
+                            .filter(|s| !ed.palette_items.contains(*s))
+                            .cloned()
+                            .collect();
+                        let combo_text = if ed.add_palette_selected.is_empty() {
+                            "— add —"
+                        } else {
+                            &ed.add_palette_selected
+                        };
+                        egui::ComboBox::from_id_salt("add_palette_combo")
+                            .width(avail_w - 48.0)
+                            .selected_text(combo_text)
+                            .show_ui(ui, |ui| {
+                                for name in &available {
+                                    ui.selectable_value(
+                                        &mut ed.add_palette_selected,
+                                        name.clone(),
+                                        name,
+                                    );
+                                }
+                            });
+                        let can_add = !ed.add_palette_selected.is_empty()
+                            && !ed.palette_items.contains(&ed.add_palette_selected);
+                        if ui
+                            .add_enabled(
+                                can_add,
+                                egui::Button::new("+").min_size(egui::Vec2::new(28.0, 0.0)),
+                            )
+                            .clicked()
+                        {
+                            ed.palette_items.push(ed.add_palette_selected.clone());
+                            ed.add_palette_selected.clear();
                         }
                     });
-                let can_add = !ed.add_palette_selected.is_empty()
-                    && !ed.palette_items.contains(&ed.add_palette_selected);
-                if ui
-                    .add_enabled(
-                        can_add,
-                        egui::Button::new("+").min_size(egui::Vec2::new(28.0, 0.0)),
-                    )
-                    .clicked()
-                {
-                    ed.palette_items.push(ed.add_palette_selected.clone());
-                    ed.add_palette_selected.clear();
-                }
-            });
 
-            // Remove button
-            if ui
-                .add_enabled(
-                    ed.selected_palette_idx.is_some(),
-                    egui::Button::new("− Remove selected").min_size(egui::Vec2::new(avail_w, 0.0)),
-                )
-                .clicked()
-            {
-                if let Some(idx) = ed.selected_palette_idx {
-                    if idx < ed.palette_items.len() {
-                        ed.palette_items.remove(idx);
-                        ed.selected_palette_idx = if ed.palette_items.is_empty() {
-                            None
-                        } else {
-                            Some(idx.min(ed.palette_items.len() - 1))
-                        };
+                    ui.add_space(4.0);
+
+                    // d. Scrollable list of current playlist entries
+                    egui::ScrollArea::vertical()
+                        .id_salt("palette_list_scroll")
+                        .max_height(140.0)
+                        .show(ui, |ui| {
+                            draw_reorderable_list(
+                                ui,
+                                &mut ed.palette_items,
+                                &mut ed.selected_palette_idx,
+                                &mut ed.palette_drag_src,
+                                &mut ed.palette_drag_tgt,
+                            );
+                        });
+
+                    if ui
+                        .add_enabled(
+                            ed.selected_palette_idx.is_some(),
+                            egui::Button::new("− Remove selected")
+                                .min_size(egui::Vec2::new(avail_w, 0.0)),
+                        )
+                        .clicked()
+                    {
+                        if let Some(idx) = ed.selected_palette_idx {
+                            if idx < ed.palette_items.len() {
+                                ed.palette_items.remove(idx);
+                                ed.selected_palette_idx = if ed.palette_items.is_empty() {
+                                    None
+                                } else {
+                                    Some(idx.min(ed.palette_items.len() - 1))
+                                };
+                            }
+                        }
                     }
                 }
             }
@@ -2395,6 +2483,8 @@ fn draw_reorderable_list(
 ///
 /// Returns the path written on success, or an error string.
 fn save_playlist_config(
+    shader_playlist_name: &str,
+    palette_playlist_name: &str,
     shader_items: &[String],
     palette_items: &[String],
     shader_interval: u64,
@@ -2469,9 +2559,14 @@ fn save_playlist_config(
             ),
         );
         if !shader_items.is_empty() {
+            let sname = if shader_playlist_name.trim().is_empty() {
+                "custom"
+            } else {
+                shader_playlist_name.trim()
+            };
             general.insert(
                 "shader_playlist".to_string(),
-                toml::Value::String("custom".to_string()),
+                toml::Value::String(sname.to_string()),
             );
             general.insert(
                 "shader".to_string(),
@@ -2479,9 +2574,14 @@ fn save_playlist_config(
             );
         }
         if !palette_items.is_empty() {
+            let pname = if palette_playlist_name.trim().is_empty() {
+                "custom"
+            } else {
+                palette_playlist_name.trim()
+            };
             general.insert(
                 "palette_playlist".to_string(),
-                toml::Value::String("custom".to_string()),
+                toml::Value::String(pname.to_string()),
             );
             general.insert(
                 "palette".to_string(),
@@ -2490,32 +2590,41 @@ fn save_playlist_config(
         }
     }
 
-    // Update [playlists.custom] (unified v0.4.0 format).
-    if !shader_items.is_empty() || !palette_items.is_empty() {
-        let playlists = ensure_table(root, "playlists");
-        let custom = ensure_table(playlists, "custom");
-        if !shader_items.is_empty() {
-            custom.insert(
-                "shaders".to_string(),
-                toml::Value::Array(
-                    shader_items
-                        .iter()
-                        .map(|s| toml::Value::String(s.clone()))
-                        .collect(),
-                ),
-            );
-        }
-        if !palette_items.is_empty() {
-            custom.insert(
-                "palettes".to_string(),
-                toml::Value::Array(
-                    palette_items
-                        .iter()
-                        .map(|s| toml::Value::String(s.clone()))
-                        .collect(),
-                ),
-            );
-        }
+    // Update [playlists.<name>] (unified v0.4.0 format).
+    let playlists = ensure_table(root, "playlists");
+    if !shader_items.is_empty() {
+        let sname = if shader_playlist_name.trim().is_empty() {
+            "custom"
+        } else {
+            shader_playlist_name.trim()
+        };
+        let shader_pl = ensure_table(playlists, sname);
+        shader_pl.insert(
+            "shaders".to_string(),
+            toml::Value::Array(
+                shader_items
+                    .iter()
+                    .map(|s| toml::Value::String(s.clone()))
+                    .collect(),
+            ),
+        );
+    }
+    if !palette_items.is_empty() {
+        let pname = if palette_playlist_name.trim().is_empty() {
+            "custom"
+        } else {
+            palette_playlist_name.trim()
+        };
+        let palette_pl = ensure_table(playlists, pname);
+        palette_pl.insert(
+            "palettes".to_string(),
+            toml::Value::Array(
+                palette_items
+                    .iter()
+                    .map(|s| toml::Value::String(s.clone()))
+                    .collect(),
+            ),
+        );
     }
 
     // Ensure the parent directory exists.
@@ -2643,6 +2752,8 @@ fn save_preview_config(
     palette: &str,
     speed: f32,
     zoom: f32,
+    shader_playlist_name: &str,
+    palette_playlist_name: &str,
     shader_items: &[String],
     palette_items: &[String],
     shader_interval: u64,
@@ -2730,45 +2841,64 @@ fn save_preview_config(
             );
         }
         if !shader_items.is_empty() {
+            let sname = if shader_playlist_name.trim().is_empty() {
+                "custom"
+            } else {
+                shader_playlist_name.trim()
+            };
             general.insert(
                 "shader_playlist".to_string(),
-                toml::Value::String("custom".to_string()),
+                toml::Value::String(sname.to_string()),
             );
         }
         if !palette_items.is_empty() {
+            let pname = if palette_playlist_name.trim().is_empty() {
+                "custom"
+            } else {
+                palette_playlist_name.trim()
+            };
             general.insert(
                 "palette_playlist".to_string(),
-                toml::Value::String("custom".to_string()),
+                toml::Value::String(pname.to_string()),
             );
         }
     }
 
-    // ── [playlists.custom] (unified v0.4.0 format) ────────────────────
-    if !shader_items.is_empty() || !palette_items.is_empty() {
-        let playlists = ensure_table(root, "playlists");
-        let custom = ensure_table(playlists, "custom");
-        if !shader_items.is_empty() {
-            custom.insert(
-                "shaders".to_string(),
-                toml::Value::Array(
-                    shader_items
-                        .iter()
-                        .map(|s| toml::Value::String(s.clone()))
-                        .collect(),
-                ),
-            );
-        }
-        if !palette_items.is_empty() {
-            custom.insert(
-                "palettes".to_string(),
-                toml::Value::Array(
-                    palette_items
-                        .iter()
-                        .map(|s| toml::Value::String(s.clone()))
-                        .collect(),
-                ),
-            );
-        }
+    // ── [playlists.<name>] (unified v0.4.0 format) ────────────────────
+    let playlists = ensure_table(root, "playlists");
+    if !shader_items.is_empty() {
+        let sname = if shader_playlist_name.trim().is_empty() {
+            "custom"
+        } else {
+            shader_playlist_name.trim()
+        };
+        let shader_pl = ensure_table(playlists, sname);
+        shader_pl.insert(
+            "shaders".to_string(),
+            toml::Value::Array(
+                shader_items
+                    .iter()
+                    .map(|s| toml::Value::String(s.clone()))
+                    .collect(),
+            ),
+        );
+    }
+    if !palette_items.is_empty() {
+        let pname = if palette_playlist_name.trim().is_empty() {
+            "custom"
+        } else {
+            palette_playlist_name.trim()
+        };
+        let palette_pl = ensure_table(playlists, pname);
+        palette_pl.insert(
+            "palettes".to_string(),
+            toml::Value::Array(
+                palette_items
+                    .iter()
+                    .map(|s| toml::Value::String(s.clone()))
+                    .collect(),
+            ),
+        );
     }
 
     // ── [palettes.<name>] for every session-created cosine palette ──
