@@ -116,7 +116,7 @@ cargo install hyprsaver
   | `fire`          | Roiling procedural flames with ember particles       |
   | `caustics`      | Underwater caustic light patterns                    |
   | `bezier`        | Five animated Bézier curves with additive palette glow |
-  | `aurora_sphere` | Raymarched sphere with aurora borealis bands and noise-perturbed curtains |
+  | `planet`        | Raymarched planet sphere with aurora borealis bands and noise-perturbed curtains |
   | `tesla`         | Tesla coil arcs — fractal-lightning between three electrodes with branching |
   | `wormhole`      | Fly-through a curving wormhole with ring-textured walls and point lights    |
 - **Built-in palette collection**: electric, autumn, vapor, frost, ember, ocean, monochrome, sunset, aurora, midnight
@@ -303,7 +303,7 @@ shaders = ["all"]
 palettes = ["all"]
 
 [playlists.chill]
-shaders = ["plasma", "flow_field", "bezier", "lissajous", "aurora_sphere"]
+shaders = ["plasma", "flow_field", "bezier", "lissajous", "planet"]
 palettes = ["vapor", "frost", "ocean", "aurora"]
 
 # Custom palettes are defined as top-level [palettes.<name>] sections
@@ -358,7 +358,7 @@ shaders = ["all"]              # "all" = every built-in + user shader
 palettes = ["all"]
 
 [playlists.chill]
-shaders = ["plasma", "flow_field", "bezier", "lissajous", "aurora_sphere"]
+shaders = ["plasma", "flow_field", "bezier", "lissajous", "planet"]
 palettes = ["vapor", "frost", "ocean", "aurora"]
 
 [playlists.intense]

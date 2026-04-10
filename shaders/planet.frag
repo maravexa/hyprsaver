@@ -2,7 +2,7 @@
 precision highp float;
 
 // ---------------------------------------------------------------------------
-// hyprsaver — aurora_sphere.frag
+// hyprsaver — planet.frag
 //
 // Raymarched unit sphere with aurora borealis bands wrapping latitude lines.
 // Three sine-wave bands at frequencies 3, 5, 7 are perturbed by 3-D value
@@ -59,7 +59,7 @@ float starfield(vec2 uv) {
     vec2  g = floor(uv * 250.0);
     float h = fract(sin(dot(g, vec2(127.1, 311.7))) * 43758.5453);
     float b = fract(sin(dot(g, vec2(269.5, 183.3))) * 12345.6789);
-    return h > 0.988 ? b * 0.7 + 0.3 : 0.0;
+    return h > 0.9904 ? b * 0.7 + 0.3 : 0.0;
 }
 
 // ── Main ────────────────────────────────────────────────────────────────────
