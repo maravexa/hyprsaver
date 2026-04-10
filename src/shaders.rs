@@ -72,6 +72,9 @@ pub const BUILTIN_AURORA_SPHERE: &str = include_str!("../shaders/aurora_sphere.f
 /// Five animated cubic Bézier curves with slow-drifting control points and additive palette glow.
 pub const BUILTIN_BEZIER: &str = include_str!("../shaders/bezier.frag");
 
+/// Tesla coil arcs — fractal-lightning between three electrodes with branching and a wandering endpoint.
+pub const BUILTIN_TESLA: &str = include_str!("../shaders/tesla.frag");
+
 // ---------------------------------------------------------------------------
 // Vertex shader for the fullscreen quad (triangle-strip, no VBO needed)
 // ---------------------------------------------------------------------------
@@ -239,6 +242,7 @@ impl ShaderManager {
             ("raymarcher", BUILTIN_RAYMARCHER),
             ("snowfall", BUILTIN_SNOWFALL),
             ("starfield", BUILTIN_STARFIELD),
+            ("tesla", BUILTIN_TESLA),
             ("tunnel", BUILTIN_TUNNEL),
             ("voronoi", BUILTIN_VORONOI),
         ];
@@ -804,7 +808,7 @@ mod tests {
 
     #[test]
     fn test_builtin_shader_count() {
-        assert_eq!(manager().list().len(), 19);
+        assert_eq!(manager().list().len(), 20);
     }
 
     #[test]
@@ -829,6 +833,7 @@ mod tests {
             "raymarcher",
             "snowfall",
             "starfield",
+            "tesla",
             "tunnel",
             "voronoi",
         ] {
