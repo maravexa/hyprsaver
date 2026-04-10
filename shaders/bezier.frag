@@ -4,17 +4,17 @@ precision highp float;
 // ---------------------------------------------------------------------------
 // hyprsaver — bezier.frag
 //
-// Five animated cubic Bézier curves rendered simultaneously. Each curve has
+// Eight animated cubic Bézier curves rendered simultaneously. Each curve has
 // four control points that drift slowly via sine / cosine oscillation at
 // independent frequencies in the 0.1 – 0.3 Hz range, producing organic,
 // flowing motion. Control points stay within [-1.2, 1.2] normalized space.
 //
 // Per-pixel minimum distance is computed by sampling 256 parametric points
 // along t ∈ [0, 1] for each curve. Two glow layers are blended additively:
-//   • Primary:   exp(-d² × 200) — thin, bright core line
-//   • Secondary: exp(-d² × 50) × 0.3 — soft bloom halo at 2× width
+//   • Primary:   exp(-d² × 400) — thin, bright core line
+//   • Secondary: exp(-d² × 100) × 0.3 — soft bloom halo at 2× width
 //
-// Curve hue cycles slowly using palette(curve_index/5.0 + time×0.03) so
+// Curve hue cycles slowly using palette(curve_index/8.0 + time×0.03) so
 // any palette produces a distinct multi-colour result. Background is (0.02).
 // ---------------------------------------------------------------------------
 
@@ -53,20 +53,21 @@ void main() {
 
     vec3 col = vec3(0.02);
 
-    for (int ci = 0; ci < 5; ci++) {
+    for (int ci = 0; ci < 8; ci++) {
         float cf = float(ci);
 
-        // Per-curve phase offset (2π/5 ≈ 1.2566 rad between curves).
-        float ph = cf * 1.25664;
+        // Per-curve phase offset (2π/8 ≈ 0.7854 rad between curves).
+        float ph = cf * 0.78540;
 
-        // Independent oscillation frequencies in [0.10, 0.28] Hz.
-        float fa = 0.10 + cf * 0.04;   // 0.10 / 0.14 / 0.18 / 0.22 / 0.26 Hz
-        float fb = 0.13 + cf * 0.03;   // 0.13 / 0.16 / 0.19 / 0.22 / 0.25 Hz
-        float fc = 0.27 - cf * 0.03;   // 0.27 / 0.24 / 0.21 / 0.18 / 0.15 Hz
-        float fd = 0.20 + cf * 0.02;   // 0.20 / 0.22 / 0.24 / 0.26 / 0.28 Hz
+        // Independent oscillation frequencies in [0.10, 0.30] Hz.
+        // Step sizes chosen so all 8 curves stay within range.
+        float fa = 0.10 + cf * 0.025;  // 0.100 / 0.125 / 0.150 / 0.175 / 0.200 / 0.225 / 0.250 / 0.275 Hz
+        float fb = 0.12 + cf * 0.025;  // 0.120 / 0.145 / 0.170 / 0.195 / 0.220 / 0.245 / 0.270 / 0.295 Hz
+        float fc = 0.28 - cf * 0.025;  // 0.280 / 0.255 / 0.230 / 0.205 / 0.180 / 0.155 / 0.130 / 0.105 Hz
+        float fd = 0.17 + cf * 0.015;  // 0.170 / 0.185 / 0.200 / 0.215 / 0.230 / 0.245 / 0.260 / 0.275 Hz
 
         // Y centre staggered so curves span the visible area.
-        float cy = (cf - 2.0) * 0.22;  // -0.44, -0.22, 0.0, 0.22, 0.44
+        float cy = (cf - 3.5) * 0.13;  // -0.455, -0.325, -0.195, -0.065, 0.065, 0.195, 0.325, 0.455
 
         // Control points oscillate around base positions; all stay in [-1.2, 1.2].
         vec2 p0 = vec2(
@@ -89,11 +90,11 @@ void main() {
         float dist = bezier_dist(p0, p1, p2, p3, uv);
 
         // Primary glow: thin bright core.
-        float glow  = exp(-dist * dist * 200.0);
+        float glow  = exp(-dist * dist * 400.0);
         // Secondary glow: soft bloom at 2× width, 0.3× intensity.
-        float bloom = exp(-dist * dist * 50.0) * 0.3;
+        float bloom = exp(-dist * dist * 100.0) * 0.3;
 
-        vec3 curve_col = palette(cf / 5.0 + T * 0.03);
+        vec3 curve_col = palette(cf / 8.0 + T * 0.03);
         col += curve_col * (glow + bloom);
     }
 
