@@ -103,6 +103,44 @@ impl EglState {
 // egui panel state
 // ---------------------------------------------------------------------------
 
+/// Which tab is shown in the right-side control panel.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PreviewTab {
+    Preview,
+    Playlists,
+}
+
+/// All state for the Playlists editor tab.
+struct PlaylistEditorState {
+    // Shader playlist
+    shader_items: Vec<String>,
+    selected_shader_idx: Option<usize>,
+    add_shader_selected: String,
+    shader_drag_src: Option<usize>,
+    shader_drag_tgt: Option<usize>,
+
+    // Palette playlist
+    palette_items: Vec<String>,
+    selected_palette_idx: Option<usize>,
+    add_palette_selected: String,
+    palette_drag_src: Option<usize>,
+    palette_drag_tgt: Option<usize>,
+
+    // Interval controls (seconds)
+    shader_interval: u64,
+    palette_interval: u64,
+
+    // true = random, false = sequential
+    cycle_order_random: bool,
+
+    // Action flags (set by UI buttons, consumed by render_panel)
+    save_requested: bool,
+    apply_requested: bool,
+
+    // Status message shown beneath the action buttons
+    save_status: String,
+}
+
 /// Persistent UI state for the right-side egui control panel.
 struct PreviewPanelState {
     selected_shader: String,
@@ -112,6 +150,10 @@ struct PreviewPanelState {
     status_message: String,
     /// Set to true by the ▶ Preview button; cleared after applying changes.
     preview_requested: bool,
+    /// Which tab is currently shown.
+    active_tab: PreviewTab,
+    /// State for the Playlists editor tab.
+    playlist_editor: PlaylistEditorState,
 }
 
 /// egui resources bundled together so they can be `.take()`n out of
@@ -269,6 +311,7 @@ impl PreviewState {
         visuals.panel_fill = egui::Color32::from_rgba_unmultiplied(18, 18, 24, 240);
         egui_ctx.set_visuals(visuals);
 
+        let playlist_editor = self.make_playlist_editor_state();
         match egui_glow::Painter::new(Arc::clone(&gl_arc), "", None, false) {
             Ok(painter) => {
                 self.egui_bundle = Some(EguiBundle {
@@ -282,6 +325,8 @@ impl PreviewState {
                         zoom: 1.0,
                         status_message: String::new(),
                         preview_requested: false,
+                        active_tab: PreviewTab::Preview,
+                        playlist_editor,
                     },
                 });
             }
@@ -291,6 +336,49 @@ impl PreviewState {
         }
 
         Ok(())
+    }
+
+    /// Build the initial `PlaylistEditorState` from the loaded config.
+    fn make_playlist_editor_state(&self) -> PlaylistEditorState {
+        let shader_items = self
+            .config
+            .general
+            .shader_playlist
+            .as_deref()
+            .and_then(|name| self.config.shader_playlists.get(name))
+            .map(|pl| pl.shaders.clone())
+            .unwrap_or_default();
+
+        let palette_items = self
+            .config
+            .general
+            .palette_playlist
+            .as_deref()
+            .and_then(|name| self.config.palette_playlists.get(name))
+            .map(|pl| pl.palettes.clone())
+            .unwrap_or_default();
+
+        PlaylistEditorState {
+            shader_items,
+            selected_shader_idx: None,
+            add_shader_selected: String::new(),
+            shader_drag_src: None,
+            shader_drag_tgt: None,
+
+            palette_items,
+            selected_palette_idx: None,
+            add_palette_selected: String::new(),
+            palette_drag_src: None,
+            palette_drag_tgt: None,
+
+            shader_interval: self.config.general.shader_cycle_interval,
+            palette_interval: self.config.general.palette_cycle_interval,
+            cycle_order_random: self.config.general.cycle_order != "sequential",
+
+            save_requested: false,
+            apply_requested: false,
+            save_status: String::new(),
+        }
     }
 
     /// Make the EGL context current, render one frame, and swap buffers.
@@ -430,6 +518,52 @@ impl PreviewState {
             if let Some(win) = &self.window {
                 win.set_title(format!("hyprsaver preview — {sel_shader}"));
             }
+        }
+
+        // Handle "Save Playlist" button — write config to disk.
+        if bundle.state.playlist_editor.save_requested {
+            bundle.state.playlist_editor.save_requested = false;
+            let ed = &bundle.state.playlist_editor;
+            match save_playlist_config(
+                &ed.shader_items,
+                &ed.palette_items,
+                ed.shader_interval,
+                ed.palette_interval,
+                ed.cycle_order_random,
+            ) {
+                Ok(path) => {
+                    bundle.state.playlist_editor.save_status =
+                        format!("Saved to {path}");
+                    log::info!("preview: playlist saved to {path}");
+                }
+                Err(e) => {
+                    bundle.state.playlist_editor.save_status =
+                        format!("Error: {e}");
+                    log::warn!("preview: playlist save error: {e}");
+                }
+            }
+        }
+
+        // Handle "Apply & Restart Cycle" — push playlist into the live managers.
+        if bundle.state.playlist_editor.apply_requested {
+            bundle.state.playlist_editor.apply_requested = false;
+            let shader_items = bundle.state.playlist_editor.shader_items.clone();
+            let palette_items = bundle.state.playlist_editor.palette_items.clone();
+            self.shader_manager.set_playlist(shader_items);
+            self.palette_manager.set_playlist(palette_items);
+            self.config.general.shader_cycle_interval =
+                bundle.state.playlist_editor.shader_interval;
+            self.config.general.palette_cycle_interval =
+                bundle.state.playlist_editor.palette_interval;
+            self.config.general.cycle_order =
+                if bundle.state.playlist_editor.cycle_order_random {
+                    "random".to_string()
+                } else {
+                    "sequential".to_string()
+                };
+            bundle.state.playlist_editor.save_status =
+                "Applied! Cycle manager updated.".to_string();
+            log::info!("preview: playlist applied and cycle restarted");
         }
 
         self.egui_bundle = Some(bundle);
@@ -1159,100 +1293,682 @@ fn draw_panel(
             ui.heading("hyprsaver");
             ui.add_space(2.0);
             ui.separator();
+
+            // Tab bar — pre-compute active flags to avoid closure capture conflicts.
+            let on_preview = state.active_tab == PreviewTab::Preview;
+            let on_playlists = state.active_tab == PreviewTab::Playlists;
+            let tab_fill_active =
+                egui::Color32::from_rgba_unmultiplied(60, 80, 130, 220);
+
+            ui.add_space(4.0);
+            ui.horizontal(|ui| {
+                let half_w = (PANEL_WIDTH as f32 - 16.0) / 2.0;
+                if ui
+                    .add(
+                        egui::Button::new(
+                            egui::RichText::new("Preview").color(if on_preview {
+                                egui::Color32::WHITE
+                            } else {
+                                egui::Color32::from_gray(150)
+                            }),
+                        )
+                        .fill(if on_preview {
+                            tab_fill_active
+                        } else {
+                            egui::Color32::TRANSPARENT
+                        })
+                        .min_size(egui::Vec2::new(half_w, 22.0)),
+                    )
+                    .clicked()
+                {
+                    state.active_tab = PreviewTab::Preview;
+                }
+                if ui
+                    .add(
+                        egui::Button::new(
+                            egui::RichText::new("Playlists").color(if on_playlists {
+                                egui::Color32::WHITE
+                            } else {
+                                egui::Color32::from_gray(150)
+                            }),
+                        )
+                        .fill(if on_playlists {
+                            tab_fill_active
+                        } else {
+                            egui::Color32::TRANSPARENT
+                        })
+                        .min_size(egui::Vec2::new(half_w, 22.0)),
+                    )
+                    .clicked()
+                {
+                    state.active_tab = PreviewTab::Playlists;
+                }
+            });
+            ui.add_space(2.0);
+            ui.separator();
+            ui.add_space(6.0);
+
+            match state.active_tab {
+                PreviewTab::Preview => {
+                    draw_preview_tab(ui, state, shader_list, palette_list);
+                }
+                PreviewTab::Playlists => {
+                    draw_playlists_tab(ui, state, shader_list, palette_list);
+                }
+            }
+        });
+}
+
+/// Contents of the "Preview" tab — unchanged from the original single-panel design.
+fn draw_preview_tab(
+    ui: &mut egui::Ui,
+    state: &mut PreviewPanelState,
+    shader_list: &[String],
+    palette_list: &[String],
+) {
+    ui.label("Shader");
+    egui::ComboBox::from_id_salt("shader_combo")
+        .width(PANEL_WIDTH as f32 - 24.0)
+        .selected_text(&state.selected_shader)
+        .show_ui(ui, |ui| {
+            for name in shader_list {
+                ui.selectable_value(&mut state.selected_shader, name.clone(), name);
+            }
+        });
+
+    ui.add_space(6.0);
+    ui.label("Palette");
+    egui::ComboBox::from_id_salt("palette_combo")
+        .width(PANEL_WIDTH as f32 - 24.0)
+        .selected_text(&state.selected_palette)
+        .show_ui(ui, |ui| {
+            for name in palette_list {
+                ui.selectable_value(&mut state.selected_palette, name.clone(), name);
+            }
+        });
+
+    ui.add_space(10.0);
+    ui.label(format!("Speed  {:.2}×", state.speed));
+    ui.horizontal(|ui| {
+        ui.add(
+            egui::Slider::new(&mut state.speed, 0.1_f32..=3.0)
+                .step_by(0.05f64)
+                .show_value(false),
+        );
+        if ui
+            .add(egui::Button::new("↺").min_size(egui::Vec2::new(24.0, 0.0)))
+            .on_hover_text("Reset to default")
+            .clicked()
+        {
+            state.speed = 1.0;
+        }
+    });
+
+    ui.add_space(6.0);
+    ui.label(format!("Zoom  {:.2}×", state.zoom));
+    ui.horizontal(|ui| {
+        ui.add(
+            egui::Slider::new(&mut state.zoom, 0.1_f32..=3.0)
+                .step_by(0.05f64)
+                .show_value(false),
+        );
+        if ui
+            .add(egui::Button::new("↺").min_size(egui::Vec2::new(24.0, 0.0)))
+            .on_hover_text("Reset to default")
+            .clicked()
+        {
+            state.zoom = 1.0;
+        }
+    });
+
+    ui.add_space(14.0);
+
+    let accent = egui::Color32::from_rgb(0x5e, 0x81, 0xf4);
+    if ui
+        .add(
+            egui::Button::new(egui::RichText::new("▶  Preview").color(egui::Color32::WHITE))
+                .fill(accent)
+                .min_size(egui::Vec2::new(PANEL_WIDTH as f32 - 24.0, 32.0)),
+        )
+        .clicked()
+    {
+        state.preview_requested = true;
+    }
+
+    ui.add_space(8.0);
+    if !state.status_message.is_empty() {
+        ui.label(
+            egui::RichText::new(&state.status_message)
+                .small()
+                .color(egui::Color32::from_gray(160)),
+        );
+    }
+
+    ui.add_space(16.0);
+    ui.separator();
+    ui.add_space(6.0);
+    ui.label(egui::RichText::new("Keyboard shortcuts").small().strong());
+    ui.label(
+        egui::RichText::new(
+            "Q / Esc  quit\nR           reload shader\nT           next shader (crossfade)",
+        )
+        .small()
+        .monospace(),
+    );
+}
+
+/// Contents of the "Playlists" editor tab.
+fn draw_playlists_tab(
+    ui: &mut egui::Ui,
+    state: &mut PreviewPanelState,
+    shader_list: &[String],
+    palette_list: &[String],
+) {
+    let avail_w = ui.available_width();
+    egui::ScrollArea::vertical()
+        .id_salt("playlists_scroll")
+        .auto_shrink([false; 2])
+        .show(ui, |ui| {
+            let ed = &mut state.playlist_editor;
+
+            // ── Shader Playlist ─────────────────────────────────────────
+            ui.label(egui::RichText::new("Shader Playlist").strong().small());
+            egui::ScrollArea::vertical()
+                .id_salt("shader_list_scroll")
+                .max_height(120.0)
+                .show(ui, |ui| {
+                    draw_reorderable_list(
+                        ui,
+                        &mut ed.shader_items,
+                        &mut ed.selected_shader_idx,
+                        &mut ed.shader_drag_src,
+                        &mut ed.shader_drag_tgt,
+                    );
+                });
+
+            // Add row
+            ui.horizontal(|ui| {
+                let available: Vec<String> = shader_list
+                    .iter()
+                    .filter(|s| !ed.shader_items.contains(*s))
+                    .cloned()
+                    .collect();
+                let combo_text = if ed.add_shader_selected.is_empty() {
+                    "— add —"
+                } else {
+                    &ed.add_shader_selected
+                };
+                egui::ComboBox::from_id_salt("add_shader_combo")
+                    .width(avail_w - 48.0)
+                    .selected_text(combo_text)
+                    .show_ui(ui, |ui| {
+                        for name in &available {
+                            ui.selectable_value(
+                                &mut ed.add_shader_selected,
+                                name.clone(),
+                                name,
+                            );
+                        }
+                    });
+                let can_add = !ed.add_shader_selected.is_empty()
+                    && !ed.shader_items.contains(&ed.add_shader_selected);
+                if ui
+                    .add_enabled(
+                        can_add,
+                        egui::Button::new("+").min_size(egui::Vec2::new(28.0, 0.0)),
+                    )
+                    .clicked()
+                {
+                    ed.shader_items.push(ed.add_shader_selected.clone());
+                    ed.add_shader_selected.clear();
+                }
+            });
+
+            // Remove button
+            if ui
+                .add_enabled(
+                    ed.selected_shader_idx.is_some(),
+                    egui::Button::new("− Remove selected")
+                        .min_size(egui::Vec2::new(avail_w, 0.0)),
+                )
+                .clicked()
+            {
+                if let Some(idx) = ed.selected_shader_idx {
+                    if idx < ed.shader_items.len() {
+                        ed.shader_items.remove(idx);
+                        ed.selected_shader_idx = if ed.shader_items.is_empty() {
+                            None
+                        } else {
+                            Some(idx.min(ed.shader_items.len() - 1))
+                        };
+                    }
+                }
+            }
+
             ui.add_space(8.0);
 
-            ui.label("Shader");
-            egui::ComboBox::from_id_salt("shader_combo")
-                .width(PANEL_WIDTH as f32 - 24.0)
-                .selected_text(&state.selected_shader)
-                .show_ui(ui, |ui| {
-                    for name in shader_list {
-                        ui.selectable_value(&mut state.selected_shader, name.clone(), name);
-                    }
+            // ── Palette Playlist ────────────────────────────────────────
+            ui.label(egui::RichText::new("Palette Playlist").strong().small());
+            egui::ScrollArea::vertical()
+                .id_salt("palette_list_scroll")
+                .max_height(90.0)
+                .show(ui, |ui| {
+                    draw_reorderable_list(
+                        ui,
+                        &mut ed.palette_items,
+                        &mut ed.selected_palette_idx,
+                        &mut ed.palette_drag_src,
+                        &mut ed.palette_drag_tgt,
+                    );
                 });
 
-            ui.add_space(6.0);
-            ui.label("Palette");
-            egui::ComboBox::from_id_salt("palette_combo")
-                .width(PANEL_WIDTH as f32 - 24.0)
-                .selected_text(&state.selected_palette)
-                .show_ui(ui, |ui| {
-                    for name in palette_list {
-                        ui.selectable_value(&mut state.selected_palette, name.clone(), name);
-                    }
-                });
-
-            ui.add_space(10.0);
-            ui.label(format!("Speed  {:.2}×", state.speed));
+            // Add row
             ui.horizontal(|ui| {
-                ui.add(
-                    egui::Slider::new(&mut state.speed, 0.1_f32..=3.0)
-                        .step_by(0.05f64)
-                        .show_value(false),
-                );
+                let available: Vec<String> = palette_list
+                    .iter()
+                    .filter(|s| !ed.palette_items.contains(*s))
+                    .cloned()
+                    .collect();
+                let combo_text = if ed.add_palette_selected.is_empty() {
+                    "— add —"
+                } else {
+                    &ed.add_palette_selected
+                };
+                egui::ComboBox::from_id_salt("add_palette_combo")
+                    .width(avail_w - 48.0)
+                    .selected_text(combo_text)
+                    .show_ui(ui, |ui| {
+                        for name in &available {
+                            ui.selectable_value(
+                                &mut ed.add_palette_selected,
+                                name.clone(),
+                                name,
+                            );
+                        }
+                    });
+                let can_add = !ed.add_palette_selected.is_empty()
+                    && !ed.palette_items.contains(&ed.add_palette_selected);
                 if ui
-                    .add(egui::Button::new("↺").min_size(egui::Vec2::new(24.0, 0.0)))
-                    .on_hover_text("Reset to default")
+                    .add_enabled(
+                        can_add,
+                        egui::Button::new("+").min_size(egui::Vec2::new(28.0, 0.0)),
+                    )
                     .clicked()
                 {
-                    state.speed = 1.0;
+                    ed.palette_items.push(ed.add_palette_selected.clone());
+                    ed.add_palette_selected.clear();
                 }
             });
 
-            ui.add_space(6.0);
-            ui.label(format!("Zoom  {:.2}×", state.zoom));
-            ui.horizontal(|ui| {
-                ui.add(
-                    egui::Slider::new(&mut state.zoom, 0.1_f32..=3.0)
-                        .step_by(0.05f64)
-                        .show_value(false),
-                );
-                if ui
-                    .add(egui::Button::new("↺").min_size(egui::Vec2::new(24.0, 0.0)))
-                    .on_hover_text("Reset to default")
-                    .clicked()
-                {
-                    state.zoom = 1.0;
+            // Remove button
+            if ui
+                .add_enabled(
+                    ed.selected_palette_idx.is_some(),
+                    egui::Button::new("− Remove selected")
+                        .min_size(egui::Vec2::new(avail_w, 0.0)),
+                )
+                .clicked()
+            {
+                if let Some(idx) = ed.selected_palette_idx {
+                    if idx < ed.palette_items.len() {
+                        ed.palette_items.remove(idx);
+                        ed.selected_palette_idx = if ed.palette_items.is_empty() {
+                            None
+                        } else {
+                            Some(idx.min(ed.palette_items.len() - 1))
+                        };
+                    }
                 }
+            }
+
+            ui.add_space(6.0);
+            ui.separator();
+            ui.add_space(4.0);
+
+            // ── Intervals ───────────────────────────────────────────────
+            ui.horizontal(|ui| {
+                ui.label("Shader interval:");
+                ui.add(
+                    egui::DragValue::new(&mut ed.shader_interval)
+                        .range(10_u64..=3600_u64)
+                        .speed(1.0)
+                        .suffix(" s"),
+                );
+            });
+            ui.horizontal(|ui| {
+                ui.label("Palette interval:");
+                ui.add(
+                    egui::DragValue::new(&mut ed.palette_interval)
+                        .range(5_u64..=3600_u64)
+                        .speed(1.0)
+                        .suffix(" s"),
+                );
             });
 
-            ui.add_space(14.0);
+            ui.add_space(4.0);
 
+            // ── Cycle order ─────────────────────────────────────────────
+            ui.horizontal(|ui| {
+                ui.label("Cycle order:");
+                ui.radio_value(&mut ed.cycle_order_random, true, "Random");
+                ui.radio_value(&mut ed.cycle_order_random, false, "Sequential");
+            });
+
+            ui.add_space(6.0);
+            ui.separator();
+            ui.add_space(4.0);
+
+            // ── Action buttons ──────────────────────────────────────────
             let accent = egui::Color32::from_rgb(0x5e, 0x81, 0xf4);
             if ui
                 .add(
                     egui::Button::new(
-                        egui::RichText::new("▶  Preview").color(egui::Color32::WHITE),
+                        egui::RichText::new("Save Playlist").color(egui::Color32::WHITE),
                     )
                     .fill(accent)
-                    .min_size(egui::Vec2::new(PANEL_WIDTH as f32 - 24.0, 32.0)),
+                    .min_size(egui::Vec2::new(avail_w, 28.0)),
                 )
                 .clicked()
             {
-                state.preview_requested = true;
+                ed.save_requested = true;
             }
 
-            ui.add_space(8.0);
-            if !state.status_message.is_empty() {
+            ui.add_space(4.0);
+
+            if ui
+                .add(
+                    egui::Button::new("Apply & Restart Cycle")
+                        .min_size(egui::Vec2::new(avail_w, 28.0)),
+                )
+                .clicked()
+            {
+                ed.apply_requested = true;
+            }
+
+            if !ed.save_status.is_empty() {
+                ui.add_space(4.0);
                 ui.label(
-                    egui::RichText::new(&state.status_message)
+                    egui::RichText::new(&ed.save_status)
                         .small()
                         .color(egui::Color32::from_gray(160)),
                 );
             }
-
-            ui.add_space(16.0);
-            ui.separator();
-            ui.add_space(6.0);
-            ui.label(egui::RichText::new("Keyboard shortcuts").small().strong());
-            ui.label(
-                egui::RichText::new(
-                    "Q / Esc  quit\nR           reload shader\nT           next shader (crossfade)",
-                )
-                .small()
-                .monospace(),
-            );
         });
+}
+
+/// Draw a compact drag-and-drop reorderable list.
+///
+/// Each item row has a `⋮` drag handle on the left and the item name on the right.
+/// Click to select; drag to reorder (uses `Sense::drag()`).
+/// A blue insertion-point line tracks the drop target while dragging.
+///
+/// All arguments are raw `&mut` to individual `PlaylistEditorState` fields so the
+/// caller can split-borrow without holding a mutable ref to the whole struct.
+fn draw_reorderable_list(
+    ui: &mut egui::Ui,
+    items: &mut Vec<String>,
+    selected: &mut Option<usize>,
+    drag_src: &mut Option<usize>,
+    drag_tgt: &mut Option<usize>,
+) {
+    const ITEM_H: f32 = 22.0;
+
+    let avail_w = ui.available_width();
+    let n = items.len();
+
+    if n == 0 {
+        let (rect, _) = ui.allocate_exact_size(
+            egui::Vec2::new(avail_w, ITEM_H),
+            egui::Sense::hover(),
+        );
+        ui.painter().text(
+            rect.left_center() + egui::vec2(8.0, 0.0),
+            egui::Align2::LEFT_CENTER,
+            "(empty — add items below)",
+            egui::FontId::proportional(11.0),
+            egui::Color32::from_gray(80),
+        );
+        return;
+    }
+
+    // Capture the top of the list in screen coordinates before allocating rows.
+    let list_top = ui.cursor().min.y;
+    let list_left = ui.cursor().min.x;
+
+    // Compute drag insertion point from the live pointer position.
+    if drag_src.is_some() {
+        if let Some(ptr) = ui.ctx().pointer_hover_pos() {
+            let raw = ((ptr.y - list_top) / ITEM_H).round() as i32;
+            *drag_tgt = Some(raw.clamp(0, n as i32) as usize);
+        }
+    }
+
+    for i in 0..n {
+        let is_selected = *selected == Some(i);
+        let is_dragging = *drag_src == Some(i);
+
+        let (rect, resp) = ui.allocate_exact_size(
+            egui::Vec2::new(avail_w, ITEM_H),
+            egui::Sense::click_and_drag(),
+        );
+
+        let bg = if is_dragging {
+            egui::Color32::from_rgba_unmultiplied(50, 50, 75, 180)
+        } else if is_selected {
+            egui::Color32::from_rgba_unmultiplied(55, 75, 135, 220)
+        } else if resp.hovered() && drag_src.is_none() {
+            egui::Color32::from_rgba_unmultiplied(35, 35, 65, 180)
+        } else {
+            egui::Color32::from_rgba_unmultiplied(22, 22, 38, 200)
+        };
+
+        let painter = ui.painter();
+        painter.rect_filled(rect, 3.0, bg);
+
+        // ⋮ drag handle indicator
+        painter.text(
+            rect.left_center() + egui::vec2(6.0, 0.0),
+            egui::Align2::LEFT_CENTER,
+            "⋮",
+            egui::FontId::proportional(11.0),
+            egui::Color32::from_gray(90),
+        );
+
+        // Item label
+        painter.text(
+            rect.left_center() + egui::vec2(18.0, 0.0),
+            egui::Align2::LEFT_CENTER,
+            &items[i],
+            egui::FontId::proportional(12.0),
+            if is_dragging {
+                egui::Color32::from_gray(130)
+            } else {
+                egui::Color32::from_gray(215)
+            },
+        );
+
+        if resp.clicked() {
+            *selected = Some(i);
+        }
+        if resp.drag_started() {
+            *drag_src = Some(i);
+            *selected = Some(i);
+        }
+    }
+
+    // Draw blue insertion-point line while dragging.
+    if let (Some(_src), Some(tgt)) = (*drag_src, *drag_tgt) {
+        let y = list_top + tgt as f32 * ITEM_H;
+        ui.painter().line_segment(
+            [
+                egui::pos2(list_left, y),
+                egui::pos2(list_left + avail_w, y),
+            ],
+            egui::Stroke::new(2.0, egui::Color32::from_rgb(0x5e, 0x81, 0xf4)),
+        );
+    }
+
+    // Commit drag on pointer release.
+    if ui.input(|i| i.pointer.any_released()) && drag_src.is_some() {
+        if let (Some(src), Some(tgt)) = (*drag_src, *drag_tgt) {
+            // tgt == src or tgt == src+1 both leave the item in the same slot.
+            if tgt != src && tgt != src.saturating_add(1) {
+                let item = items.remove(src);
+                let insert_at = if tgt > src { tgt - 1 } else { tgt };
+                items.insert(insert_at.min(items.len()), item);
+                *selected =
+                    Some(insert_at.min(items.len().saturating_sub(1)));
+            }
+        }
+        *drag_src = None;
+        *drag_tgt = None;
+    }
+}
+
+/// Merge the playlist editor state into the on-disk config file and write it back.
+///
+/// Uses the same path-resolution logic as `config.rs`:
+///   `$XDG_CONFIG_HOME/hypr/hyprsaver.toml` (preferred) or
+///   `$XDG_CONFIG_HOME/hyprsaver/config.toml` (legacy).
+/// Creates the new path if neither exists.
+///
+/// Returns the path written on success, or an error string.
+fn save_playlist_config(
+    shader_items: &[String],
+    palette_items: &[String],
+    shader_interval: u64,
+    palette_interval: u64,
+    cycle_order_random: bool,
+) -> Result<String, String> {
+    use std::path::PathBuf;
+
+    // Resolve target path: prefer new location, fall back to legacy, else create new.
+    let cfg_path: PathBuf = {
+        let cfg_dir = dirs::config_dir().unwrap_or_else(|| PathBuf::from("."));
+        let new_path = cfg_dir.join("hypr").join("hyprsaver.toml");
+        let legacy_path = cfg_dir.join("hyprsaver").join("config.toml");
+        if new_path.exists() {
+            new_path
+        } else if legacy_path.exists() {
+            legacy_path
+        } else {
+            new_path // will be created below
+        }
+    };
+
+    // Read existing content (empty string if file doesn't exist yet).
+    let existing = if cfg_path.exists() {
+        std::fs::read_to_string(&cfg_path).map_err(|e| e.to_string())?
+    } else {
+        String::new()
+    };
+
+    // Parse as a generic TOML value so we can merge without losing other keys.
+    let mut doc: toml::Value = if existing.trim().is_empty() {
+        toml::Value::Table(Default::default())
+    } else {
+        existing
+            .parse::<toml::Value>()
+            .map_err(|e| e.to_string())?
+    };
+
+    // Helper: ensure `key` maps to a Table inside `parent`, then return it.
+    fn ensure_table<'a>(
+        parent: &'a mut toml::map::Map<String, toml::Value>,
+        key: &str,
+    ) -> &'a mut toml::map::Map<String, toml::Value> {
+        if !parent.contains_key(key) {
+            parent.insert(
+                key.to_string(),
+                toml::Value::Table(Default::default()),
+            );
+        }
+        parent.get_mut(key).unwrap().as_table_mut().unwrap()
+    }
+
+    let root = doc
+        .as_table_mut()
+        .ok_or("TOML config root is not a table")?;
+
+    // Update [general] keys.
+    {
+        let general = ensure_table(root, "general");
+        general.insert(
+            "shader_cycle_interval".to_string(),
+            toml::Value::Integer(shader_interval as i64),
+        );
+        general.insert(
+            "palette_cycle_interval".to_string(),
+            toml::Value::Integer(palette_interval as i64),
+        );
+        general.insert(
+            "cycle_order".to_string(),
+            toml::Value::String(
+                if cycle_order_random { "random" } else { "sequential" }.to_string(),
+            ),
+        );
+        if !shader_items.is_empty() {
+            general.insert(
+                "shader_playlist".to_string(),
+                toml::Value::String("custom".to_string()),
+            );
+            general.insert(
+                "shader".to_string(),
+                toml::Value::String("cycle".to_string()),
+            );
+        }
+        if !palette_items.is_empty() {
+            general.insert(
+                "palette_playlist".to_string(),
+                toml::Value::String("custom".to_string()),
+            );
+            general.insert(
+                "palette".to_string(),
+                toml::Value::String("cycle".to_string()),
+            );
+        }
+    }
+
+    // Update [shader_playlists.custom].
+    if !shader_items.is_empty() {
+        let playlists = ensure_table(root, "shader_playlists");
+        let custom = ensure_table(playlists, "custom");
+        custom.insert(
+            "shaders".to_string(),
+            toml::Value::Array(
+                shader_items
+                    .iter()
+                    .map(|s| toml::Value::String(s.clone()))
+                    .collect(),
+            ),
+        );
+    }
+
+    // Update [palette_playlists.custom].
+    if !palette_items.is_empty() {
+        let playlists = ensure_table(root, "palette_playlists");
+        let custom = ensure_table(playlists, "custom");
+        custom.insert(
+            "palettes".to_string(),
+            toml::Value::Array(
+                palette_items
+                    .iter()
+                    .map(|s| toml::Value::String(s.clone()))
+                    .collect(),
+            ),
+        );
+    }
+
+    // Ensure the parent directory exists.
+    if let Some(parent) = cfg_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+
+    // Serialize and write.
+    let content = toml::to_string_pretty(&doc).map_err(|e| e.to_string())?;
+    std::fs::write(&cfg_path, &content).map_err(|e| e.to_string())?;
+
+    Ok(cfg_path.display().to_string())
 }
 
 // ---------------------------------------------------------------------------
