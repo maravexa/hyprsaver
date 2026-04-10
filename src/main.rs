@@ -504,6 +504,10 @@ fn expand_tilde(path: &str) -> PathBuf {
 fn shader_descriptions() -> std::collections::HashMap<&'static str, &'static str> {
     [
         (
+            "aurora_sphere",
+            "Raymarched sphere wrapped in aurora borealis bands — sine-wave latitude bands perturbed by noise",
+        ),
+        (
             "bezier",
             "Five animated cubic Bézier curves with slow-drifting control points and additive palette glow",
         ),
