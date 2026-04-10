@@ -432,22 +432,32 @@ impl PreviewState {
 
     /// Build the initial `PlaylistEditorState` from the loaded config.
     fn make_playlist_editor_state(&self) -> PlaylistEditorState {
+        let shader_pl_name = &self.config.general.shader_playlist;
         let shader_items = self
             .config
-            .general
-            .shader_playlist
-            .as_deref()
-            .and_then(|name| self.config.shader_playlists.get(name))
+            .playlists
+            .get(shader_pl_name)
             .map(|pl| pl.shaders.clone())
+            .or_else(|| {
+                self.config
+                    .shader_playlists
+                    .get(shader_pl_name)
+                    .map(|pl| pl.shaders.clone())
+            })
             .unwrap_or_default();
 
+        let palette_pl_name = &self.config.general.palette_playlist;
         let palette_items = self
             .config
-            .general
-            .palette_playlist
-            .as_deref()
-            .and_then(|name| self.config.palette_playlists.get(name))
+            .playlists
+            .get(palette_pl_name)
             .map(|pl| pl.palettes.clone())
+            .or_else(|| {
+                self.config
+                    .palette_playlists
+                    .get(palette_pl_name)
+                    .map(|pl| pl.palettes.clone())
+            })
             .unwrap_or_default();
 
         PlaylistEditorState {
@@ -2464,34 +2474,32 @@ fn save_playlist_config(
         }
     }
 
-    // Update [shader_playlists.custom].
-    if !shader_items.is_empty() {
-        let playlists = ensure_table(root, "shader_playlists");
+    // Update [playlists.custom] (unified v0.4.0 format).
+    if !shader_items.is_empty() || !palette_items.is_empty() {
+        let playlists = ensure_table(root, "playlists");
         let custom = ensure_table(playlists, "custom");
-        custom.insert(
-            "shaders".to_string(),
-            toml::Value::Array(
-                shader_items
-                    .iter()
-                    .map(|s| toml::Value::String(s.clone()))
-                    .collect(),
-            ),
-        );
-    }
-
-    // Update [palette_playlists.custom].
-    if !palette_items.is_empty() {
-        let playlists = ensure_table(root, "palette_playlists");
-        let custom = ensure_table(playlists, "custom");
-        custom.insert(
-            "palettes".to_string(),
-            toml::Value::Array(
-                palette_items
-                    .iter()
-                    .map(|s| toml::Value::String(s.clone()))
-                    .collect(),
-            ),
-        );
+        if !shader_items.is_empty() {
+            custom.insert(
+                "shaders".to_string(),
+                toml::Value::Array(
+                    shader_items
+                        .iter()
+                        .map(|s| toml::Value::String(s.clone()))
+                        .collect(),
+                ),
+            );
+        }
+        if !palette_items.is_empty() {
+            custom.insert(
+                "palettes".to_string(),
+                toml::Value::Array(
+                    palette_items
+                        .iter()
+                        .map(|s| toml::Value::String(s.clone()))
+                        .collect(),
+                ),
+            );
+        }
     }
 
     // Ensure the parent directory exists.
@@ -2719,34 +2727,32 @@ fn save_preview_config(
         }
     }
 
-    // ── [shader_playlists.custom] ────────────────────────────────────
-    if !shader_items.is_empty() {
-        let playlists = ensure_table(root, "shader_playlists");
+    // ── [playlists.custom] (unified v0.4.0 format) ────────────────────
+    if !shader_items.is_empty() || !palette_items.is_empty() {
+        let playlists = ensure_table(root, "playlists");
         let custom = ensure_table(playlists, "custom");
-        custom.insert(
-            "shaders".to_string(),
-            toml::Value::Array(
-                shader_items
-                    .iter()
-                    .map(|s| toml::Value::String(s.clone()))
-                    .collect(),
-            ),
-        );
-    }
-
-    // ── [palette_playlists.custom] ───────────────────────────────────
-    if !palette_items.is_empty() {
-        let playlists = ensure_table(root, "palette_playlists");
-        let custom = ensure_table(playlists, "custom");
-        custom.insert(
-            "palettes".to_string(),
-            toml::Value::Array(
-                palette_items
-                    .iter()
-                    .map(|s| toml::Value::String(s.clone()))
-                    .collect(),
-            ),
-        );
+        if !shader_items.is_empty() {
+            custom.insert(
+                "shaders".to_string(),
+                toml::Value::Array(
+                    shader_items
+                        .iter()
+                        .map(|s| toml::Value::String(s.clone()))
+                        .collect(),
+                ),
+            );
+        }
+        if !palette_items.is_empty() {
+            custom.insert(
+                "palettes".to_string(),
+                toml::Value::Array(
+                    palette_items
+                        .iter()
+                        .map(|s| toml::Value::String(s.clone()))
+                        .collect(),
+                ),
+            );
+        }
     }
 
     // ── [palettes.<name>] for every session-created cosine palette ──
