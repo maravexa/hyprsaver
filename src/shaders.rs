@@ -41,7 +41,7 @@ pub const BUILTIN_STARFIELD: &str = include_str!("../shaders/starfield.frag");
 pub const BUILTIN_KALEIDOSCOPE: &str = include_str!("../shaders/kaleidoscope.frag");
 
 /// Curl-noise flow field with 8-step particle tracing and palette-colored glow.
-pub const BUILTIN_FLOW_FIELD: &str = include_str!("../shaders/flow_field.frag");
+pub const BUILTIN_MARBLE: &str = include_str!("../shaders/marble.frag");
 
 /// Raymarched torus with Phong lighting and palette-mapped surface color.
 pub const BUILTIN_DONUT: &str = include_str!("../shaders/donut.frag");
@@ -229,7 +229,7 @@ impl ShaderManager {
             ("bezier", BUILTIN_BEZIER),
             ("caustics", BUILTIN_CAUSTICS),
             ("fire", BUILTIN_FIRE),
-            ("flow_field", BUILTIN_FLOW_FIELD),
+            ("marble", BUILTIN_MARBLE),
             ("hypercube", BUILTIN_HYPERCUBE),
             ("geometry", BUILTIN_GEOMETRY),
             ("julia", BUILTIN_JULIA),
@@ -800,7 +800,7 @@ mod tests {
             "bezier",
             "caustics",
             "fire",
-            "flow_field",
+            "marble",
             "geometry",
             "hypercube",
             "julia",

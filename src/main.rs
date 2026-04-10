@@ -525,7 +525,7 @@ fn shader_descriptions() -> std::collections::HashMap<&'static str, &'static str
             "fire",
             "Procedural flames rising with fractal noise turbulence",
         ),
-        ("flow_field", "Curl-noise flow field with particle tracing"),
+        ("marble", "Curl-noise flow field with particle tracing"),
         (
             "geometry",
             "Rotating wireframe polyhedra morphing between geometric forms",

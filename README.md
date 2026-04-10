@@ -94,7 +94,7 @@ cargo install hyprsaver
   | `snowfall`      | Five-layer parallax snowfall with palette dot glow   |
   | `starfield`     | Hyperspace zoom tunnel with motion-blur tracers      |
   | `kaleidoscope`  | 6-fold kaleidoscope driven by domain-warped FBM      |
-  | `flow_field`    | Curl-noise flow field with 8-step particle tracing   |
+  | `marble`        | Curl-noise flow field with 8-step particle tracing   |
   | `donut`         | Raymarched torus with Phong lighting and fog         |
   | `lissajous`     | Three overlapping Lissajous curves with glow         |
   | `geometry`      | Wireframe polyhedron morphing (cube→icosahedron→...) |
@@ -304,7 +304,7 @@ shaders = ["all"]
 palettes = ["all"]
 
 [playlists.chill]
-shaders = ["plasma", "flow_field", "bezier", "lissajous", "planet"]
+shaders = ["plasma", "marble", "bezier", "lissajous", "planet"]
 palettes = ["vaporwave", "frost", "ocean", "aurora"]
 
 # Custom palettes are defined as top-level [palettes.<name>] sections
@@ -359,7 +359,7 @@ shaders = ["all"]              # "all" = every built-in + user shader
 palettes = ["all"]
 
 [playlists.chill]
-shaders = ["plasma", "flow_field", "bezier", "lissajous", "planet"]
+shaders = ["plasma", "marble", "bezier", "lissajous", "planet"]
 palettes = ["vaporwave", "frost", "ocean", "aurora"]
 
 [playlists.intense]

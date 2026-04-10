@@ -55,7 +55,7 @@ cargo build --release
 | snowfall      | Five-layer parallax snowfall with palette dot glow       |
 | starfield     | Hyperspace zoom tunnel with motion-blur tracers          |
 | kaleidoscope  | 6-fold kaleidoscope driven by domain-warped FBM          |
-| flow_field    | Curl-noise flow field with 8-step particle tracing       |
+| marble        | Curl-noise flow field with 8-step particle tracing       |
 | donut         | Raymarched torus with Phong lighting                     |
 | lissajous     | Three overlapping Lissajous curves with glow             |
 | geometry      | Wireframe polyhedron morphing (cube→icosahedron→...)     |
