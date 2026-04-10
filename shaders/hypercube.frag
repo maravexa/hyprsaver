@@ -139,7 +139,7 @@ void main() {
         // Palette t: average post-rotation w-depth (4D colour cue) shifted by a
         // slow time drift.  wd ∈ [−√2, √2] → (wd_i + wd_j) ∈ [−2√2, 2√2];
         // multiplying by 0.15 and adding 0.5 centres t near 0.5, fract wraps.
-        float t_pal = fract((wd[i] + wd[j]) * 0.15 + 0.5 + ta * 0.04);
+        float t_pal = fract((wd[i] + wd[j]) * 0.15 + 0.5 + ta * 0.02);
         vec3  ecol  = palette(t_pal);
 
         // Two-layer neon glow: tight bright core (~5 px) + wide soft halo (~16 px)
