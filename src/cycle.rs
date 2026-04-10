@@ -474,11 +474,8 @@ mod tests {
         // After 2 advances we must have visited both names and be back to start.
         let mut seen = std::collections::HashSet::new();
         for _ in 0..4 {
-            match mgr.force_next_shader() {
-                CycleEvent::ShaderChange(n) => {
-                    seen.insert(n);
-                }
-                _ => {}
+            if let CycleEvent::ShaderChange(n) = mgr.force_next_shader() {
+                seen.insert(n);
             }
         }
         assert!(seen.contains("a"), "a must be visited");
@@ -492,12 +489,9 @@ mod tests {
         let mut mgr = make_mgr(&["a", "b", "c", "d"], &["e"], CycleOrder::Random);
         let mut prev = mgr.current_shader().to_string();
         for _ in 0..30 {
-            match mgr.force_next_shader() {
-                CycleEvent::ShaderChange(name) => {
-                    assert_ne!(name, prev, "random must not repeat consecutive item");
-                    prev = name;
-                }
-                _ => {}
+            if let CycleEvent::ShaderChange(name) = mgr.force_next_shader() {
+                assert_ne!(name, prev, "random must not repeat consecutive item");
+                prev = name;
             }
         }
     }
