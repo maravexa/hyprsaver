@@ -57,8 +57,8 @@ void main() {
 
     vec3 col = vec3(0.0);   // black background
 
-    // Hard-edge line width in normalised coords (≈2 px at 1080p).
-    const float LINE_WIDTH = 0.006;
+    // Hard-edge line width in normalised coords (≈8 px at 1080p).
+    const float LINE_WIDTH = 0.024;
 
     // Curve 0 — frequency ratio 3:2
     float d0 = distToLissajous(uv, 3.0, 2.0, phase0);
