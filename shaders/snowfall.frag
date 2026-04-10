@@ -101,11 +101,12 @@ void main() {
     vec2  uv     = (gl_FragCoord.xy - 0.5 * u_resolution.xy) / u_resolution.y;
 
     // Background color.
-    // Detect monochrome palette: cosine amplitude (u_palette_a_b) near zero
-    // means palette() returns a nearly constant, unsaturated value — treat as
-    // monochrome and use a plain black background.
+    // Detect monochrome palette: sample LUT endpoints; if they're nearly the
+    // same colour the palette has no hue variation — use plain black background.
+    vec3 _lut_lo = texture(u_lut_a, vec2(0.0, 0.5)).rgb;
+    vec3 _lut_hi = texture(u_lut_a, vec2(1.0, 0.5)).rgb;
     vec3 bg;
-    if (all(lessThan(u_palette_a_b, vec3(0.05)))) {
+    if (all(lessThan(abs(_lut_hi - _lut_lo), vec3(0.05)))) {
         bg = vec3(0.0);
     } else {
         // Slow drift along the far end of the palette for a complementary hue.
