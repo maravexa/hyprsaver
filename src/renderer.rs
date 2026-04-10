@@ -679,6 +679,17 @@ pub struct Renderer {
     /// draw pass — this snapshot is populated by `start_shader_transition()`
     /// from `self.uniforms` at the moment of the swap.
     outgoing_uniforms: UniformLocations,
+
+    /// `start_time.elapsed()` at the moment the current shader program was
+    /// loaded.  Subtracted from the current elapsed time before uploading
+    /// `u_time` so every shader sees time starting near 0.0 on its first
+    /// frame, regardless of how long the renderer has been alive.
+    shader_start_elapsed: f32,
+
+    /// Same as `shader_start_elapsed` but captured for the *outgoing* program
+    /// at the start of a crossfade so it keeps consistent time during the
+    /// transition.
+    outgoing_start_elapsed: f32,
 }
 
 /// Hardcoded GLSL ES 3.20 vertex shader source. Passes UV coordinates (0..1) to the fragment
@@ -769,6 +780,8 @@ impl Renderer {
             zoom_scale: 1.0,
             transition: Some(transition),
             outgoing_uniforms: UniformLocations::default(),
+            shader_start_elapsed: 0.0,
+            outgoing_start_elapsed: 0.0,
         })
     }
 
@@ -809,6 +822,7 @@ impl Renderer {
             unsafe { self.gl.delete_program(old) };
         }
         self.program = Some(program);
+        self.shader_start_elapsed = self.start_time.elapsed().as_secs_f32();
         self.refresh_uniform_locations();
 
         log::debug!("Shader loaded successfully");
@@ -909,7 +923,9 @@ impl Renderer {
         // snapshot must happen BEFORE refresh_uniform_locations overwrites
         // self.uniforms with the incoming program's locations.
         self.outgoing_uniforms = std::mem::take(&mut self.uniforms);
+        self.outgoing_start_elapsed = self.shader_start_elapsed;
         self.program = Some(new_program);
+        self.shader_start_elapsed = self.start_time.elapsed().as_secs_f32();
         self.refresh_uniform_locations();
 
         // Kick off the transition state machine. The outgoing program handle
@@ -1049,7 +1065,14 @@ impl Renderer {
                 // to call the helper on. UniformLocations is a small struct
                 // of Options so the clone is cheap.
                 let uniforms = self.uniforms.clone();
-                self.draw_program_with(program, &uniforms, resolution, elapsed, frame);
+                self.draw_program_with(
+                    program,
+                    &uniforms,
+                    resolution,
+                    elapsed,
+                    self.shader_start_elapsed,
+                    frame,
+                );
             }
         }
 
@@ -1086,7 +1109,14 @@ impl Renderer {
         // start_shader_transition() was called; those locations are the only
         // ones valid for the outgoing program.
         let out_uniforms = self.outgoing_uniforms.clone();
-        self.draw_program_with(outgoing_program, &out_uniforms, resolution, elapsed, frame);
+        self.draw_program_with(
+            outgoing_program,
+            &out_uniforms,
+            resolution,
+            elapsed,
+            self.outgoing_start_elapsed,
+            frame,
+        );
 
         // ---- Incoming → fbo_b ----
         transition.fbo_b.bind(&self.gl);
@@ -1094,7 +1124,14 @@ impl Renderer {
             self.gl.clear(glow::COLOR_BUFFER_BIT);
         }
         let in_uniforms = self.uniforms.clone();
-        self.draw_program_with(incoming_program, &in_uniforms, resolution, elapsed, frame);
+        self.draw_program_with(
+            incoming_program,
+            &in_uniforms,
+            resolution,
+            elapsed,
+            self.shader_start_elapsed,
+            frame,
+        );
 
         // ---- Composite to default framebuffer ----
         // render_composite internally unbinds the FBO and sets the viewport
@@ -1120,20 +1157,30 @@ impl Renderer {
     /// draw logic. Takes an explicit `&UniformLocations` parameter because
     /// locations are per-program: during a transition the outgoing shader
     /// must use `self.outgoing_uniforms` rather than `self.uniforms`.
+    ///
+    /// `shader_start_elapsed` is subtracted from `elapsed` before uploading
+    /// `u_time` so that each shader sees time starting near 0.0 on its first
+    /// frame.  Pass `self.shader_start_elapsed` for the incoming/normal shader
+    /// and `self.outgoing_start_elapsed` for the outgoing shader during a
+    /// crossfade.
     fn draw_program_with(
         &self,
         program: glow::Program,
         uniforms: &UniformLocations,
         resolution: [f32; 2],
         elapsed: f32,
+        shader_start_elapsed: f32,
         frame: u64,
     ) {
         unsafe {
             self.gl.use_program(Some(program));
 
             // Time / resolution / frame / mouse
+            // Upload shader-relative time (0.0 on the first frame after load)
+            // so cycle-based shaders like mandelbrot always start at phase 0.
             if let Some(ref loc) = uniforms.u_time {
-                self.gl.uniform_1_f32(Some(loc), elapsed);
+                self.gl
+                    .uniform_1_f32(Some(loc), elapsed - shader_start_elapsed);
             }
             if let Some(ref loc) = uniforms.u_resolution {
                 self.gl
