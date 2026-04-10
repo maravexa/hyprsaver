@@ -139,12 +139,18 @@ void main() {
         // Palette t: average post-rotation w-depth (4D colour cue) shifted by a
         // slow time drift.  wd ∈ [−√2, √2] → (wd_i + wd_j) ∈ [−2√2, 2√2];
         // multiplying by 0.15 and adding 0.5 centres t near 0.5, fract wraps.
-        float t_pal = fract((wd[i] + wd[j]) * 0.15 + 0.5 + ta * 0.02);
-        vec3  ecol  = palette(t_pal);
+        // ta * 0.01: halved again from 0.02 → meditative, slow palette drift.
+        float t_raw = fract((wd[i] + wd[j]) * 0.15 + 0.5 + ta * 0.01);
+        // Range-compress extremes so t spends less time at sharp cosine peaks.
+        float t_compressed = mix(t_raw, t_raw * 0.5 + 0.25, 0.6);
+        // Sigmoid-ish remap through a half-period sine: compresses how fast
+        // colours change across the surface, eliminating harsh colour pops.
+        float t_smooth = 0.5 + 0.5 * sin(t_compressed * 3.14159 - 1.5708);
+        vec3  ecol  = palette(t_smooth);
 
         // Smoothstep anti-aliased edge — no exp() bloom, lower GPU cost.
-        // line_width ~0.003 ≈ 3 px on a 1080p screen (UV units = screen height).
-        float line_width = 0.003;
+        // line_width 0.006 ≈ 6 px on a 1080p screen (UV units = screen height).
+        float line_width = 0.006;
         float intensity = 1.0 - smoothstep(line_width * 0.5, line_width, d);
         col += intensity * ecol;
     }
