@@ -6,11 +6,12 @@ precision highp float;
 //
 // Three overlapping Lissajous curves with frequency ratios 3:2, 5:4, 7:4.
 // For each fragment the minimum distance to each parametric curve is found
-// by sampling 512 points along t ∈ [0, 2π]. A smooth glow function
-// exp(-dist² × 80) is applied. Curves are colored independently through the
+// by sampling 192 points along t ∈ [0, 2π]. A smoothstep edge function
+// gives clean anti-aliased hard edges without expensive exp() glow, keeping
+// GPU load in the Medium tier. Curves are colored independently through the
 // palette, drifting slowly in hue over time. Phase shifts at different rates
 // cause the curves to drift and occasionally snap into star patterns.
-// Background is black; glow contributions are added.
+// Background is black; curve contributions are added.
 // ---------------------------------------------------------------------------
 
 uniform float u_time;
@@ -26,10 +27,10 @@ vec2 lissajousPoint(float t, float fx, float fy, float phase) {
 }
 
 // ---------------------------------------------------------------------------
-// Minimum distance from p to one Lissajous curve sampled at N = 512 points
+// Minimum distance from p to one Lissajous curve sampled at N = 192 points
 // ---------------------------------------------------------------------------
 float distToLissajous(vec2 p, float fx, float fy, float phase) {
-    const int   N      = 512;
+    const int   N      = 192;
     const float TWO_PI = 6.28318530718;
     float minDist = 1.0e6;
     for (int i = 0; i < N; i++) {
@@ -56,17 +57,20 @@ void main() {
 
     vec3 col = vec3(0.0);   // black background
 
+    // Hard-edge line width in normalised coords (≈2 px at 1080p).
+    const float LINE_WIDTH = 0.006;
+
     // Curve 0 — frequency ratio 3:2
     float d0 = distToLissajous(uv, 3.0, 2.0, phase0);
-    col += palette(0.0 / 3.0 + hueBase) * exp(-d0 * d0 * 80.0);
+    col += palette(0.0 / 3.0 + hueBase) * (1.0 - smoothstep(0.0, LINE_WIDTH, d0));
 
     // Curve 1 — frequency ratio 5:4
     float d1 = distToLissajous(uv, 5.0, 4.0, phase1);
-    col += palette(1.0 / 3.0 + hueBase) * exp(-d1 * d1 * 80.0);
+    col += palette(1.0 / 3.0 + hueBase) * (1.0 - smoothstep(0.0, LINE_WIDTH, d1));
 
     // Curve 2 — frequency ratio 7:4
     float d2 = distToLissajous(uv, 7.0, 4.0, phase2);
-    col += palette(2.0 / 3.0 + hueBase) * exp(-d2 * d2 * 80.0);
+    col += palette(2.0 / 3.0 + hueBase) * (1.0 - smoothstep(0.0, LINE_WIDTH, d2));
 
     fragColor = vec4(col, 1.0);
 }
