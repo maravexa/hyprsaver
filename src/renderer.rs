@@ -1235,6 +1235,144 @@ impl Renderer {
         }
     }
 
+    /// Reset `start_time` so `u_time` starts from 0.0 again on the next frame.
+    pub fn reset_time(&mut self) {
+        self.start_time = Instant::now();
+        self.shader_start_elapsed = 0.0;
+    }
+
+    /// Return a reference to the underlying glow context.
+    pub fn gl(&self) -> &glow::Context {
+        &self.gl
+    }
+
+    /// Render a single frame of `frag_src` at the given time into a temporary
+    /// 64×64 FBO and return the RGBA8 pixel data (64*64*4 = 16384 bytes).
+    ///
+    /// This compiles a temporary shader program, renders one frame, reads back
+    /// the pixels, and cleans up. The renderer's own program and state are
+    /// preserved.
+    pub fn render_thumbnail(&mut self, frag_src: &str, time: f32) -> Option<Vec<u8>> {
+        let size: u32 = 64;
+
+        // Compile temp program
+        let vert = self.compile_shader(glow::VERTEX_SHADER, VERT_SRC).ok()?;
+        let frag = match self.compile_shader(glow::FRAGMENT_SHADER, frag_src) {
+            Ok(f) => f,
+            Err(_) => {
+                unsafe { self.gl.delete_shader(vert) };
+                return None;
+            }
+        };
+
+        let prog = unsafe {
+            let p = self.gl.create_program().ok()?;
+            self.gl.attach_shader(p, vert);
+            self.gl.attach_shader(p, frag);
+            self.gl.link_program(p);
+            self.gl.delete_shader(vert);
+            self.gl.delete_shader(frag);
+            if !self.gl.get_program_link_status(p) {
+                self.gl.delete_program(p);
+                return None;
+            }
+            p
+        };
+
+        // Create temp FBO
+        let fbo = unsafe { self.gl.create_framebuffer().ok()? };
+        let tex = unsafe { self.gl.create_texture().ok()? };
+        unsafe {
+            self.gl.bind_texture(glow::TEXTURE_2D, Some(tex));
+            self.gl.tex_image_2d(
+                glow::TEXTURE_2D,
+                0,
+                glow::RGBA8 as i32,
+                size as i32,
+                size as i32,
+                0,
+                glow::RGBA,
+                glow::UNSIGNED_BYTE,
+                None,
+            );
+            self.gl.tex_parameter_i32(
+                glow::TEXTURE_2D,
+                glow::TEXTURE_MIN_FILTER,
+                glow::LINEAR as i32,
+            );
+            self.gl.tex_parameter_i32(
+                glow::TEXTURE_2D,
+                glow::TEXTURE_MAG_FILTER,
+                glow::LINEAR as i32,
+            );
+            self.gl.bind_framebuffer(glow::FRAMEBUFFER, Some(fbo));
+            self.gl.framebuffer_texture_2d(
+                glow::FRAMEBUFFER,
+                glow::COLOR_ATTACHMENT0,
+                glow::TEXTURE_2D,
+                Some(tex),
+                0,
+            );
+        }
+
+        // Get uniform locations for the temp program
+        let uniforms = unsafe {
+            UniformLocations {
+                u_time: self.gl.get_uniform_location(prog, "u_time"),
+                u_resolution: self.gl.get_uniform_location(prog, "u_resolution"),
+                u_frame: self.gl.get_uniform_location(prog, "u_frame"),
+                u_mouse: self.gl.get_uniform_location(prog, "u_mouse"),
+                u_lut_a: self.gl.get_uniform_location(prog, "u_lut_a"),
+                u_lut_b: self.gl.get_uniform_location(prog, "u_lut_b"),
+                u_palette_blend: self.gl.get_uniform_location(prog, "u_palette_blend"),
+                u_alpha: self.gl.get_uniform_location(prog, "u_alpha"),
+                u_speed_scale: self.gl.get_uniform_location(prog, "u_speed_scale"),
+                u_zoom_scale: self.gl.get_uniform_location(prog, "u_zoom_scale"),
+            }
+        };
+
+        // Render one frame
+        unsafe {
+            self.gl.viewport(0, 0, size as i32, size as i32);
+            self.gl.clear(glow::COLOR_BUFFER_BIT);
+        }
+        self.draw_program_with(prog, &uniforms, [size as f32, size as f32], time, 0.0, 0);
+
+        // Read pixels
+        let mut pixels = vec![0u8; (size * size * 4) as usize];
+        unsafe {
+            self.gl.read_pixels(
+                0,
+                0,
+                size as i32,
+                size as i32,
+                glow::RGBA,
+                glow::UNSIGNED_BYTE,
+                glow::PixelPackData::Slice(&mut pixels),
+            );
+        }
+
+        // OpenGL reads bottom-up; flip vertically for egui (top-down)
+        let row_bytes = (size * 4) as usize;
+        for y in 0..(size as usize / 2) {
+            let top = y * row_bytes;
+            let bot = ((size as usize) - 1 - y) * row_bytes;
+            for x in 0..row_bytes {
+                pixels.swap(top + x, bot + x);
+            }
+        }
+
+        // Cleanup
+        unsafe {
+            self.gl.bind_framebuffer(glow::FRAMEBUFFER, None);
+            self.gl.delete_framebuffer(fbo);
+            self.gl.delete_texture(tex);
+            self.gl.delete_program(prog);
+        }
+
+        Some(pixels)
+    }
+
     /// Release all GPU resources. Must be called before the GL context is destroyed.
     pub fn destroy(&mut self) {
         unsafe {
