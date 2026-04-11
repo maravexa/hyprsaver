@@ -55,26 +55,22 @@ float noise2(vec2 p) {
 }
 
 // ---------------------------------------------------------------------------
-// FBM — three octaves of value noise scrolling upward.
-// Each octave has 2× frequency and 0.5× amplitude vs the previous.
+// FBM — three octaves of value noise with explicit weights (0.5, 0.3, 0.2).
+// Scrolls primarily upward with slight horizontal drift for realism.
 // ---------------------------------------------------------------------------
 
 float fbm_fire(vec2 uv, float t) {
-    float v    = 0.0;
-    float amp  = 1.0;
-    float freq = 1.0;
-    float norm = 0.0;
+    // Vertical bias: flames rise upward with slight horizontal drift.
+    vec2 scroll = vec2(t * 0.05, -t * 0.8);
+    vec2 p = uv + scroll;
 
-    for (int i = 0; i < 3; i++) {
-        // Scroll upward at slightly different speeds per octave.
-        float scroll = t * (1.2 + float(i) * 0.4);
-        v    += noise2(uv * freq + vec2(0.0, -scroll)) * amp;
-        norm += amp;
-        amp  *= 0.5;
-        freq *= 2.0;
-    }
+    // Three octaves with decreasing amplitude and increasing frequency.
+    // Weights sum to 1.0 (0.5 + 0.3 + 0.2) so no normalization needed.
+    float n = noise2(p * 1.0) * 0.5
+            + noise2(p * 2.0) * 0.3
+            + noise2(p * 4.0) * 0.2;
 
-    return v / norm;
+    return n;
 }
 
 // ---------------------------------------------------------------------------
@@ -131,8 +127,9 @@ void main() {
     // Organic horizontal sway before sampling noise.
     flame_uv.x += sin(flame_uv.y * 3.0 + t * 0.9) * 0.025;
 
-    // Scale: X wider than Y for broader flame tongues.
-    vec2 noise_uv = vec2(flame_uv.x * 1.8, flame_uv.y * 2.5);
+    // Flame shape: wider at base, tapering to a narrow flickering tip.
+    float x_scale = 1.0 + (1.0 - flame_uv.y) * 0.6;
+    vec2 noise_uv = vec2(flame_uv.x * x_scale, flame_uv.y * 2.5);
 
     float n = fbm_fire(noise_uv, t * 1.3);
 
@@ -142,10 +139,15 @@ void main() {
     // Combined intensity — noise shaped by the height mask.
     float intensity = clamp(n * height_mask * 2.2 - 0.05, 0.0, 1.0);
 
-    // Map intensity to palette. t≈0 → cool embers/dark, t≈1 → hot bright tips.
-    // Multiply by smoothstep so near-zero intensity fades to pure black regardless
-    // of what palette() returns at t=0 — prevents colored backgrounds with bright palettes.
-    vec3 col = palette(intensity) * smoothstep(0.0, 0.05, intensity);
+    // Edge flicker: high-frequency noise at flame boundaries breaks up smooth edges.
+    intensity += noise2(flame_uv * 20.0 + t * 3.0) * 0.08;
+    intensity = clamp(intensity, 0.0, 1.0);
+
+    // Nonlinear color mapping: power curve concentrates palette range.
+    // intensity < 0.2 → black, 0.2–0.5 → deep base, 0.5–0.8 → bright core,
+    // 0.8–1.0 → white-hot tips. smoothstep cutoff at 0.2 ensures clean black.
+    float palette_t = pow(intensity, 0.7);
+    vec3 col = palette(palette_t) * smoothstep(0.0, 0.2, intensity);
 
     // Ember particles additively blended on top.
     float ember_glow = embers(uv, t * 0.7);
