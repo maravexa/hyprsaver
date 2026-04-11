@@ -78,6 +78,10 @@ pub const BUILTIN_TESLA: &str = include_str!("../shaders/tesla.frag");
 /// Curving wormhole tunnel with ring-textured walls, depth fog, and interior point lights.
 pub const BUILTIN_WORMHOLE: &str = include_str!("../shaders/wormhole.frag");
 
+/// Scrolling terminal / build-log output — horizontal block-glyph rows scroll upward with
+/// CRT scanlines, phosphor glow, and a blinking cursor.
+pub const BUILTIN_TERMINAL: &str = include_str!("../shaders/terminal.frag");
+
 // ---------------------------------------------------------------------------
 // Vertex shader for the fullscreen quad (triangle-strip, no VBO needed)
 // ---------------------------------------------------------------------------
@@ -245,6 +249,7 @@ impl ShaderManager {
             ("donut", BUILTIN_DONUT),
             ("snowfall", BUILTIN_SNOWFALL),
             ("starfield", BUILTIN_STARFIELD),
+            ("terminal", BUILTIN_TERMINAL),
             ("tesla", BUILTIN_TESLA),
             ("tunnel", BUILTIN_TUNNEL),
             ("voronoi", BUILTIN_VORONOI),
@@ -792,7 +797,7 @@ mod tests {
 
     #[test]
     fn test_builtin_shader_count() {
-        assert_eq!(manager().list().len(), 21);
+        assert_eq!(manager().list().len(), 22);
     }
 
     #[test]
@@ -817,6 +822,7 @@ mod tests {
             "donut",
             "snowfall",
             "starfield",
+            "terminal",
             "tesla",
             "tunnel",
             "voronoi",

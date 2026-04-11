@@ -43,7 +43,7 @@ cargo build --release
 - Built-in shaders: compiled into binary via `include_str!()`
 - Logs: stderr (journalctl if launched by hypridle)
 
-## Built-in Shaders (v0.3.0 — 21 total)
+## Built-in Shaders (v0.3.0 — 22 total)
 
 | Name          | Description                                              |
 |---------------|----------------------------------------------------------|
@@ -67,6 +67,7 @@ cargo build --release
 | bezier        | Five animated Bézier curves with additive palette glow   |
 | planet        | Raymarched planet sphere with aurora borealis bands      |
 | tesla         | Tesla coil arcs — fractal-lightning between electrodes   |
+| terminal      | Scrolling build-log output with CRT scanlines and glow   |
 | wormhole      | Curving wormhole tunnel with ring-textured walls         |
 
 ## Playlist / Cycle System (v0.3.0)
