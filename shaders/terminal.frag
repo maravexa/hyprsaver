@@ -12,7 +12,8 @@ precision highp float;
 //     as 5×6 bit patterns in uint constants.
 //   - Larger cells: 12×24 px (50% bigger than original 8×16).
 //   - Wider lines: 25% short, 60% medium, 15% long (up to 90% screen width).
-//   - Choppy scroll: bursty pause/scroll mimicking real build output cadence.
+//   - Bursty scroll: long runs of smooth output with rare brief hesitations.
+//   - Bold glyphs: full-cell coverage, matrix-style rendering with glow.
 //   - CRT scanlines, phosphor glow, blinking cursor, new-line flash.
 //
 // Line types (per-row, deterministic):
@@ -37,12 +38,6 @@ const float BASE_SCROLL_SPEED = 0.08;
 // ---------------------------------------------------------------------------
 
 const int GLYPH_COUNT = 30;
-
-// Characters: katakana-style glyphs, digits 0-9, symbols < > / = + { } ;
-//
-// Each glyph is encoded row-by-row, 5 bits per row, 6 rows = 30 bits.
-// Row 0 (top) = bits 0-4, row 5 (bottom) = bits 25-29.
-// Bit 0 in each row = leftmost pixel.
 
 uint glyphs[30] = uint[30](
     // -- Katakana-style glyphs (indices 0-11) --
@@ -107,61 +102,38 @@ float hash21(vec2 p) {
 }
 
 // ---------------------------------------------------------------------------
-// Choppy scroll — bursty pause/scroll pattern
+// Smooth scroll with rare brief pauses.
+//
+// Model: pause events occur at approximately t = k * T_PAUSE + jitter.
+// Between pauses the scroll advances at BASE_SCROLL_SPEED.  During a pause
+// (duration 0.3–0.8 s) the scroll holds still.
+//
+// No state needed — integrate analytically.  Result is always continuous
+// (no jumps at state transitions).
 // ---------------------------------------------------------------------------
 
 float choppyScroll(float t) {
-    float chunk_rate = 3.0;
-    float chunk_id = floor(t * chunk_rate);
-    float chunk_frac = fract(t * chunk_rate);
+    // One pause every T_PAUSE seconds on average (jittered by T_JITTER).
+    const float T_PAUSE  = 12.0;   // mean gap between pauses (seconds)
+    const float T_JITTER = 4.0;    // timing jitter range (uniform 0..T_JITTER)
 
-    // Accumulated scroll: sum contributions from past chunks.
-    // We integrate over chunks. Each chunk either scrolls at normal speed
-    // or is paused. We compute the total scroll offset.
-    float scroll = 0.0;
-    float total_chunks = chunk_id;
+    float k_center = t / T_PAUSE;
+    float total_paused = 0.0;
 
-    // For efficiency, approximate: count how many chunks were "scroll" vs "pause"
-    // by iterating recent chunks. We only need the integral for smooth motion.
-    // Instead, compute a running offset: each chunk contributes 1/chunk_rate seconds
-    // of either scrolling or pausing.
-    float chunk_duration = 1.0 / chunk_rate;
+    // Sum contributions from pause events near current time.
+    // i < 0: already-completed pauses.  i >= 0: recent/upcoming events.
+    // clamp(t - pause_t, 0, dur) gives the amount of this pause that has elapsed.
+    for (int i = -10; i <= 3; i++) {
+        float k = floor(k_center) + float(i);
+        if (k < 0.0) continue;
 
-    // We can't iterate all past chunks, so we use a trick:
-    // Compute a deterministic fraction of "active" chunks up to chunk_id.
-    // Use the hash to decide per-chunk, but accumulate analytically.
+        float pause_t   = k * T_PAUSE + hash11(k * 7.31  + 3.14) * T_JITTER;
+        float pause_dur = 0.3 + hash11(k * 13.7 + 1.57) * 0.5;   // 0.3–0.8 s
 
-    // Approximate: 70% of chunks scroll → effective speed = 0.70 * BASE_SCROLL_SPEED
-    // But we add local variation for the current chunk transition.
-    float base_offset = chunk_id * chunk_duration * BASE_SCROLL_SPEED * 0.70;
-
-    // Current chunk: is it scrolling or paused?
-    float h = hash11(chunk_id * 7.31 + 3.14);
-    float is_scrolling = step(0.30, h);  // 70% chance scrolling
-
-    // Next chunk for smooth transition
-    float h_next = hash11((chunk_id + 1.0) * 7.31 + 3.14);
-    float next_scrolling = step(0.30, h_next);
-
-    // Smoothstep transition over ~0.05s at chunk boundaries
-    float transition_width = 0.15;  // fraction of chunk
-    float smooth_state;
-    if (chunk_frac < transition_width) {
-        // Transition from previous chunk
-        float h_prev = hash11((chunk_id - 1.0) * 7.31 + 3.14);
-        float prev_scrolling = step(0.30, h_prev);
-        smooth_state = mix(prev_scrolling, is_scrolling, smoothstep(0.0, transition_width, chunk_frac));
-    } else if (chunk_frac > (1.0 - transition_width)) {
-        // Transition to next chunk
-        smooth_state = mix(is_scrolling, next_scrolling, smoothstep(1.0 - transition_width, 1.0, chunk_frac));
-    } else {
-        smooth_state = is_scrolling;
+        total_paused += clamp(t - pause_t, 0.0, pause_dur);
     }
 
-    float current_contribution = chunk_frac * chunk_duration * BASE_SCROLL_SPEED * smooth_state;
-    scroll = base_offset + current_contribution;
-
-    return scroll;
+    return BASE_SCROLL_SPEED * max(0.0, t - total_paused);
 }
 
 // ---------------------------------------------------------------------------
@@ -170,8 +142,7 @@ void main() {
     vec2  fc = gl_FragCoord.xy;
     float t  = u_time * u_speed_scale;
 
-    // Cell dimensions — 50% larger than original (12×24 vs 8×16),
-    // normalised to screen height for resolution independence.
+    // Cell dimensions — normalised to screen height for resolution independence.
     float cell_h = 24.0 / u_resolution.y;
     float cell_w = 12.0 / u_resolution.y;
 
@@ -182,7 +153,6 @@ void main() {
     float y_td   = (u_resolution.y - fc.y) / u_resolution.y;
     float x_norm =  fc.x / u_resolution.y;
 
-    // Choppy scroll offset
     float scroll_offset = choppyScroll(t);
     float scroll_y = y_td + scroll_offset;
 
@@ -201,25 +171,15 @@ void main() {
     float r2 = hash11(row_id * 2.9871 + 12.87);
     float r3 = hash11(row_id * 3.5123 + 98.76);
 
-    // Line length — weighted distribution:
-    //   25% short  (15–30 cols)
-    //   60% medium (30–60 cols)
-    //   15% long   (60–90% of screen width)
+    // Line length distribution: 25% short, 60% medium, 15% long.
     float line_length;
     if (r1 < 0.25) {
-        // Short lines: 15-30 columns
-        float t_short = r1 / 0.25;
-        line_length = 15.0 + t_short * 15.0;
+        line_length = 15.0 + (r1 / 0.25) * 15.0;
     } else if (r1 < 0.85) {
-        // Medium lines: 30-60 columns
-        float t_med = (r1 - 0.25) / 0.60;
-        line_length = 30.0 + t_med * 30.0;
+        line_length = 30.0 + ((r1 - 0.25) / 0.60) * 30.0;
     } else {
-        // Long lines: 60-90% of screen width
-        float t_long = (r1 - 0.85) / 0.15;
-        float min_long = screen_w_cells * 0.60;
-        float max_long = screen_w_cells * 0.90;
-        line_length = min_long + t_long * (max_long - min_long);
+        float tl = (r1 - 0.85) / 0.15;
+        line_length = screen_w_cells * (0.60 + tl * 0.30);
     }
 
     // Indent: 0 (50%), 2 (30%), 4 (20%) columns.
@@ -228,8 +188,8 @@ void main() {
     else if (r2 < 0.80) indent = 2.0;
     else                indent = 4.0;
 
-    // Line type thresholds (spec: 60/15/10/10/5).
-    int line_type;   // 0=normal  1=comment  2=keyword  3=blank  4=separator
+    // Line type: 0=normal  1=comment  2=keyword  3=blank  4=separator
+    int line_type;
     if      (r3 < 0.10) line_type = 3;
     else if (r3 < 0.15) line_type = 4;
     else if (r3 < 0.30) line_type = 1;
@@ -237,7 +197,7 @@ void main() {
     else                line_type = 0;
 
     // -----------------------------------------------------------------------
-    // Glyph rendering for this cell
+    // Glyph rendering — matrix-style: hard pixels, tight padding, bold glow
     // -----------------------------------------------------------------------
 
     float brightness = 0.0;
@@ -245,7 +205,7 @@ void main() {
 
     if (line_type != 3) {
         if (line_type == 4) {
-            // Separator bar — ─── (single) or ═══ (double), random per row.
+            // Separator bar
             if (char_col >= 0.0 && char_col < line_length) {
                 float sep_style = hash11(row_id * 5.137 + 2.3);
                 if (sep_style < 0.5) {
@@ -257,53 +217,43 @@ void main() {
                 }
             }
         } else if (char_col >= 0.0 && char_col < line_length) {
-            // Select a glyph for this cell via hash
             float ch = hash21(vec2(
                 char_col * 0.317 + row_id  * 0.071,
                 row_id   * 0.431 + char_col * 0.137
             ));
 
-            // Fill probability: 70% for normal/keyword, 50% for comment
             float fill_prob = (line_type == 1) ? 0.50 : 0.70;
 
             if (ch < fill_prob) {
-                // Pick which glyph to render
                 int glyph_id = int(floor(hash21(vec2(
                     row_id * 0.731 + char_col * 0.419,
                     char_col * 0.293 + row_id * 0.617
                 )) * float(GLYPH_COUNT)));
                 glyph_id = clamp(glyph_id, 0, GLYPH_COUNT - 1);
 
-                // Map local cell coords to glyph grid position.
-                // Padding: glyph occupies the inner portion of the cell
-                // with ~14% padding on each side.
-                float pad_x = 1.0 / 7.0;  // ~14% padding each side
-                float pad_y = 1.0 / 8.0;  // ~12% padding each side
+                // Tight padding — glyph fills most of the cell for bold appearance.
+                // Match matrix shader's 12% margin approach scaled to 5×6 glyph.
+                float pad_x = 0.06;
+                float pad_y = 0.05;
 
-                float gx = (lx - pad_x) / (1.0 - 2.0 * pad_x);  // [0,1] within glyph area
+                float gx = (lx - pad_x) / (1.0 - 2.0 * pad_x);
                 float gy = (ly - pad_y) / (1.0 - 2.0 * pad_y);
 
                 if (gx >= 0.0 && gx <= 1.0 && gy >= 0.0 && gy <= 1.0) {
-                    int gcol = int(floor(gx * 5.0));
-                    int grow = int(floor(gy * 6.0));
-                    gcol = clamp(gcol, 0, 4);
-                    grow = clamp(grow, 0, 5);
+                    int gcol = clamp(int(floor(gx * 5.0)), 0, 4);
+                    int grow = clamp(int(floor(gy * 6.0)), 0, 5);
 
                     float pixel = sampleGlyph(glyph_id, gcol, grow);
 
-                    // Soften edges slightly with sub-pixel smoothing
-                    float sx = fract(gx * 5.0);
-                    float sy = fract(gy * 6.0);
-                    float edge_soft = smoothstep(0.0, 0.15, sx) * smoothstep(1.0, 0.85, sx)
-                                    * smoothstep(0.0, 0.15, sy) * smoothstep(1.0, 0.85, sy);
-
-                    // Per-character brightness variation [0.6, 1.0].
-                    float var = 0.6 + 0.4 * hash21(vec2(
+                    // Per-character brightness variation [0.82, 1.0] — tight range
+                    // keeps characters bold and consistently bright like matrix shader.
+                    float var = 0.82 + 0.18 * hash21(vec2(
                         char_col * 0.711 + 13.1,
                         row_id   * 0.531 +  7.9
                     ));
 
-                    brightness = pixel * edge_soft * var;
+                    // Hard pixel — no edge softening (matrix style).
+                    brightness = pixel * var;
                 }
             }
         }
@@ -325,25 +275,25 @@ void main() {
     vec3 color = text_color * brightness * bright_scale;
 
     // -----------------------------------------------------------------------
-    // Phosphor glow — exp() approximation of 1-px Gaussian spread
+    // Phosphor glow — wide spread for bold, matrix-style appearance.
+    // Applied to lit pixels; exp falloff covers ~quarter-cell radius.
     // -----------------------------------------------------------------------
 
     if (brightness > 0.01) {
         float d2   = (lx - 0.5) * (lx - 0.5) + (ly - 0.5) * (ly - 0.5);
-        float glow = exp(-d2 * 14.0) * 0.20 * bright_scale;
+        float glow = exp(-d2 * 5.5) * 0.45 * bright_scale;
         color += text_color * glow;
     }
 
     // -----------------------------------------------------------------------
-    // Cursor — blinking block at the end of the bottom visible row
+    // Cursor — blinking block at end of bottom visible row
     // -----------------------------------------------------------------------
 
-    float bottom_scroll = 1.0 + scroll_offset;
-    float bottom_row_id = floor(bottom_scroll / cell_h);
+    float bottom_scroll  = 1.0 + scroll_offset;
+    float bottom_row_id  = floor(bottom_scroll / cell_h);
 
-    // Re-derive line_length for the cursor row.
-    float cr1  = hash11(bottom_row_id * 1.7319 + 43.21);
-    float cr2  = hash11(bottom_row_id * 2.9871 + 12.87);
+    float cr1 = hash11(bottom_row_id * 1.7319 + 43.21);
+    float cr2 = hash11(bottom_row_id * 2.9871 + 12.87);
     float c_len;
     if (cr1 < 0.25) {
         c_len = 15.0 + (cr1 / 0.25) * 15.0;
@@ -360,9 +310,9 @@ void main() {
     else                 c_ind = 4.0;
     float cursor_col = c_ind + floor(c_len);
 
-    float blink     = step(0.5, fract(t * 1.5));
-    bool on_bottom  = abs(row_id - bottom_row_id) < 0.5;
-    bool on_cursor  = abs(col_id - cursor_col)    < 0.5;
+    float blink    = step(0.5, fract(t * 1.5));
+    bool on_bottom = abs(row_id - bottom_row_id) < 0.5;
+    bool on_cursor = abs(col_id - cursor_col)    < 0.5;
 
     if (on_bottom && on_cursor) {
         float cx = smoothstep(0.48, 0.44, abs(lx - 0.5));
@@ -371,12 +321,12 @@ void main() {
     }
 
     // -----------------------------------------------------------------------
-    // New-line flash — bottom row is 1.2× bright for ~0.1 s after it enters
+    // New-line flash — bottom row 1.2× bright briefly after it enters
     // -----------------------------------------------------------------------
 
     if (on_bottom) {
         float bottom_phase = fract(bottom_scroll / cell_h);
-        float flash_frac = min(1.0, bottom_phase / (0.1 * BASE_SCROLL_SPEED / cell_h));
+        float flash_frac   = min(1.0, bottom_phase / (0.1 * BASE_SCROLL_SPEED / cell_h));
         color *= 1.0 + 0.2 * (1.0 - flash_frac);
     }
 
