@@ -554,6 +554,10 @@ fn shader_descriptions() -> std::collections::HashMap<&'static str, &'static str
             "Hyperspace zoom tunnel with motion-blur tracers",
         ),
         (
+            "terminal",
+            "Scrolling terminal output — block-glyph rows scroll upward with CRT scanlines, phosphor glow, and blinking cursor",
+        ),
+        (
             "tesla",
             "Tesla coil arcs — fractal-lightning between three electrodes with branching and a wandering endpoint",
         ),
