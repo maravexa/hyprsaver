@@ -2,12 +2,20 @@
 //!
 //! Renders the selected shader in a resizable window split into two regions:
 //! - Left: shader viewport (fullscreen sans panel)
-//! - Right: 280-px egui control panel (shader/palette ComboBox, speed/zoom sliders,
-//!   ▶ Preview button to apply changes live)
+//! - Right: 300-px egui control panel with collapsible sections (Shader, Palette,
+//!   Display) and shader preview thumbnails.
+//!
+//! The panel auto-collapses for windows narrower than 640px, or can be toggled
+//! with the F key. A ☰ button restores it when collapsed.
 //!
 //! Keyboard shortcuts (the window must have keyboard focus):
+//!   Space      — pause/resume animation
+//!   ←/→        — previous/next shader
+//!   ↑/↓        — previous/next palette
+//!   R          — reset u_time to 0.0
+//!   F          — toggle fullscreen (hide/show panel)
+//!   T          — test shader crossfade transition
 //!   Q / Escape — quit
-//!   R          — force-reload the current shader from disk
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -51,7 +59,10 @@ use crate::{
 };
 
 // Width of the right-side egui control panel in logical pixels.
-const PANEL_WIDTH: u32 = 280;
+const PANEL_WIDTH: u32 = 300;
+
+/// Below this window width (logical pixels) the panel collapses to an overlay.
+const PANEL_COLLAPSE_THRESHOLD: u32 = 640;
 
 // ---------------------------------------------------------------------------
 // EGL state (mirrors wayland.rs — preview and daemon paths are kept separate)
@@ -251,6 +262,16 @@ struct PreviewPanelState {
     /// during this session. Re-written to `[palettes.<name>]` by
     /// "Save Config" so the whole config file stays in sync.
     session_created_palettes: Vec<String>,
+
+    /// Whether the panel is collapsed (narrow window or F key toggle).
+    panel_collapsed: bool,
+    /// Whether the user explicitly toggled fullscreen (F key). When true,
+    /// panel stays hidden regardless of window width.
+    fullscreen_mode: bool,
+    /// Whether to show the FPS counter overlay.
+    show_fps: bool,
+    /// Palette cross-fade transition duration in seconds.
+    palette_transition_speed: f32,
 }
 
 /// egui resources bundled together so they can be `.take()`n out of
@@ -312,6 +333,27 @@ struct PreviewState {
     cursor_pos: (f32, f32),
     /// Accumulates egui::Events from pointer/keyboard callbacks between frames.
     egui_events: Vec<egui::Event>,
+
+    /// Animation is paused (Space key). When true, u_time stops advancing.
+    paused: bool,
+    /// Accumulated shader time when paused. Used so pause/resume doesn't jump.
+    pause_time_offset: f32,
+    /// Instant when the animation was last unpaused.
+    unpause_instant: Instant,
+
+    // FPS tracking
+    fps_frame_count: u32,
+    fps_last_sample: Instant,
+    fps_display: f32,
+
+    /// Cached 64×64 shader thumbnails keyed by shader name. Regenerated when
+    /// palette changes. Values are RGBA8 pixel data (64*64*4 bytes).
+    thumbnail_pixels: std::collections::HashMap<String, Vec<u8>>,
+    /// egui texture handles for thumbnails, uploaded lazily.
+    thumbnail_textures: std::collections::HashMap<String, egui::TextureHandle>,
+    /// The palette name thumbnails were last generated for. If the active
+    /// palette changes, thumbnails are regenerated.
+    thumbnails_palette: String,
 }
 
 impl PreviewState {
@@ -431,6 +473,10 @@ impl PreviewState {
                         save_config_toast_until: None,
                         test_transition_requested: false,
                         session_created_palettes: Vec::new(),
+                        panel_collapsed: false,
+                        fullscreen_mode: false,
+                        show_fps: true,
+                        palette_transition_speed: self.config.general.palette_transition_duration,
                     },
                 });
             }
@@ -517,19 +563,48 @@ impl PreviewState {
             return;
         }
 
+        // FPS tracking
+        self.fps_frame_count += 1;
+        let now = Instant::now();
+        let dt = now.duration_since(self.fps_last_sample).as_secs_f32();
+        if dt >= 1.0 {
+            self.fps_display = self.fps_frame_count as f32 / dt;
+            self.fps_frame_count = 0;
+            self.fps_last_sample = now;
+        }
+
         let phys_w = self.phys_width();
         let phys_h = self.phys_height();
         let scale = self.scale_factor.max(1) as u32;
-        let panel_w_phys = PANEL_WIDTH * scale;
+
+        // Determine if panel should be shown based on collapse state.
+        let panel_visible = !self
+            .egui_bundle
+            .as_ref()
+            .map(|b| b.state.panel_collapsed || b.state.fullscreen_mode)
+            .unwrap_or(false);
+
+        // Auto-collapse for narrow windows (unless user explicitly toggled fullscreen).
+        if let Some(ref mut bundle) = self.egui_bundle {
+            if !bundle.state.fullscreen_mode {
+                bundle.state.panel_collapsed = self.width < PANEL_COLLAPSE_THRESHOLD;
+            }
+        }
+
+        let panel_w_phys = if panel_visible {
+            PANEL_WIDTH * scale
+        } else {
+            0
+        };
         let shader_w_phys = phys_w.saturating_sub(panel_w_phys).max(1);
 
-        // Render shader in the left portion of the window.
+        // Render shader in the left portion (or full window when panel hidden).
         self.renderer
             .as_mut()
             .unwrap()
             .render([shader_w_phys as f32, phys_h as f32]);
 
-        // Drain accumulated egui input events, then paint the control panel.
+        // Drain accumulated egui input events, then paint the control panel + overlays.
         let events = std::mem::take(&mut self.egui_events);
         self.render_panel(phys_w, phys_h, events);
 
@@ -592,14 +667,64 @@ impl PreviewState {
             }
         }
 
+        let fps_val = self.fps_display;
+        let is_paused = self.paused;
+        let thumbnail_textures = &mut self.thumbnail_textures;
+
         let full_output = bundle.ctx.run(raw_input, |ctx| {
-            draw_panel(
-                ctx,
-                &mut bundle.state,
-                &shader_list,
-                &palette_list,
-                &cosine_palettes,
-            );
+            let panel_hidden = bundle.state.panel_collapsed || bundle.state.fullscreen_mode;
+
+            if !panel_hidden {
+                draw_panel(
+                    ctx,
+                    &mut bundle.state,
+                    &shader_list,
+                    &palette_list,
+                    &cosine_palettes,
+                    thumbnail_textures,
+                );
+            }
+
+            // ☰ hamburger button — shown when panel is collapsed/hidden
+            if panel_hidden {
+                egui::Area::new(egui::Id::new("hamburger_btn"))
+                    .fixed_pos(egui::Pos2::new(logical_w - 40.0, 8.0))
+                    .show(ctx, |ui| {
+                        if ui
+                            .add(
+                                egui::Button::new(
+                                    egui::RichText::new("☰")
+                                        .size(20.0)
+                                        .color(egui::Color32::WHITE),
+                                )
+                                .fill(egui::Color32::from_rgba_unmultiplied(30, 30, 40, 180)),
+                            )
+                            .clicked()
+                        {
+                            bundle.state.panel_collapsed = false;
+                            bundle.state.fullscreen_mode = false;
+                        }
+                    });
+            }
+
+            // FPS counter — bottom-left of render area
+            if bundle.state.show_fps {
+                let fps_text = if is_paused {
+                    format!("{:.0} FPS (paused)", fps_val)
+                } else {
+                    format!("{:.0} FPS", fps_val)
+                };
+                egui::Area::new(egui::Id::new("fps_counter"))
+                    .fixed_pos(egui::Pos2::new(8.0, logical_h - 24.0))
+                    .show(ctx, |ui| {
+                        ui.label(
+                            egui::RichText::new(fps_text)
+                                .size(12.0)
+                                .color(egui::Color32::from_rgba_unmultiplied(200, 200, 200, 160))
+                                .monospace(),
+                        );
+                    });
+            }
         });
 
         let clipped = bundle.ctx.tessellate(full_output.shapes, scale);
@@ -972,6 +1097,132 @@ impl PreviewState {
         }
     }
 
+    /// Cycle to the previous (-1) or next (+1) shader in the sorted list
+    /// and apply it immediately (no ▶ Preview button needed).
+    fn cycle_shader(&mut self, direction: i32) {
+        let mut shader_list: Vec<String> = self
+            .shader_manager
+            .list()
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        shader_list.sort();
+        if shader_list.is_empty() {
+            return;
+        }
+        let current_idx = shader_list
+            .iter()
+            .position(|s| s == &self.active_shader)
+            .unwrap_or(0) as i32;
+        let n = shader_list.len() as i32;
+        let next_idx = ((current_idx + direction) % n + n) % n;
+        let next_name = shader_list[next_idx as usize].clone();
+
+        if let Some(src) = self.shader_manager.get_compiled(&next_name) {
+            let src = src.to_string();
+            if let Some(r) = self.renderer.as_mut() {
+                if r.load_shader(&src).is_ok() {
+                    self.active_shader = next_name.clone();
+                    if let Some(ref mut bundle) = self.egui_bundle {
+                        bundle.state.selected_shader = next_name.clone();
+                        bundle.state.status_message = format!("Loaded '{next_name}'");
+                    }
+                    if let Some(win) = &self.window {
+                        win.set_title(format!("hyprsaver preview — {next_name}"));
+                    }
+                    log::info!("preview: cycled to shader '{next_name}'");
+                }
+            }
+        }
+    }
+
+    /// Cycle to the previous (-1) or next (+1) palette in the sorted list
+    /// and apply it immediately.
+    fn cycle_palette(&mut self, direction: i32) {
+        let mut palette_list: Vec<String> = self
+            .palette_manager
+            .list()
+            .iter()
+            .map(|p| p.to_string())
+            .collect();
+        palette_list.sort();
+        if palette_list.is_empty() {
+            return;
+        }
+        let current_idx = palette_list
+            .iter()
+            .position(|p| p == &self.active_palette)
+            .unwrap_or(0) as i32;
+        let n = palette_list.len() as i32;
+        let next_idx = ((current_idx + direction) % n + n) % n;
+        let next_name = palette_list[next_idx as usize].clone();
+
+        if let Some(palette) = self.palette_manager.get(&next_name).cloned() {
+            self.active_palette = next_name.clone();
+            if let Some(r) = self.renderer.as_mut() {
+                r.set_palette(&palette).ok();
+            }
+            if let Some(ref mut bundle) = self.egui_bundle {
+                bundle.state.selected_palette = next_name.clone();
+                bundle.state.status_message = format!("Palette '{next_name}'");
+            }
+            log::info!("preview: cycled to palette '{next_name}'");
+        }
+    }
+
+    /// Generate 64×64 thumbnails for all shaders using the current palette.
+    /// Results are stored in `self.thumbnail_pixels`.
+    fn generate_thumbnails(&mut self) {
+        let shader_list: Vec<String> = self
+            .shader_manager
+            .list()
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+
+        self.thumbnail_pixels.clear();
+        self.thumbnail_textures.clear();
+
+        let renderer = match self.renderer.as_mut() {
+            Some(r) => r,
+            None => return,
+        };
+
+        for name in &shader_list {
+            if let Some(src) = self.shader_manager.get_compiled(name) {
+                let src = src.to_string();
+                if let Some(pixels) = renderer.render_thumbnail(&src, 2.0) {
+                    self.thumbnail_pixels.insert(name.clone(), pixels);
+                }
+            }
+        }
+
+        self.thumbnails_palette = self.active_palette.clone();
+        log::info!(
+            "preview: generated {} shader thumbnails",
+            self.thumbnail_pixels.len()
+        );
+    }
+
+    /// Upload cached thumbnail pixels as egui textures. Must be called after
+    /// the egui context is available.
+    fn upload_thumbnail_textures(&mut self) {
+        let ctx = match self.egui_bundle.as_ref() {
+            Some(b) => b.ctx.clone(),
+            None => return,
+        };
+
+        for (name, pixels) in &self.thumbnail_pixels {
+            if self.thumbnail_textures.contains_key(name) {
+                continue;
+            }
+            let image = egui::ColorImage::from_rgba_unmultiplied([64, 64], pixels);
+            let handle =
+                ctx.load_texture(format!("thumb_{name}"), image, egui::TextureOptions::LINEAR);
+            self.thumbnail_textures.insert(name.clone(), handle);
+        }
+    }
+
     /// Handle a force-reload of the current shader (R key).
     fn reload_current_shader(&mut self) {
         let name = self.active_shader.clone();
@@ -1049,6 +1300,11 @@ pub fn run(
     // Commit to request the initial configure from the compositor.
     window.wl_surface().commit();
 
+    // Use config-persisted window size, or 1280×720 default.
+    let initial_w = config.general.preview_width.max(PANEL_WIDTH + 200);
+    let initial_h = config.general.preview_height.max(300);
+
+    let now = Instant::now();
     let mut state = PreviewState {
         registry_state,
         compositor_state: compositor,
@@ -1056,8 +1312,8 @@ pub fn run(
         seat_state,
         output_state,
         window: Some(window),
-        width: 800,
-        height: 600,
+        width: initial_w,
+        height: initial_h,
         scale_factor: 1,
         configured: false,
         wl_egl_window: None,
@@ -1066,12 +1322,12 @@ pub fn run(
         renderer: None,
         running: true,
         force_reload: false,
-        start_time: Instant::now(),
+        start_time: now,
         config,
         shader_manager,
         palette_manager,
-        active_shader,
-        active_palette,
+        active_shader: active_shader.clone(),
+        active_palette: active_palette.clone(),
         egl,
         keyboard: None,
         pointer: None,
@@ -1079,6 +1335,15 @@ pub fn run(
         egui_bundle: None,
         cursor_pos: (0.0, 0.0),
         egui_events: Vec::new(),
+        paused: false,
+        pause_time_offset: 0.0,
+        unpause_instant: now,
+        fps_frame_count: 0,
+        fps_last_sample: now,
+        fps_display: 0.0,
+        thumbnail_pixels: std::collections::HashMap::new(),
+        thumbnail_textures: std::collections::HashMap::new(),
+        thumbnails_palette: active_palette,
     };
 
     // Calloop event loop.
@@ -1125,11 +1390,43 @@ pub fn run(
                 state.reload_current_shader();
             }
 
+            // Pause: override speed_scale to freeze animation time.
+            if let Some(r) = state.renderer.as_mut() {
+                if state.paused {
+                    r.set_speed_scale(0.0);
+                } else {
+                    let speed = state
+                        .egui_bundle
+                        .as_ref()
+                        .map(|b| b.state.speed)
+                        .unwrap_or(1.0);
+                    r.set_speed_scale(speed);
+                }
+            }
+
             // Advance palette cross-fade transition.
             let now = Instant::now();
             let blend = state.palette_manager.advance_transition(now);
             if let Some(r) = state.renderer.as_mut() {
                 r.set_blend(if blend > 0.0 { blend } else { 0.0 });
+            }
+
+            // Generate thumbnails once after GL init, and regenerate on palette change.
+            if state.configured && state.renderer.is_some() {
+                let needs_gen = state.thumbnail_pixels.is_empty()
+                    || state.thumbnails_palette != state.active_palette;
+                if needs_gen {
+                    // Make EGL context current for thumbnail rendering.
+                    if let (Some(es), Some(ec), Some(egl)) =
+                        (state.egl_surface, state.egl_context, state.egl.as_ref())
+                    {
+                        let _ = egl
+                            .egl
+                            .make_current(egl.display, Some(es), Some(es), Some(ec));
+                    }
+                    state.generate_thumbnails();
+                }
+                state.upload_thumbnail_textures();
             }
 
             // Render if configured.
@@ -1160,6 +1457,9 @@ pub fn run(
             break;
         }
     }
+
+    // Persist last-used window size into config file for next launch.
+    save_window_size(state.width, state.height);
 
     // Cleanup — use raw pointer to avoid simultaneous borrow of state.egl and state (mut).
     if let Some(egl_ptr) = state.egl.as_ref().map(|e| e as *const EglState) {
@@ -1338,8 +1638,13 @@ impl WindowHandler for PreviewState {
     ) {
         let (new_w, new_h) = configure.new_size;
         // Use compositor suggestion but enforce minimum width for the panel.
-        let w = new_w.map(|v| v.get()).unwrap_or(800).max(PANEL_WIDTH + 400);
-        let h = new_h.map(|v| v.get()).unwrap_or(600);
+        let default_w = self.config.general.preview_width.max(PANEL_WIDTH + 200);
+        let default_h = self.config.general.preview_height.max(300);
+        let w = new_w
+            .map(|v| v.get())
+            .unwrap_or(default_w)
+            .max(PANEL_WIDTH + 200);
+        let h = new_h.map(|v| v.get()).unwrap_or(default_h);
 
         let was_configured = self.configured;
         self.width = w;
@@ -1491,25 +1796,57 @@ impl KeyboardHandler for PreviewState {
             }
         }
 
-        // App-level shortcuts are always active regardless of egui focus.
-        match event.keysym {
-            Keysym::q | Keysym::Q | Keysym::Escape => {
-                log::info!("preview: quit key pressed");
-                self.running = false;
+        // App-level shortcuts — only fire when egui doesn't want keyboard.
+        if !wants_kb {
+            match event.keysym {
+                Keysym::q | Keysym::Q | Keysym::Escape => {
+                    log::info!("preview: quit key pressed");
+                    self.running = false;
+                }
+                Keysym::space => {
+                    // Pause / resume animation
+                    if self.paused {
+                        self.unpause_instant = Instant::now();
+                        self.paused = false;
+                        log::info!("preview: animation resumed");
+                    } else {
+                        self.pause_time_offset += self.unpause_instant.elapsed().as_secs_f32();
+                        self.paused = true;
+                        log::info!("preview: animation paused");
+                    }
+                }
+                Keysym::Left => {
+                    self.cycle_shader(-1);
+                }
+                Keysym::Right => {
+                    self.cycle_shader(1);
+                }
+                Keysym::Up => {
+                    self.cycle_palette(-1);
+                }
+                Keysym::Down => {
+                    self.cycle_palette(1);
+                }
+                Keysym::r | Keysym::R => {
+                    log::info!("preview: time reset");
+                    self.pause_time_offset = 0.0;
+                    self.unpause_instant = Instant::now();
+                    if let Some(r) = self.renderer.as_mut() {
+                        r.reset_time();
+                    }
+                }
+                Keysym::f | Keysym::F => {
+                    if let Some(ref mut bundle) = self.egui_bundle {
+                        bundle.state.fullscreen_mode = !bundle.state.fullscreen_mode;
+                        log::info!("preview: fullscreen={}", bundle.state.fullscreen_mode);
+                    }
+                }
+                Keysym::t | Keysym::T => {
+                    log::info!("preview: transition key pressed");
+                    self.trigger_debug_transition();
+                }
+                _ => {}
             }
-            Keysym::r | Keysym::R => {
-                log::info!("preview: reload key pressed");
-                self.force_reload = true;
-            }
-            Keysym::t | Keysym::T => {
-                // Debug: trigger a 2-second shader crossfade to the next
-                // shader in the list. This is a placeholder for the cycle
-                // manager that will drive transitions automatically once
-                // the Phase 1 prompts land.
-                log::info!("preview: transition key pressed");
-                self.trigger_debug_transition();
-            }
-            _ => {}
         }
     }
 
@@ -1544,7 +1881,16 @@ impl PointerHandler for PreviewState {
         events: &[PointerEvent],
     ) {
         // Route mouse events to egui only when the cursor is in the panel area.
-        let panel_left = self.width as f32 - PANEL_WIDTH as f32;
+        let panel_visible = !self
+            .egui_bundle
+            .as_ref()
+            .map(|b| b.state.panel_collapsed || b.state.fullscreen_mode)
+            .unwrap_or(false);
+        let panel_left = if panel_visible {
+            self.width as f32 - PANEL_WIDTH as f32
+        } else {
+            self.width as f32 // panel off-screen, all events go to shader area
+        };
 
         for event in events {
             match event.kind {
@@ -1611,6 +1957,7 @@ fn draw_panel(
     shader_list: &[String],
     palette_list: &[String],
     cosine_palettes: &std::collections::BTreeMap<String, Palette>,
+    thumbnail_textures: &mut std::collections::HashMap<String, egui::TextureHandle>,
 ) {
     egui::SidePanel::right("control_panel")
         .exact_width(PANEL_WIDTH as f32)
@@ -1694,7 +2041,7 @@ fn draw_panel(
 
             match state.active_tab {
                 PreviewTab::Preview => {
-                    draw_preview_tab(ui, state, shader_list, palette_list);
+                    draw_preview_tab(ui, state, shader_list, palette_list, thumbnail_textures);
                 }
                 PreviewTab::Playlists => {
                     draw_playlists_tab(ui, state, shader_list, palette_list);
@@ -1706,143 +2053,208 @@ fn draw_panel(
         });
 }
 
-/// Contents of the "Preview" tab — unchanged from the original single-panel design.
+/// Contents of the "Preview" tab — organized with collapsible sections.
 fn draw_preview_tab(
     ui: &mut egui::Ui,
     state: &mut PreviewPanelState,
     shader_list: &[String],
     palette_list: &[String],
+    thumbnail_textures: &mut std::collections::HashMap<String, egui::TextureHandle>,
 ) {
-    ui.label("Shader");
-    egui::ComboBox::from_id_salt("shader_combo")
-        .width(PANEL_WIDTH as f32 - 24.0)
-        .selected_text(&state.selected_shader)
-        .show_ui(ui, |ui| {
-            for name in shader_list {
-                ui.selectable_value(&mut state.selected_shader, name.clone(), name);
-            }
-        });
+    egui::ScrollArea::vertical()
+        .id_salt("preview_tab_scroll")
+        .auto_shrink([false; 2])
+        .show(ui, |ui| {
+            let avail_w = ui.available_width();
 
-    ui.add_space(4.0);
-    if ui
-        .add(
-            egui::Button::new("⟳ Test Transition")
-                .min_size(egui::Vec2::new(PANEL_WIDTH as f32 - 24.0, 22.0)),
-        )
-        .on_hover_text("Preview a 2-second crossfade to a random shader")
-        .clicked()
-    {
-        state.test_transition_requested = true;
-    }
+            // ── Shader section ─────────────────────────────────────────
+            egui::CollapsingHeader::new(egui::RichText::new("Shader").strong())
+                .default_open(true)
+                .show(ui, |ui| {
+                    egui::ComboBox::from_id_salt("shader_combo")
+                        .width(avail_w - 12.0)
+                        .selected_text(&state.selected_shader)
+                        .show_ui(ui, |ui| {
+                            for name in shader_list {
+                                ui.horizontal(|ui| {
+                                    // Show 64×64 thumbnail if available
+                                    if let Some(tex) = thumbnail_textures.get(name.as_str()) {
+                                        ui.image(egui::load::SizedTexture::new(
+                                            tex.id(),
+                                            egui::Vec2::new(32.0, 32.0),
+                                        ));
+                                    }
+                                    if ui
+                                        .selectable_label(state.selected_shader == *name, name)
+                                        .clicked()
+                                    {
+                                        state.selected_shader = name.clone();
+                                    }
+                                });
+                            }
+                        });
 
-    ui.add_space(6.0);
-    ui.label("Palette");
-    egui::ComboBox::from_id_salt("palette_combo")
-        .width(PANEL_WIDTH as f32 - 24.0)
-        .selected_text(&state.selected_palette)
-        .show_ui(ui, |ui| {
-            for name in palette_list {
-                ui.selectable_value(&mut state.selected_palette, name.clone(), name);
-            }
-        });
+                    ui.add_space(4.0);
+                    ui.label(format!("Speed  {:.2}×", state.speed));
+                    ui.horizontal(|ui| {
+                        ui.add(
+                            egui::Slider::new(&mut state.speed, 0.1_f32..=3.0)
+                                .step_by(0.05f64)
+                                .show_value(false),
+                        );
+                        if ui
+                            .add(egui::Button::new("↺").min_size(egui::Vec2::new(24.0, 0.0)))
+                            .on_hover_text("Reset to default")
+                            .clicked()
+                        {
+                            state.speed = 1.0;
+                        }
+                    });
 
-    ui.add_space(10.0);
-    ui.label(format!("Speed  {:.2}×", state.speed));
-    ui.horizontal(|ui| {
-        ui.add(
-            egui::Slider::new(&mut state.speed, 0.1_f32..=3.0)
-                .step_by(0.05f64)
-                .show_value(false),
-        );
-        if ui
-            .add(egui::Button::new("↺").min_size(egui::Vec2::new(24.0, 0.0)))
-            .on_hover_text("Reset to default")
-            .clicked()
-        {
-            state.speed = 1.0;
-        }
-    });
+                    ui.add_space(4.0);
+                    if ui
+                        .add(
+                            egui::Button::new("⟳ Test Transition")
+                                .min_size(egui::Vec2::new(avail_w - 12.0, 22.0)),
+                        )
+                        .on_hover_text("Preview a 2-second crossfade to a random shader")
+                        .clicked()
+                    {
+                        state.test_transition_requested = true;
+                    }
+                });
 
-    ui.add_space(6.0);
-    ui.label(format!("Zoom  {:.2}×", state.zoom));
-    ui.horizontal(|ui| {
-        ui.add(
-            egui::Slider::new(&mut state.zoom, 0.1_f32..=3.0)
-                .step_by(0.05f64)
-                .show_value(false),
-        );
-        if ui
-            .add(egui::Button::new("↺").min_size(egui::Vec2::new(24.0, 0.0)))
-            .on_hover_text("Reset to default")
-            .clicked()
-        {
-            state.zoom = 1.0;
-        }
-    });
-
-    ui.add_space(14.0);
-
-    let accent = egui::Color32::from_rgb(0x5e, 0x81, 0xf4);
-    if ui
-        .add(
-            egui::Button::new(egui::RichText::new("▶  Preview").color(egui::Color32::WHITE))
-                .fill(accent)
-                .min_size(egui::Vec2::new(PANEL_WIDTH as f32 - 24.0, 32.0)),
-        )
-        .clicked()
-    {
-        state.preview_requested = true;
-    }
-
-    ui.add_space(8.0);
-    if !state.status_message.is_empty() {
-        ui.label(
-            egui::RichText::new(&state.status_message)
-                .small()
-                .color(egui::Color32::from_gray(160)),
-        );
-    }
-
-    ui.add_space(12.0);
-    let save_accent = egui::Color32::from_rgb(0x30, 0xa0, 0x60);
-    if ui
-        .add(
-            egui::Button::new(egui::RichText::new("Save Config").color(egui::Color32::WHITE))
-                .fill(save_accent)
-                .min_size(egui::Vec2::new(PANEL_WIDTH as f32 - 24.0, 28.0)),
-        )
-        .on_hover_text("Write current shader/palette/speed/zoom to hyprsaver.toml")
-        .clicked()
-    {
-        state.save_config_requested = true;
-    }
-
-    // "Saved ✓" toast — visible for ~2s after a successful save.
-    if let Some(until) = state.save_config_toast_until {
-        if Instant::now() < until {
             ui.add_space(4.0);
-            ui.label(
-                egui::RichText::new("Saved ✓")
-                    .small()
-                    .strong()
-                    .color(egui::Color32::from_rgb(0x5e, 0xd0, 0x90)),
-            );
-        } else {
-            state.save_config_toast_until = None;
-        }
-    }
 
-    ui.add_space(16.0);
-    ui.separator();
-    ui.add_space(6.0);
-    ui.label(egui::RichText::new("Keyboard shortcuts").small().strong());
-    ui.label(
-        egui::RichText::new(
-            "Q / Esc  quit\nR           reload shader\nT           next shader (crossfade)",
-        )
-        .small()
-        .monospace(),
-    );
+            // ── Palette section ────────────────────────────────────────
+            egui::CollapsingHeader::new(egui::RichText::new("Palette").strong())
+                .default_open(true)
+                .show(ui, |ui| {
+                    egui::ComboBox::from_id_salt("palette_combo")
+                        .width(avail_w - 12.0)
+                        .selected_text(&state.selected_palette)
+                        .show_ui(ui, |ui| {
+                            for name in palette_list {
+                                ui.selectable_value(
+                                    &mut state.selected_palette,
+                                    name.clone(),
+                                    name,
+                                );
+                            }
+                        });
+
+                    ui.add_space(4.0);
+                    ui.label(format!(
+                        "Transition  {:.1}s",
+                        state.palette_transition_speed
+                    ));
+                    ui.add(
+                        egui::Slider::new(&mut state.palette_transition_speed, 0.0_f32..=5.0)
+                            .step_by(0.1f64)
+                            .show_value(false),
+                    );
+                });
+
+            ui.add_space(4.0);
+
+            // ── Display section ────────────────────────────────────────
+            egui::CollapsingHeader::new(egui::RichText::new("Display").strong())
+                .default_open(true)
+                .show(ui, |ui| {
+                    ui.label(format!("Zoom  {:.2}×", state.zoom));
+                    ui.horizontal(|ui| {
+                        ui.add(
+                            egui::Slider::new(&mut state.zoom, 0.1_f32..=3.0)
+                                .step_by(0.05f64)
+                                .show_value(false),
+                        );
+                        if ui
+                            .add(egui::Button::new("↺").min_size(egui::Vec2::new(24.0, 0.0)))
+                            .on_hover_text("Reset to default")
+                            .clicked()
+                        {
+                            state.zoom = 1.0;
+                        }
+                    });
+
+                    ui.add_space(4.0);
+                    ui.checkbox(&mut state.show_fps, "Show FPS counter");
+                });
+
+            ui.add_space(10.0);
+
+            // ── Action buttons ─────────────────────────────────────────
+            let accent = egui::Color32::from_rgb(0x5e, 0x81, 0xf4);
+            if ui
+                .add(
+                    egui::Button::new(
+                        egui::RichText::new("▶  Preview").color(egui::Color32::WHITE),
+                    )
+                    .fill(accent)
+                    .min_size(egui::Vec2::new(avail_w - 8.0, 32.0)),
+                )
+                .clicked()
+            {
+                state.preview_requested = true;
+            }
+
+            ui.add_space(8.0);
+            if !state.status_message.is_empty() {
+                ui.label(
+                    egui::RichText::new(&state.status_message)
+                        .small()
+                        .color(egui::Color32::from_gray(160)),
+                );
+            }
+
+            ui.add_space(8.0);
+            let save_accent = egui::Color32::from_rgb(0x30, 0xa0, 0x60);
+            if ui
+                .add(
+                    egui::Button::new(
+                        egui::RichText::new("Save Config").color(egui::Color32::WHITE),
+                    )
+                    .fill(save_accent)
+                    .min_size(egui::Vec2::new(avail_w - 8.0, 28.0)),
+                )
+                .on_hover_text("Write current shader/palette/speed/zoom to hyprsaver.toml")
+                .clicked()
+            {
+                state.save_config_requested = true;
+            }
+
+            // "Saved ✓" toast — visible for ~2s after a successful save.
+            if let Some(until) = state.save_config_toast_until {
+                if Instant::now() < until {
+                    ui.add_space(4.0);
+                    ui.label(
+                        egui::RichText::new("Saved ✓")
+                            .small()
+                            .strong()
+                            .color(egui::Color32::from_rgb(0x5e, 0xd0, 0x90)),
+                    );
+                } else {
+                    state.save_config_toast_until = None;
+                }
+            }
+
+            ui.add_space(12.0);
+            ui.separator();
+            ui.add_space(6.0);
+            ui.label(egui::RichText::new("Keyboard shortcuts").small().strong());
+            ui.label(
+                egui::RichText::new(
+                    "Space       pause/resume\n\
+                     ←/→         prev/next shader\n\
+                     ↑/↓         prev/next palette\n\
+                     R           reset time\n\
+                     F           toggle fullscreen\n\
+                     Esc         exit",
+                )
+                .small()
+                .monospace(),
+            );
+        });
 }
 
 /// Contents of the "Playlists" editor tab.
@@ -2925,6 +3337,77 @@ fn save_preview_config(
     std::fs::write(&cfg_path, &content).map_err(|e| e.to_string())?;
 
     Ok(cfg_path.display().to_string())
+}
+
+/// Best-effort save of the last-used preview window dimensions into the
+/// config file. Errors are logged but not propagated — failing to persist
+/// the window size is not fatal.
+fn save_window_size(width: u32, height: u32) {
+    use std::path::PathBuf;
+
+    let cfg_path: PathBuf = {
+        let cfg_dir = dirs::config_dir().unwrap_or_else(|| PathBuf::from("."));
+        let new_path = cfg_dir.join("hypr").join("hyprsaver.toml");
+        let legacy_path = cfg_dir.join("hyprsaver").join("config.toml");
+        if new_path.exists() {
+            new_path
+        } else if legacy_path.exists() {
+            legacy_path
+        } else {
+            new_path
+        }
+    };
+
+    let existing = if cfg_path.exists() {
+        std::fs::read_to_string(&cfg_path).unwrap_or_default()
+    } else {
+        String::new()
+    };
+
+    let mut doc: toml::Value = if existing.trim().is_empty() {
+        toml::Value::Table(Default::default())
+    } else {
+        match existing.parse::<toml::Value>() {
+            Ok(v) => v,
+            Err(e) => {
+                log::warn!("preview: failed to parse config for window size save: {e}");
+                return;
+            }
+        }
+    };
+
+    if let Some(root) = doc.as_table_mut() {
+        if !root.contains_key("general") {
+            root.insert(
+                "general".to_string(),
+                toml::Value::Table(Default::default()),
+            );
+        }
+        if let Some(general) = root.get_mut("general").and_then(|v| v.as_table_mut()) {
+            general.insert(
+                "preview_width".to_string(),
+                toml::Value::Integer(width as i64),
+            );
+            general.insert(
+                "preview_height".to_string(),
+                toml::Value::Integer(height as i64),
+            );
+        }
+    }
+
+    if let Some(parent) = cfg_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    match toml::to_string_pretty(&doc) {
+        Ok(content) => {
+            if let Err(e) = std::fs::write(&cfg_path, &content) {
+                log::warn!("preview: failed to save window size: {e}");
+            } else {
+                log::debug!("preview: saved window size {width}×{height}");
+            }
+        }
+        Err(e) => log::warn!("preview: failed to serialize config: {e}"),
+    }
 }
 
 // ---------------------------------------------------------------------------
