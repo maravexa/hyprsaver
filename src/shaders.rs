@@ -75,6 +75,9 @@ pub const BUILTIN_BEZIER: &str = include_str!("../shaders/bezier.frag");
 /// Tesla coil arcs — fractal-lightning between three electrodes with branching and a wandering endpoint.
 pub const BUILTIN_TESLA: &str = include_str!("../shaders/tesla.frag");
 
+/// Curving wormhole tunnel with ring-textured walls, depth fog, and interior point lights.
+pub const BUILTIN_WORMHOLE: &str = include_str!("../shaders/wormhole.frag");
+
 // ---------------------------------------------------------------------------
 // Vertex shader for the fullscreen quad (triangle-strip, no VBO needed)
 // ---------------------------------------------------------------------------
@@ -245,6 +248,7 @@ impl ShaderManager {
             ("tesla", BUILTIN_TESLA),
             ("tunnel", BUILTIN_TUNNEL),
             ("voronoi", BUILTIN_VORONOI),
+            ("wormhole", BUILTIN_WORMHOLE),
         ];
         for (name, raw_const) in builtins {
             let raw = raw_const
@@ -788,7 +792,7 @@ mod tests {
 
     #[test]
     fn test_builtin_shader_count() {
-        assert_eq!(manager().list().len(), 20);
+        assert_eq!(manager().list().len(), 21);
     }
 
     #[test]
@@ -816,6 +820,7 @@ mod tests {
             "tesla",
             "tunnel",
             "voronoi",
+            "wormhole",
         ] {
             assert!(
                 names.contains(expected),
