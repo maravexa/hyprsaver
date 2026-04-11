@@ -111,6 +111,14 @@ pub struct GeneralConfig {
     /// When `false`, each output gets an independent cycle with a different RNG
     /// seed so monitors naturally desynchronize over time.
     pub synced: bool,
+
+    /// Last-used preview window width. Restored on next `--preview` launch.
+    /// Default: 1280.
+    pub preview_width: u32,
+
+    /// Last-used preview window height. Restored on next `--preview` launch.
+    /// Default: 720.
+    pub preview_height: u32,
 }
 
 impl Default for GeneralConfig {
@@ -127,6 +135,8 @@ impl Default for GeneralConfig {
             palette_playlist: "default".to_string(),
             cycle_order: "random".to_string(),
             synced: true,
+            preview_width: 1280,
+            preview_height: 720,
         }
     }
 }
