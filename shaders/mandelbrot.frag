@@ -4,20 +4,21 @@ precision highp float;
 // ---------------------------------------------------------------------------
 // hyprsaver — mandelbrot.frag
 //
-// Zoom cycle: home (full-fractal view) → target → home.
-// Cycles through 12 verified boundary targets every 50 s; max zoom ~268×
+// Continuous forward zoom with fade-through-black transitions.
+// Cycles through 16 verified boundary targets; max zoom ~268×
 // (1.5^14) — safely within float32 precision limits.
 //
-// v0.3.3 changes:
-//   • No center panning. At HOME_SCALE the entire Mandelbrot set is on screen,
-//     so moving the center from one target to another is visually imperceptible.
-//     The camera is always centered exactly on the current target — no mix(),
-//     no cubic lag, no transit through the black interior of the set.
-//   • Target switches at zoom_t = 0.0 during a 5 % dwell at home zoom. The
-//     wide-angle view shifts slightly; at this zoom level the shift spans only
-//     a fraction of the visible area and is not a jarring jump.
-//   • Removed: HOME_CENTER constant, center_t cubic, mix() call.
-//   • Main cardioid + period-2 bulb early exit retained from v0.3.1.
+// v0.4.0 changes:
+//   • Replaced pingpong (zoom in then out) with continuous forward zoom loop.
+//     Zoom progresses from HOME_SCALE (overview) to deep detail, then fades
+//     through black and starts the next cycle on a new random target.
+//   • Fade-through-black transition: 0.5 s fade out at max zoom, switch
+//     target, 0.5 s fade in at overview zoom.  Dual-FBO cross-dissolve is
+//     not available inside a fragment shader; see TODO below.
+//   • 16 zoom targets (was 12).  Added: Elephant Valley, Mini-brot,
+//     Antenna Tip, Scepter Valley.
+//   • Iteration count scales with zoom depth:
+//       max_iter = 100 + int(log2(zoom) * 20.0), capped at 500.
 // ---------------------------------------------------------------------------
 
 uniform float u_time;
@@ -66,29 +67,34 @@ float hash(float n) {
 }
 
 // ---------------------------------------------------------------------------
-// Zoom targets — 12 verified Mandelbrot boundary coordinates.
+// Zoom targets — 16 verified Mandelbrot boundary coordinates.
 //
 // Selection criteria: the coordinate must be ON or within ~0.001 of the set
 // boundary AND must show rich detail (not solid black, not washed-out) at
 // every zoom level from 1× to 268× (1.5^14).
 //
 // Sources: coords 0-7 are community-verified; 8-11 retained from previous
-// version after confirming they satisfy the above criteria.
+// version after confirming they satisfy the above criteria; 12-15 added in
+// v0.4.0.
 // ---------------------------------------------------------------------------
-#define NUM_TARGETS 12
+#define NUM_TARGETS 16
 vec2 zoom_target(int idx) {
     if (idx ==  0) return vec2(-0.7463,      0.1102    );  // Seahorse Valley (classic)
     if (idx ==  1) return vec2(-0.7453,      0.1127    );  // Seahorse Valley (variant)
     if (idx ==  2) return vec2(-0.16,        1.0405    );  // Branch Tip (upper)
-    if (idx ==  3) return vec2(-0.1011,      0.9563    );  // Spiral Arm (upper)
+    if (idx ==  3) return vec2(-0.1011,      0.9563    );  // Double Spiral
     if (idx ==  4) return vec2( 0.281717,    0.5771    );  // Elephant Trunk
-    if (idx ==  5) return vec2(-0.0452,     -0.9868    );  // Double Spiral
+    if (idx ==  5) return vec2(-0.0452,     -0.9868    );  // Double Spiral (lower)
     if (idx ==  6) return vec2( 0.3245,      0.04855   );  // Lightning
     if (idx ==  7) return vec2(-0.3905407,   0.5867879 );  // Fibonacci Spiral
     if (idx ==  8) return vec2(-0.77568377,  0.13646737);  // Dendrite (seahorse family)
     if (idx ==  9) return vec2(-1.4011552,   0.0       );  // Feigenbaum Point
     if (idx == 10) return vec2(-0.748,       0.102     );  // Seahorse Tail
-                   return vec2(-0.1592,     -1.0318    );  // Feather (lower set)
+    if (idx == 11) return vec2(-0.1592,     -1.0318    );  // Feather (lower set)
+    if (idx == 12) return vec2( 0.2819,      0.0100    );  // Elephant Valley
+    if (idx == 13) return vec2(-1.7497,      0.0       );  // Mini-brot
+    if (idx == 14) return vec2(-0.1528,      1.0397    );  // Antenna Tip
+                   return vec2(-0.1002,      0.8383    );  // Scepter Valley
 }
 
 // ---------------------------------------------------------------------------
@@ -107,8 +113,26 @@ void main() {
     // Centred UV, aspect-ratio corrected.
     vec2 uv = (gl_FragCoord.xy - 0.5 * u_resolution.xy) / u_resolution.y;
 
-    float cycle_duration = 50.0;                 // seconds per full in-out cycle
+    float cycle_duration = 50.0;                 // seconds per full zoom-in cycle
     float max_zoom_exp   = 14.0 * u_zoom_scale;  // 1.5^14 ≈ 268× at default scale
+
+    // -----------------------------------------------------------------------
+    // Fade-through-black transition at cycle boundaries.
+    //
+    // Each fade direction lasts 0.5 real seconds.  At the end of a cycle the
+    // image fades to black (0.5 s), the target switches, and the new cycle
+    // fades in from black (0.5 s).  Total black gap ≈ 0 frames (the last
+    // fade-out frame of cycle N and first fade-in frame of cycle N+1 are
+    // both near-black).
+    //
+    // TODO: Upgrade to true crossfade (mix deep_frame with overview_frame)
+    // once per-shader dual-FBO rendering is available.  The renderer's
+    // existing TransitionRenderer handles shader-to-shader crossfades but
+    // cannot drive intra-shader zoom-cycle transitions.  When FBO access is
+    // exposed to individual shaders, render both frames and blend directly.
+    // -----------------------------------------------------------------------
+    float fade_seconds = 0.5;
+    float fade_frac    = fade_seconds / cycle_duration;  // ≈ 0.01
 
     // Decompose time into whole-cycle index and fractional phase [0, 1).
     float total_t  = u_time * u_speed_scale / cycle_duration;
@@ -116,37 +140,29 @@ void main() {
     float t        = fract(total_t);  // phase within current cycle
 
     // -----------------------------------------------------------------------
-    // Zoom depth with a 5 % dwell at home zoom at each cycle boundary.
+    // Continuous forward zoom (no pingpong).
     //
-    //   t ∈ [0.00, 0.05)        → zoom_t = 0.0  (dwell; target just snapped)
-    //   t ∈ [0.05, 0.50)        → zoom_t 0 → 1  (zoom in, smoothstep)
-    //   t ∈ [0.50, 0.95)        → zoom_t 1 → 0  (zoom out, smoothstep)
-    //   t ∈ [0.95, 1.00)        → zoom_t = 0.0  (dwell; eye settles before next snap)
+    //   t ∈ [0, fade_frac)            → fade in from black, zoom begins
+    //   t ∈ [fade_frac, 1-fade_frac)  → full brightness, zooming deeper
+    //   t ∈ [1-fade_frac, 1)          → fade out to black, near max zoom
     //
-    // The dwell windows are when the target center snaps to the new value.
-    // Because zoom_t = 0 → scale = HOME_SCALE, the full set is on screen and
-    // the snap shifts the view by at most a fraction of the visible area.
+    // zoom_t maps the full [0, 1) phase to zoom depth with ease-in/out so
+    // the start and end feel smooth rather than abruptly starting/stopping.
     // -----------------------------------------------------------------------
-    const float DWELL = 0.05;
-    float zoom_t;
-    if (t < DWELL) {
-        zoom_t = 0.0;
-    } else if (t < 0.5) {
-        zoom_t = smoothstep(0.0, 0.5 - DWELL, t - DWELL);
-    } else if (t < 1.0 - DWELL) {
-        zoom_t = 1.0 - smoothstep(0.0, 0.5 - DWELL, t - 0.5);
-    } else {
-        zoom_t = 0.0;
-    }
+    float zoom_t = smoothstep(0.0, 1.0, t);
 
-    // Exponential zoom: logarithmic feel — slow at start, faster in middle.
+    // Fade alpha: smooth ramp up at cycle start, ramp down at cycle end.
+    float alpha = smoothstep(0.0, fade_frac, t)
+                * (1.0 - smoothstep(1.0 - fade_frac, 1.0, t));
+
+    // Exponential zoom: logarithmic feel — slow at overview, faster at depth.
     float scale = HOME_SCALE * pow(1.5, zoom_t * max_zoom_exp);
 
     // -----------------------------------------------------------------------
     // Target selection — stateless, deterministic, no consecutive repeats.
     //
-    // Target advances at the cycle boundary (zoom_t = 0.0, dwell window) so
-    // the snap always happens while the full-fractal home view is on screen.
+    // Each cycle_id hashes to a target index.  If the hash collides with the
+    // previous cycle's target, bump by one (mod NUM_TARGETS).
     // -----------------------------------------------------------------------
     int cur_raw  = int(hash(cycle_id)       * float(NUM_TARGETS));
     int prev_raw = int(hash(cycle_id - 1.0) * float(NUM_TARGETS));
@@ -154,27 +170,28 @@ void main() {
 
     // -----------------------------------------------------------------------
     // Camera centre — always exactly the current target, no interpolation.
-    //
-    // At HOME_SCALE the visible complex-plane region spans ~3.5 × 2.4 units,
-    // which comfortably contains the entire Mandelbrot set (~2.5 × 2.5 units).
-    // Every zoom target lies within that frame, so the exact centre value is
-    // irrelevant while zoomed out. At deep zoom the centre is precisely on the
-    // target boundary detail. No mix(), no cubic lag, no transit through the
-    // black interior.
     // -----------------------------------------------------------------------
     vec2 center = zoom_target(cur_idx);
 
     vec2 c = center + uv / scale;
 
-    // Adaptive iteration cap: 80 at widest view (fast), 256 at max zoom (fine
-    // boundary detail).  Interior pixels bail out early via cardioid/bulb
-    // checks so the reduced ceiling costs nothing at the boundary.
-    int max_iter = 80 + int(zoom_t * 176.0);
+    // -----------------------------------------------------------------------
+    // Adaptive iteration cap — scales with zoom depth.
+    //
+    //   max_iter = 100 + int(log2(zoom) * 20.0)
+    //
+    // At overview (zoom_t ≈ 0):  max_iter = 100   (fast full-set render)
+    // At max zoom (zoom_t = 1):  max_iter ≈ 264   (14 * log2(1.5) * 20)
+    // Hard cap at 500 to prevent GPU stalls on integrated hardware.
+    // -----------------------------------------------------------------------
+    float log2_zoom = zoom_t * max_zoom_exp * log2(1.5);
+    int max_iter = min(100 + int(log2_zoom * 20.0), 500);
     float n = mandelbrot(c, max_iter);
 
     if (n == 0.0) {
-        // Interior of the set: near-black with a faint blue depth cue.
-        fragColor = vec4(0.01, 0.01, 0.04, 1.0);
+        // Interior of the set: near-black with a faint blue depth cue,
+        // modulated by fade alpha.
+        fragColor = vec4(vec3(0.01, 0.01, 0.04) * alpha, 1.0);
         return;
     }
 
@@ -192,6 +209,9 @@ void main() {
     // Subtle vignette.
     float vignette = 1.0 - 0.3 * dot(uv, uv);
     col *= vignette;
+
+    // Apply fade alpha for transition through black between cycles.
+    col *= alpha;
 
     fragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
 }
