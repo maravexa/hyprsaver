@@ -57,6 +57,12 @@ void main() {
         // produces an unstable tail direction that flickers or points the wrong way.
         if (length(seed_xy) < 0.05) continue;
 
+        // Progressive tail growth: d is the star's age (0.0 at spawn, ~1.0 at exit).
+        // Tails grow from zero to full length over the first 30% of the star's
+        // lifetime, then stay at max for the remaining 70%.
+        float star_age   = d;
+        float tail_scale = smoothstep(0.0, 0.3, star_age);
+
         float depth = 1.0 - d;
         vec2  p     = seed_xy / max(depth, 0.001);   // project outward from center
 
@@ -77,7 +83,7 @@ void main() {
         // Stars further from center are moving faster, so their tails are longer.
         float dist_from_center = length(p);
         float base_tail_length = 0.18;
-        float tail_length      = base_tail_length * dist_from_center * 2.0;
+        float tail_length      = base_tail_length * dist_from_center * 2.0 * tail_scale;
         float tail_wid         = core_r * 1.4;   // thin streak, slightly wider than the core
 
         float tail_intensity = 0.0;
@@ -101,7 +107,7 @@ void main() {
             // Longitudinal fade: full brightness at star head (proj=0), transparent at tail end.
             float fade = 1.0 - (proj / seg_len);
 
-            tail_intensity = lateral * fade;
+            tail_intensity = lateral * fade * tail_scale;
         }
 
         // Combine head dot and tail — take the brighter contribution per pixel.
