@@ -48,7 +48,11 @@ void main() {
     vec2  uv2  = uv - wobble * wt;
 
     // ── 2. Polar conversion ───────────────────────────────────────────────────
-    float radius = max(length(uv2), 0.0005);
+    float r_raw  = length(uv2);
+    // Clamp to 0.05: prevents 1/r explosion and eliminates the asymmetric
+    // "d"-shaped artifact caused by the wobble displacement crossing zero.
+    // Fragments inside this zone are rendered as exit glow (see step 7).
+    float radius = max(r_raw, 0.05);
     float angle  = atan(uv2.y, uv2.x);      // -PI .. PI
 
     // ── 3. Depth (inverse radius) ─────────────────────────────────────────────
@@ -90,8 +94,13 @@ void main() {
     col = mix(col, vec3(0.0), fog);
 
     // ── 7. Center glow — exit light at vanishing point ────────────────────────
-    float center_glow = exp(-radius * radius * 28.0);
+    // Use r_raw (unclamped) so the Gaussian glow peaks sharply at true center.
+    float center_glow = exp(-r_raw * r_raw * 28.0);
     col += palette(0.5) * center_glow * 0.90;
+    // Fragments inside the clamp zone (r_raw < 0.05) are fully fogged already;
+    // blend them into a bright exit-light disc for a clean tunnel vanishing point.
+    float exit_glow = smoothstep(0.05, 0.0, r_raw);
+    col = mix(col, palette(0.5) * 1.5, exit_glow);
 
     // ── Near-camera vignette (large radius = close to viewer) ────────────────
     float vignette = smoothstep(1.0, 0.55, radius);
