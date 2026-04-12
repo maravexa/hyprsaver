@@ -65,7 +65,6 @@ float noise2(vec2 p) {
 
 // ---------------------------------------------------------------------------
 // 1D flame profile — 4 octaves of noise sampled along x.
-// High-frequency octaves create SHARP spiky tips.
 // Returns value in roughly [0, 1].
 // ---------------------------------------------------------------------------
 float flameProfile(float x, float t_local) {
@@ -83,11 +82,27 @@ float flameProfile(float x, float t_local) {
 // Returns intensity in [0, 1].
 // ---------------------------------------------------------------------------
 float flameLayer(vec2 uv, float base_y, float amplitude, float t_anim) {
-    float profile  = flameProfile(uv.x, t_anim);
+    float profile = flameProfile(uv.x, t_anim);
+
+    // Sharpen: push values toward extremes so valleys go lower and peaks
+    // become taller, narrower tongues.
+    profile = pow(abs(profile), 0.4) * sign(profile);
+
+    // Add 6 explicit narrow triangular spikes at pseudo-random x positions.
+    // spike_sharpness 15–25 produces very narrow, pointy triangles.
+    for (int i = 0; i < 6; i++) {
+        float fi = float(i);
+        float base_x  = hash11(fi * 7.3  + base_y * 100.0);
+        float spike_x  = base_x + sin(t_anim * 0.3 + hash11(fi * 13.7)) * 0.05;
+        float spike_h  = 0.05 + hash11(fi * 3.7 + base_y * 50.0) * 0.15;
+        float spike_sharp = 15.0 + hash11(fi * 5.1 + base_y * 30.0) * 10.0;
+        profile += spike_h * max(0.0, 1.0 - abs(uv.x - spike_x) * spike_sharp);
+    }
+
     float flame_top = base_y + profile * amplitude;
 
-    // Sharp top edge — 0.03 transition band.
-    float mask = smoothstep(flame_top, flame_top - 0.03, uv.y);
+    // Sharp top edge — 0.015 transition band (tightened for razor edges).
+    float mask = smoothstep(flame_top, flame_top - 0.015, uv.y);
 
     // Internal turbulence: vertical streaking within the flame body.
     float turb = noise2(uv * vec2(6.0, 10.0) + vec2(0.0, -t_anim * 1.5));
@@ -104,14 +119,14 @@ void main() {
 
     // ── Three flame layers ────────────────────────────────────────────────────
 
-    // Layer 1: base fire — wide, slow, covers 20–50% height
-    float L1 = flameLayer(uv, 0.20, 0.30, t * 1.0);
+    // Layer 1: base fire — wide, slow, covers 20–50% height (amplitude ×1.5)
+    float L1 = flameLayer(uv, 0.20, 0.45, t * 1.0);
 
-    // Layer 2: mid flames — medium, moderate speed, 30–65% height
-    float L2 = flameLayer(uv, 0.30, 0.35, t * 1.3 + 7.3);
+    // Layer 2: mid flames — medium, moderate speed, 30–65% height (amplitude ×1.5)
+    float L2 = flameLayer(uv, 0.30, 0.525, t * 1.3 + 7.3);
 
-    // Layer 3: flame tips — narrow sharp spikes, fastest, 40–80% height
-    float L3 = flameLayer(uv, 0.40, 0.40, t * 1.7 + 13.7);
+    // Layer 3: flame tips — narrow sharp spikes, fastest, 40–80% height (amplitude ×1.5)
+    float L3 = flameLayer(uv, 0.40, 0.60, t * 1.7 + 13.7);
 
     // Additive composite with layer weights
     float total = L1 * 0.50 + L2 * 0.35 + L3 * 0.25;
