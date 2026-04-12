@@ -29,7 +29,7 @@ uniform vec2  u_resolution;
 uniform vec2  u_mouse;
 uniform int   u_frame;
 
-const float BASE_SCROLL_SPEED = 0.08;
+const float BASE_SCROLL_SPEED = 0.24;
 
 // ---------------------------------------------------------------------------
 // Bitmap font — 30 characters, each a 5×6 grid stored as a uint (30 bits).
@@ -143,8 +143,8 @@ void main() {
     float t  = u_time * u_speed_scale;
 
     // Cell dimensions — normalised to screen height for resolution independence.
-    float cell_h = 24.0 / u_resolution.y;
-    float cell_w = 12.0 / u_resolution.y;
+    float cell_h = 28.8 / u_resolution.y;
+    float cell_w = 14.4 / u_resolution.y;
 
     // Compute max columns available on screen
     float screen_w_cells = (u_resolution.x / u_resolution.y) / cell_w;
@@ -243,7 +243,13 @@ void main() {
                     int gcol = clamp(int(floor(gx * 5.0)), 0, 4);
                     int grow = clamp(int(floor(gy * 6.0)), 0, 5);
 
-                    float pixel = sampleGlyph(glyph_id, gcol, grow);
+                    // 4-neighbor dilation: pixel is filled if it or any cardinal
+                    // neighbor in the bitmap is set — thickens every glyph stroke.
+                    float glyph_bit = max(sampleGlyph(glyph_id, gcol,     grow),
+                                     max(sampleGlyph(glyph_id, gcol - 1, grow),
+                                     max(sampleGlyph(glyph_id, gcol + 1, grow),
+                                     max(sampleGlyph(glyph_id, gcol,     grow - 1),
+                                         sampleGlyph(glyph_id, gcol,     grow + 1)))));
 
                     // Per-character brightness variation [0.82, 1.0] — tight range
                     // keeps characters bold and consistently bright like matrix shader.
@@ -253,7 +259,7 @@ void main() {
                     ));
 
                     // Hard pixel — no edge softening (matrix style).
-                    brightness = pixel * var;
+                    brightness = glyph_bit * var;
                 }
             }
         }
