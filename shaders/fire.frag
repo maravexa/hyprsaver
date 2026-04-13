@@ -49,7 +49,7 @@ float fbm(vec3 p) {
     float value     = 0.0;
     float amplitude = 0.5;
     for (int i = 0; i < 5; i++) {
-        value    += amplitude * abs(noise(p.xy));
+        value    += amplitude * abs(noise(p.xy + vec2(p.z)) * 2.0 - 1.0);
         p.xy      = p.xy * 2.02 + vec2(1.3, 1.7);
         p.z      += 0.5;
         amplitude *= 0.5;
@@ -80,18 +80,17 @@ float fire(vec2 uv, float time) {
 void main() {
     vec2 uv = gl_FragCoord.xy / u_resolution.xy;
 
-    // Height mask: full intensity at the base, fades out above 70%.
+    // Height mask: full intensity at the base, fades to zero at 75%.
     float mask = smoothstep(0.75, 0.25, uv.y);
-    mask *= 1.0 - smoothstep(0.55, 0.75, uv.y);
 
     float intensity = fire(uv, u_time * u_speed_scale) * mask * 2.5;
 
     // Power curve for realistic deep-red → hot-tip color ramp.
     float palette_t = pow(clamp(intensity, 0.0, 1.0), 0.65);
 
-    // Hot ember bed at the very bottom — maps to palette(0.85-1.0).
-    float ember = smoothstep(0.2, 0.0, uv.y);
-    palette_t = max(palette_t, ember * 0.95);
+    // Hot ember bed at the very bottom — lifts palette_t floor from 0.6→1.0.
+    float ember = smoothstep(0.18, 0.0, uv.y);
+    palette_t = max(palette_t, 0.6 + ember * 0.4);
 
     vec3 color = palette(palette_t);
     fragColor = vec4(color, 1.0);
