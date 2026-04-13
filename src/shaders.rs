@@ -90,10 +90,6 @@ pub const BUILTIN_OSCILLOSCOPE: &str = include_str!("../shaders/oscilloscope.fra
 /// with parallax depth (background half-speed, foreground full-speed). Tier-1 fBm.
 pub const BUILTIN_CLOUDS: &str = include_str!("../shaders/clouds.frag");
 
-/// Overhead view of the aurora borealis — 4 sinuous ribbon bands spanning the
-/// full sky, with fBm shimmer, tight Gaussian profiles, and vertical ray striations.
-pub const BUILTIN_AURORA: &str = include_str!("../shaders/aurora.frag");
-
 // ---------------------------------------------------------------------------
 // Vertex shader for the fullscreen quad (triangle-strip, no VBO needed)
 // ---------------------------------------------------------------------------
@@ -245,7 +241,6 @@ impl ShaderManager {
         // Register built-in shaders.
         let builtins: &[(&str, &str)] = &[
             ("planet", BUILTIN_PLANET),
-            ("aurora", BUILTIN_AURORA),
             ("bezier", BUILTIN_BEZIER),
             ("caustics", BUILTIN_CAUSTICS),
             ("clouds", BUILTIN_CLOUDS),
@@ -812,7 +807,7 @@ mod tests {
 
     #[test]
     fn test_builtin_shader_count() {
-        assert_eq!(manager().list().len(), 25);
+        assert_eq!(manager().list().len(), 24);
     }
 
     #[test]
@@ -821,7 +816,6 @@ mod tests {
         let names = mgr.list();
         for expected in &[
             "planet",
-            "aurora",
             "bezier",
             "caustics",
             "clouds",
