@@ -4,13 +4,14 @@ precision highp float;
 // ---------------------------------------------------------------------------
 // hyprsaver — fire.frag
 //
-// Stateless procedural fire using turbulence fBm with one level of domain
-// warping (Inigo Quilez technique, Book of Shaders turbulence variant).
+// Classic procedural fire effect — roiling flames rise from the bottom edge.
+// Three octaves of hash-based value noise scroll upward over time. A height
+// mask (smoothstep along Y) focuses intensity at the base; the noise output
+// feeds directly into palette(t) so any palette works — ember gives realistic
+// fire, frost gives an ice-flame, etc.
 //
-// The organic, spiky flame shape comes entirely from abs()-based value-noise
-// fBm evaluated on coordinates that have themselves been distorted by another
-// fBm pass. A simple height mask confines the fire to the lower portion of
-// the screen; palette() turns intensity into color.
+// Optional ember particles: small bright dots drift upward above the main
+// flame body using a hash-based particle system (20 particles per 2 layers).
 // ---------------------------------------------------------------------------
 
 uniform float u_time;
@@ -19,79 +20,142 @@ uniform vec2  u_mouse;
 uniform int   u_frame;
 
 // ---------------------------------------------------------------------------
-// Hash + 2D value noise (smoothstep-interpolated lattice).
+// Hash helpers
 // ---------------------------------------------------------------------------
 
-float hash(vec2 p) {
+float hash11(float p) {
+    p = fract(p * 0.1031);
+    p *= p + 33.33;
+    p *= p + p;
+    return fract(p);
+}
+
+float hash21(vec2 p) {
     return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
 }
 
-float noise(vec2 p) {
+// ---------------------------------------------------------------------------
+// 2D value noise — bilinear interpolation of hashed lattice points.
+// Smooth-stepped for C1 continuity. ~12 lines, no additional dependencies.
+// ---------------------------------------------------------------------------
+
+float noise2(vec2 p) {
     vec2 i = floor(p);
     vec2 f = fract(p);
+
+    // Smooth interpolation (Hermite cubic).
     vec2 u = f * f * (3.0 - 2.0 * f);
 
-    float a = hash(i);
-    float b = hash(i + vec2(1.0, 0.0));
-    float c = hash(i + vec2(0.0, 1.0));
-    float d = hash(i + vec2(1.0, 1.0));
+    float a = hash21(i);
+    float b = hash21(i + vec2(1.0, 0.0));
+    float c = hash21(i + vec2(0.0, 1.0));
+    float d = hash21(i + vec2(1.0, 1.0));
 
     return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
 }
 
 // ---------------------------------------------------------------------------
-// Turbulence fBm — abs()-variant for sharp valleys / spiky flame tips.
-// Takes vec3: p.xy is the noise sample position, p.z advances each octave
-// to give temporal variety.
+// FBM — three octaves of value noise scrolling upward.
+// Each octave has 2× frequency and 0.5× amplitude vs the previous.
 // ---------------------------------------------------------------------------
 
-float fbm(vec3 p) {
-    float value     = 0.0;
-    float amplitude = 0.5;
-    for (int i = 0; i < 5; i++) {
-        value    += amplitude * abs(noise(p.xy + vec2(0.0, p.z)) * 2.0 - 1.0);
-        p.xy      = p.xy * 2.02 + vec2(1.3, 1.7);
-        p.z      += 0.5;
-        amplitude *= 0.5;
+float fbm_fire(vec2 uv, float t) {
+    float v    = 0.0;
+    float amp  = 1.0;
+    float freq = 1.0;
+    float norm = 0.0;
+
+    for (int i = 0; i < 3; i++) {
+        // Scroll upward at slightly different speeds per octave.
+        float scroll = t * (1.2 + float(i) * 0.4);
+        v    += noise2(uv * freq + vec2(0.0, -scroll)) * amp;
+        norm += amp;
+        amp  *= 0.5;
+        freq *= 2.0;
     }
-    return value;
+
+    return v / norm;
 }
 
 // ---------------------------------------------------------------------------
-// Fire intensity with one level of domain warping (IQ technique).
+// Ember particles — small bright dots drifting upward above the flame body.
+// Two layers × 10 particles each.
 // ---------------------------------------------------------------------------
 
-float fire(vec2 uv, float time) {
-    // 3D coords: x stretched, y scrolls up, z evolves with time.
-    vec3 p = vec3(uv.x * 2.0, uv.y * 1.5 - time * 1.5, time * 0.5);
+float embers(vec2 uv, float t) {
+    float glow = 0.0;
+    float aspect = u_resolution.x / u_resolution.y;
 
-    // Warp p by another fbm evaluation (two orthogonal lookups).
-    vec3 q = vec3(
-        fbm(p + vec3(0.0, 0.0, time * 0.3)),
-        fbm(p + vec3(5.2, 1.3, time * 0.3)),
-        time
-    );
+    for (int layer = 0; layer < 2; layer++) {
+        float fl = float(layer);
+        float seed_base = fl * 137.531;
 
-    return fbm(p + q * 0.5);
+        for (int j = 0; j < 10; j++) {
+            float fj = float(j);
+
+            float hx     = hash11(seed_base + fj * 17.37 + 1.11);
+            float hy     = hash11(seed_base + fj * 53.19 + 2.22);
+            float hspeed = hash11(seed_base + fj * 73.11 + 3.33) * 0.15 + 0.08;
+            float hsize  = hash11(seed_base + fj * 31.47 + 4.44) * 0.008 + 0.003;
+
+            // Drift upward; x has a gentle sine sway.
+            float px = (hx - 0.5) * aspect + sin(t * hspeed * 3.0 + hx * 6.28) * 0.02;
+            float py = -0.5 + fract(hy + hspeed * t);
+
+            // Only visible above the main flame (upper half of screen).
+            if (py < 0.0) continue;
+
+            float dist = length(uv - vec2(px, py));
+            float g    = smoothstep(hsize, 0.0, dist);
+            // Fade out as embers rise higher.
+            float fade = 1.0 - smoothstep(0.0, 0.5, py);
+            glow += g * g * fade * 0.6;
+        }
+    }
+
+    return glow;
 }
 
 // ---------------------------------------------------------------------------
 
 void main() {
-    vec2 uv = gl_FragCoord.xy / u_resolution.xy;
+    float aspect = u_resolution.x / u_resolution.y;
+    vec2 uv = (gl_FragCoord.xy - 0.5 * u_resolution.xy) / u_resolution.y;
 
-    // Height mask: full intensity at the base, fades to zero at 75%.
-    float mask = smoothstep(0.75, 0.25, uv.y);
+    float t = u_time * u_speed_scale;
 
-    float intensity = fire(uv, u_time * u_speed_scale) * mask * 2.5;
+    // Remap UV so Y=0 is the bottom edge, Y=1 is the top.
+    // uv.y in our centred space goes from -0.5 to +0.5 (screen-height units).
+    vec2 flame_uv = vec2(uv.x, uv.y + 0.5);
 
-    // Power curve for realistic deep-red → hot-tip color ramp.
-    float palette_t = pow(clamp(intensity, 0.0, 1.0), 0.65);
+    // Organic horizontal sway before sampling noise.
+    flame_uv.x += sin(flame_uv.y * 3.0 + t * 0.9) * 0.025;
 
-    // Hot ember bed at the very bottom — lifts palette_t floor from 0.6→1.0.
-    float ember = smoothstep(0.18, 0.0, uv.y);
-    palette_t = max(palette_t, 0.6 + ember * 0.4);
+    // Scale: X wider than Y for broader flame tongues.
+    vec2 noise_uv = vec2(flame_uv.x * 1.8, flame_uv.y * 2.5);
 
-    vec3 color = palette(palette_t);
-    fragColor = vec4(color, 1.0);
+    float n = fbm_fire(noise_uv, t * 1.3);
+
+    // Height mask: full intensity at the base, zero at the top.
+    // High-frequency noise octave adds small sharp spikes to the flame tips.
+    float height_mask = smoothstep(1.0, 0.0, flame_uv.y * 1.1)
+                       + noise2(vec2(flame_uv.x * 20.0, t * 3.0)) * 0.06;
+
+    // Combined intensity — noise shaped by the height mask.
+    float intensity = clamp(n * height_mask * 2.2 - 0.05, 0.0, 1.0);
+
+    // Map intensity to palette. t≈0 → cool embers/dark, t≈1 → hot bright tips.
+    // Multiply by smoothstep so near-zero intensity fades to pure black regardless
+    // of what palette() returns at t=0 — prevents colored backgrounds with bright palettes.
+    vec3 col = palette(intensity) * smoothstep(0.0, 0.035, intensity);
+
+    // Ember particles additively blended on top.
+    float ember_glow = embers(uv, t * 0.7);
+    col += palette(0.85) * ember_glow;
+
+    // Subtle vignette on the sides to focus the eye to the centre.
+    float vignette = 1.0 - smoothstep(0.3, 0.9, abs(uv.x / (aspect * 0.5)));
+    col *= mix(0.7, 1.0, vignette);
+
+    fragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
 }
