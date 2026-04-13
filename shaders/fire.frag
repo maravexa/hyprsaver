@@ -4,17 +4,14 @@ precision highp float;
 // ---------------------------------------------------------------------------
 // hyprsaver — fire.frag
 //
-// Three-layer demoscene flame effect.  Each layer has an independent spiky
-// 1D profile (4 octaves of 1D noise along x) that creates sharp tongue tips
-// rather than a smooth wave.  Layers are composited additively.
+// Classic procedural fire effect — roiling flames rise from the bottom edge.
+// Three octaves of hash-based value noise scroll upward over time. A height
+// mask (smoothstep along Y) focuses intensity at the base; the noise output
+// feeds directly into palette(t) so any palette works — ember gives realistic
+// fire, frost gives an ice-flame, etc.
 //
-// Architecture:
-//   Layer 1 (base)  — height 20–50%, widest, slowest
-//   Layer 2 (mid)   — height 30–65%, medium width, medium speed
-//   Layer 3 (tips)  — height 40–80%, narrow spikes, fastest
-//
-// Each layer: sharp smoothstep cutoff (0.03 band), internal turbulence noise.
-// Bottom 10% always fully hot.  Hard black above 85%.
+// Optional ember particles: small bright dots drift upward above the main
+// flame body using a hash-based particle system (20 particles per 2 layers).
 // ---------------------------------------------------------------------------
 
 uniform float u_time;
@@ -38,21 +35,15 @@ float hash21(vec2 p) {
 }
 
 // ---------------------------------------------------------------------------
-// 1D smooth noise (bilinear between hashed lattice points).
+// 2D value noise — bilinear interpolation of hashed lattice points.
+// Smooth-stepped for C1 continuity. ~12 lines, no additional dependencies.
 // ---------------------------------------------------------------------------
-float noise1(float p) {
-    float i = floor(p);
-    float f = fract(p);
-    float u = f * f * (3.0 - 2.0 * f);
-    return mix(hash11(i), hash11(i + 1.0), u);
-}
 
-// ---------------------------------------------------------------------------
-// 2D value noise (for internal turbulence).
-// ---------------------------------------------------------------------------
 float noise2(vec2 p) {
     vec2 i = floor(p);
     vec2 f = fract(p);
+
+    // Smooth interpolation (Hermite cubic).
     vec2 u = f * f * (3.0 - 2.0 * f);
 
     float a = hash21(i);
@@ -64,93 +55,107 @@ float noise2(vec2 p) {
 }
 
 // ---------------------------------------------------------------------------
-// 1D flame profile — 4 octaves of noise sampled along x.
-// Returns value in roughly [0, 1].
+// FBM — three octaves of value noise scrolling upward.
+// Each octave has 2× frequency and 0.5× amplitude vs the previous.
 // ---------------------------------------------------------------------------
-float flameProfile(float x, float t_local) {
-    return noise1(x * 2.0  + t_local * 0.50) * 0.500
-         + noise1(x * 5.0  + t_local * 1.20) * 0.250
-         + noise1(x * 11.0 + t_local * 2.50) * 0.125
-         + noise1(x * 23.0 + t_local * 4.00) * 0.0625;
+
+float fbm_fire(vec2 uv, float t) {
+    float v    = 0.0;
+    float amp  = 1.0;
+    float freq = 1.0;
+    float norm = 0.0;
+
+    for (int i = 0; i < 3; i++) {
+        // Scroll upward at slightly different speeds per octave.
+        float scroll = t * (1.2 + float(i) * 0.4);
+        v    += noise2(uv * freq + vec2(0.0, -scroll)) * amp;
+        norm += amp;
+        amp  *= 0.5;
+        freq *= 2.0;
+    }
+
+    return v / norm;
 }
 
 // ---------------------------------------------------------------------------
-// Single flame layer.
-// base_y    — minimum flame top (uv.y = 0 at bottom)
-// amplitude — how far above base_y the profile can reach
-// t_anim    — independent time offset for this layer
-// Returns intensity in [0, 1].
+// Ember particles — small bright dots drifting upward above the flame body.
+// Two layers × 10 particles each.
 // ---------------------------------------------------------------------------
-float flameLayer(vec2 uv, float base_y, float amplitude, float t_anim) {
-    float profile = flameProfile(uv.x, t_anim);
 
-    // Sharpen: push values toward extremes so valleys go lower and peaks
-    // become taller, narrower tongues.
-    profile = pow(abs(profile), 0.4) * sign(profile);
+float embers(vec2 uv, float t) {
+    float glow = 0.0;
+    float aspect = u_resolution.x / u_resolution.y;
 
-    // Add 6 explicit narrow triangular spikes at pseudo-random x positions.
-    // spike_sharpness 15–25 produces very narrow, pointy triangles.
-    for (int i = 0; i < 6; i++) {
-        float fi = float(i);
-        float base_x  = hash11(fi * 7.3  + base_y * 100.0);
-        float spike_x  = base_x + sin(t_anim * 0.3 + hash11(fi * 13.7)) * 0.05;
-        float spike_h  = 0.05 + hash11(fi * 3.7 + base_y * 50.0) * 0.15;
-        float spike_sharp = 15.0 + hash11(fi * 5.1 + base_y * 30.0) * 10.0;
-        profile += spike_h * max(0.0, 1.0 - abs(uv.x - spike_x) * spike_sharp);
+    for (int layer = 0; layer < 2; layer++) {
+        float fl = float(layer);
+        float seed_base = fl * 137.531;
+
+        for (int j = 0; j < 10; j++) {
+            float fj = float(j);
+
+            float hx     = hash11(seed_base + fj * 17.37 + 1.11);
+            float hy     = hash11(seed_base + fj * 53.19 + 2.22);
+            float hspeed = hash11(seed_base + fj * 73.11 + 3.33) * 0.15 + 0.08;
+            float hsize  = hash11(seed_base + fj * 31.47 + 4.44) * 0.008 + 0.003;
+
+            // Drift upward; x has a gentle sine sway.
+            float px = (hx - 0.5) * aspect + sin(t * hspeed * 3.0 + hx * 6.28) * 0.02;
+            float py = -0.5 + fract(hy + hspeed * t);
+
+            // Only visible above the main flame (upper half of screen).
+            if (py < 0.0) continue;
+
+            float dist = length(uv - vec2(px, py));
+            float g    = smoothstep(hsize, 0.0, dist);
+            // Fade out as embers rise higher.
+            float fade = 1.0 - smoothstep(0.0, 0.5, py);
+            glow += g * g * fade * 0.6;
+        }
     }
 
-    float flame_top = base_y + profile * amplitude;
-
-    // Sharp top edge — 0.015 transition band (tightened for razor edges).
-    float mask = smoothstep(flame_top, flame_top - 0.015, uv.y);
-
-    // Internal turbulence: vertical streaking within the flame body.
-    float turb = noise2(uv * vec2(6.0, 10.0) + vec2(0.0, -t_anim * 1.5));
-    float body = mix(0.55, 1.0, turb);
-
-    return mask * body;
+    return glow;
 }
 
 // ---------------------------------------------------------------------------
 
 void main() {
-    vec2 uv = gl_FragCoord.xy / u_resolution.xy;  // uv.y: 0 = bottom, 1 = top
+    float aspect = u_resolution.x / u_resolution.y;
+    vec2 uv = (gl_FragCoord.xy - 0.5 * u_resolution.xy) / u_resolution.y;
+
     float t = u_time * u_speed_scale;
 
-    // ── Three flame layers ────────────────────────────────────────────────────
+    // Remap UV so Y=0 is the bottom edge, Y=1 is the top.
+    // uv.y in our centred space goes from -0.5 to +0.5 (screen-height units).
+    vec2 flame_uv = vec2(uv.x, uv.y + 0.5);
 
-    // Layer 1: base fire — wide, slow, covers 20–50% height (amplitude ×1.5)
-    float L1 = flameLayer(uv, 0.20, 0.45, t * 1.0);
+    // Organic horizontal sway before sampling noise.
+    flame_uv.x += sin(flame_uv.y * 3.0 + t * 0.9) * 0.025;
 
-    // Layer 2: mid flames — medium, moderate speed, 30–65% height (amplitude ×1.5)
-    float L2 = flameLayer(uv, 0.30, 0.525, t * 1.3 + 7.3);
+    // Scale: X wider than Y for broader flame tongues.
+    vec2 noise_uv = vec2(flame_uv.x * 1.8, flame_uv.y * 2.5);
 
-    // Layer 3: flame tips — narrow sharp spikes, fastest, 40–80% height (amplitude ×1.5)
-    float L3 = flameLayer(uv, 0.40, 0.60, t * 1.7 + 13.7);
+    float n = fbm_fire(noise_uv, t * 1.3);
 
-    // Additive composite with layer weights
-    float total = L1 * 0.50 + L2 * 0.35 + L3 * 0.25;
+    // Height mask: full intensity at the base, zero at the top.
+    // High-frequency noise octave adds small sharp spikes to the flame tips.
+    float height_mask = smoothstep(1.0, 0.0, flame_uv.y * 1.1)
+                       + noise2(vec2(flame_uv.x * 20.0, t * 3.0)) * 0.06;
 
-    // ── Bottom 10%: always fully hot ─────────────────────────────────────────
-    float base_glow = smoothstep(0.10, 0.0, uv.y);
-    total = max(total, base_glow);
+    // Combined intensity — noise shaped by the height mask.
+    float intensity = clamp(n * height_mask * 2.2 - 0.05, 0.0, 1.0);
 
-    // ── Hard black above 85% ─────────────────────────────────────────────────
-    float top_kill = smoothstep(0.85, 0.80, uv.y);
-    total *= top_kill;
+    // Map intensity to palette. t≈0 → cool embers/dark, t≈1 → hot bright tips.
+    // Multiply by smoothstep so near-zero intensity fades to pure black regardless
+    // of what palette() returns at t=0 — prevents colored backgrounds with bright palettes.
+    vec3 col = palette(intensity) * smoothstep(0.0, 0.035, intensity);
 
-    total = clamp(total, 0.0, 1.0);
+    // Ember particles additively blended on top.
+    float ember_glow = embers(uv, t * 0.7);
+    col += palette(0.85) * ember_glow;
 
-    // ── Color mapping ─────────────────────────────────────────────────────────
-    float palette_t = pow(total, 0.6);
-    vec3 col = palette(palette_t) * smoothstep(0.0, 0.12, total);
-
-    // Boost white-hot coals at very bottom
-    col += palette(0.95) * base_glow * top_kill * 0.45;
-
-    // Subtle side vignette
-    float vignette = 1.0 - smoothstep(0.3, 0.9, abs((uv.x - 0.5) / 0.5));
-    col *= mix(0.75, 1.0, vignette);
+    // Subtle vignette on the sides to focus the eye to the centre.
+    float vignette = 1.0 - smoothstep(0.3, 0.9, abs(uv.x / (aspect * 0.5)));
+    col *= mix(0.7, 1.0, vignette);
 
     fragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
 }
