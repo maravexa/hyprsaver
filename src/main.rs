@@ -514,6 +514,10 @@ fn shader_descriptions() -> std::collections::HashMap<&'static str, &'static str
             "Raymarched planet sphere wrapped in aurora borealis bands — sine-wave latitude bands perturbed by noise",
         ),
         (
+            "aurora",
+            "Ground-up view of the aurora borealis — shimmering sine-fold curtains with fBm shimmer and vertical ray striations over a dark sky",
+        ),
+        (
             "bezier",
             "Five animated cubic Bézier curves with slow-drifting control points and additive palette glow",
         ),
