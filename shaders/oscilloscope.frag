@@ -52,9 +52,10 @@ float vnoise(float x) {
 // ---------------------------------------------------------------------------
 
 float wave1(float x, float t) {
-    // Composite sine: two-tone interference.
-    return 0.35 * sin(6.0  * x + t * 1.2)
-         + 0.112 * sin(14.0 * x + t * 3.1);
+    // Composite sine: two-tone interference.  Larger amplitude so Ch1 sweeps
+    // ~80 % of screen height — like a scope channel dialled to a higher V/div.
+    return 0.45 * sin(6.0  * x + t * 1.2)
+         + 0.12  * sin(14.0 * x + t * 3.1);
 }
 
 float wave2(float x, float t) {
@@ -127,16 +128,6 @@ void main() {
     float y1 = wave1(x_phase, t);
     float y2 = wave2(x_phase, t);
     float y3 = wave3(x_phase, t);
-
-    // Intermittent spikes: hash-based trigger at irregular intervals.
-    // ~8% of x positions are active at any moment; each channel spikes independently.
-    float spike_trigger1 = step(0.92, fract(sin(floor(xn * 8.0 + u_time * 0.5 + 0.0)) * 43758.5));
-    float spike_trigger2 = step(0.92, fract(sin(floor(xn * 8.0 + u_time * 0.5 + 3.0)) * 43758.5));
-    float spike_trigger3 = step(0.92, fract(sin(floor(xn * 8.0 + u_time * 0.5 + 6.0)) * 43758.5));
-    float spike_height = sin(xn * 30.0 + u_time * 5.0) * 0.3;
-    y1 += spike_trigger1 * spike_height;
-    y2 += spike_trigger2 * spike_height;
-    y3 += spike_trigger3 * spike_height;
 
     float d1 = yn - y1;
     float d2 = yn - y2;
