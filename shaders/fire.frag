@@ -89,9 +89,9 @@ void main() {
     // Power curve for realistic deep-red → hot-tip color ramp.
     float palette_t = pow(clamp(intensity, 0.0, 1.0), 0.65);
 
-    // Hot ember bed at the very bottom.
-    float ember = smoothstep(0.15, 0.0, uv.y) * 0.5;
-    palette_t = max(palette_t, ember);
+    // Hot ember bed at the very bottom — maps to palette(0.85-1.0).
+    float ember = smoothstep(0.2, 0.0, uv.y);
+    palette_t = max(palette_t, ember * 0.95);
 
     vec3 color = palette(palette_t);
     fragColor = vec4(color, 1.0);
