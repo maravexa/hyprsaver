@@ -77,7 +77,7 @@ void main() {
     // still use the original angle / r / depth (singularity fix preserved).
     float bend1       = sin(depth * 0.15 + t * 0.25) * 0.8;
     float bend2       = cos(depth * 0.22 + t * 0.18) * 0.5;
-    float angle_offset = (bend1 + bend2) * smoothstep(1.0, 6.0, depth) * 0.15;
+    float angle_offset = (bend1 + bend2) * smoothstep(1.0, 6.0, depth) * 0.45;
     float bent_angle  = angle + angle_offset;
 
     // ── 4. Animated scroll — viewer pulled inward ────────────────────────────
@@ -103,7 +103,7 @@ void main() {
 
     // Per-ring color: integer-indexed → distinct color per ring, not gradient.
     // Mirrors wormhole exactly: palette(fract(ring_idx * 0.125 + t * 0.05))
-    vec3 ring_col = palette(fract(ring_idx * 0.125 + t * 0.05));
+    vec3 ring_col = palette(fract(ring_idx * 0.125 + t * 0.05 + angle_offset * 0.08));
 
     // Blend: dark/subdued base ↔ bright ring. High contrast = cartoon bands.
     // Mirrors wormhole exactly: mix(wall, ring_col * 0.65, rib_str)
