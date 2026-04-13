@@ -10,9 +10,11 @@ precision highp float;
 // Architecture:
 //   - Displaced-center polar coordinates (singularity fix: the vanishing point
 //     sits at the wobbled center, not the screen center).
-//   - Depth-dependent angular bend: the angle used for texture lookup shifts as
-//     a function of depth (1/r). At deep pixels the angle deviates ~31° from
-//     shallow pixels, producing a parallax the brain reads as tunnel curvature.
+//   - Depth-dependent angular bend: angle_offset is added directly to angle
+//     for texture lookup, and grows with depth (not multiplied by r).  Deep
+//     pixels (large depth = small r) receive a larger angular offset, so the
+//     segment marks on far ring bands appear at different angular positions than
+//     near ring bands — the brain reads this parallax as tunnel curvature.
 //     Geometry (fog, disc) uses the original r/depth/angle, so rings remain
 //     circular and the singularity fix is unaffected.
 //   - Wall texture mirrors wormhole.frag exactly: sharp 0.06-width rib pulses,
@@ -59,24 +61,24 @@ void main() {
     float depth         = 1.0 / max(r, 0.005);
 
     // ── 3. Depth-dependent angular bend — tunnel curvature illusion ──────────
-    // Offset the angle used for TEXTURE lookup as a function of depth.
-    // Deep pixels (small r → large depth) see a larger angular offset than
-    // shallow pixels. The segment marks on each ring band appear at different
-    // angular positions at different depths; the brain reads this parallax as
-    // the tunnel curving around a bend.
+    // Add an angular offset directly to angle (NOT to the UV vector).
     //
-    // bend_amount = 0.6 → max angular deviation ≈ arctan(0.6) ≈ 31°.
-    // x/y components use different frequencies so the tunnel curves in varied
-    // directions (S-bend), not a uniform helix.
-    // u_time terms animate the bends so the passage feels alive.
-    float bend_amount  = 0.6;
-    float bend_freq    = 0.15;
-    float bend_phase_x = sin(depth * bend_freq         + t * 0.20) * bend_amount;
-    float bend_phase_y = cos(depth * bend_freq * 0.8   + t * 0.15) * bend_amount * 0.7;
-
-    // Scale bend by r: nearby pixels get proportional (not absolute) offset.
-    vec2  bent_dir   = displaced_uv + vec2(bend_phase_x, bend_phase_y) * r;
-    float bent_angle = atan(bent_dir.y, bent_dir.x);
+    // Previous attempts used  displaced_uv + bend * r  which cancels at depth:
+    // large depth means small r, so bend * r → 0 exactly where it should peak.
+    // This approach adds the offset directly to angle and scales it by depth
+    // (implicitly, via sin/cos of depth), so the bend GROWS the deeper you look.
+    //
+    // Two sinusoidal bends at slightly different frequencies produce an S-curve
+    // that varies over time (animated by t terms), so the tunnel feels alive.
+    // smoothstep(1.0, 6.0, depth) ramps the offset up gradually so the near-
+    // field ring bands stay stable and the curvature builds into the mid-field.
+    //
+    // bent_angle is used ONLY for texture lookup — fog, disc, and all geometry
+    // still use the original angle / r / depth (singularity fix preserved).
+    float bend1       = sin(depth * 0.15 + t * 0.25) * 0.8;
+    float bend2       = cos(depth * 0.22 + t * 0.18) * 0.5;
+    float angle_offset = (bend1 + bend2) * smoothstep(1.0, 6.0, depth) * 0.15;
+    float bent_angle  = angle + angle_offset;
 
     // ── 4. Animated scroll — viewer pulled inward ────────────────────────────
     float scroll = t * 1.8;
