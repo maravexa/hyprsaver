@@ -522,6 +522,10 @@ fn shader_descriptions() -> std::collections::HashMap<&'static str, &'static str
             "Underwater light caustic patterns dancing across the screen",
         ),
         (
+            "clouds",
+            "Slowly drifting procedural clouds over a palette-tinted sky (plain 5-octave fBm)",
+        ),
+        (
             "fire",
             "Procedural flames rising with fractal noise turbulence",
         ),
