@@ -82,6 +82,10 @@ pub const BUILTIN_WORMHOLE: &str = include_str!("../shaders/wormhole.frag");
 /// CRT scanlines, phosphor glow, and a blinking cursor.
 pub const BUILTIN_TERMINAL: &str = include_str!("../shaders/terminal.frag");
 
+/// Slowly drifting procedural clouds — plain 5-octave value-noise fBm at two scales
+/// over a palette-tinted sky. Tier-1 fBm: one of the lightest shaders in the set.
+pub const BUILTIN_CLOUDS: &str = include_str!("../shaders/clouds.frag");
+
 // ---------------------------------------------------------------------------
 // Vertex shader for the fullscreen quad (triangle-strip, no VBO needed)
 // ---------------------------------------------------------------------------
@@ -235,6 +239,7 @@ impl ShaderManager {
             ("planet", BUILTIN_PLANET),
             ("bezier", BUILTIN_BEZIER),
             ("caustics", BUILTIN_CAUSTICS),
+            ("clouds", BUILTIN_CLOUDS),
             ("fire", BUILTIN_FIRE),
             ("marble", BUILTIN_MARBLE),
             ("hypercube", BUILTIN_HYPERCUBE),
@@ -797,7 +802,7 @@ mod tests {
 
     #[test]
     fn test_builtin_shader_count() {
-        assert_eq!(manager().list().len(), 22);
+        assert_eq!(manager().list().len(), 23);
     }
 
     #[test]
@@ -808,6 +813,7 @@ mod tests {
             "planet",
             "bezier",
             "caustics",
+            "clouds",
             "fire",
             "marble",
             "geometry",
