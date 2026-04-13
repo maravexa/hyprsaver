@@ -2,25 +2,25 @@
 precision highp float;
 
 // ---------------------------------------------------------------------------
-// hyprsaver — aurora.frag
+// hyprsaver — aurora.frag  (v2)
 //
-// Ground-up view of aurora borealis: tall vertical curtains hang from the
-// top of the screen and sway side to side, shimmering across the full height.
+// Aurora borealis: vertical curtain bands with asymmetric exponential falloff.
+// Sharp bright edge on one side, long soft glow tail on the other — this is
+// what gives real aurora its distinctive luminous fringe appearance.
 //
 // Technique:
-//   - 4 vertical curtain bands, each positioned at an evenly-spaced x
-//     fraction of the screen
-//   - Two-frequency sine wobble (driven by Y) + fBm displacement gives each
-//     band an organic, swaying path
-//   - Tight Gaussian profile (exp(-d*d*120)) keeps bands narrow and distinct
-//   - Per-band fBm shimmer creates the characteristic pulsing/breathing
-//   - Additive compositing with soft tone-map (x/(1+0.3x)) prevents blowout
-//   - Unified palette gradient (bottom→top = palette(0.1)→palette(0.9)) so
-//     the full colour spectrum is visible in every curtain
-//   - No ground plane, no horizon mask — the entire screen is sky
+//   - 4 vertical curtain bands evenly distributed across the screen width
+//   - Each band sways via multi-frequency sine waves driven by Y position
+//   - Small raw-noise displacement for organic irregularity (cheap, no fBm)
+//   - Asymmetric falloff: exp(-d²·300) on the sharp side,
+//                         exp(-d²·20)  on the long tail side
+//   - Palette sampled by abs(dist) from band center — color radiates outward
+//     from the bright edge into the tail; no per-band palette offset
+//   - Raw-noise shimmer on intensity (single noise() call, not fBm)
+//   - Additive compositing + soft tone-map prevents blowout where bands overlap
 //
-// GPU cost: 4 bands × (1 fbm shimmer + 1 fbm displacement) + global fbm.
-// Moderate — same tier as the clouds shader.
+// GPU cost: 4 bands × (2 noise() + sin math). No fBm in the hot path.
+// One of the cheapest shaders in the collection (target: <10% GPU).
 // ---------------------------------------------------------------------------
 
 uniform float u_time;
@@ -40,75 +40,88 @@ float noise(vec2 p) {
     vec2 i = floor(p);
     vec2 f = fract(p);
     vec2 u = f * f * (3.0 - 2.0 * f);
-    return mix(mix(hash(i),                  hash(i + vec2(1.0, 0.0)), u.x),
+    return mix(mix(hash(i),               hash(i + vec2(1.0, 0.0)), u.x),
                mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x), u.y);
 }
 
-// 4-octave fBm — soft shimmer, not rich structure.
+// 3-octave fBm — defined here for shimmer fallback if raw noise looks too
+// uniform, but NOT called in the hot path below.
 float fbm(vec2 p) {
-    float value = 0.0;
-    float amplitude = 0.5;
+    float v = 0.0;
+    float a = 0.5;
     mat2 rot = mat2(1.6, 1.2, -1.2, 1.6);
-    for (int j = 0; j < 4; j++) {
-        value += amplitude * noise(p);
+    for (int i = 0; i < 3; i++) {
+        v += a * noise(p);
         p = rot * p;
-        amplitude *= 0.5;
+        a *= 0.5;
     }
-    return value;
+    return v;
 }
 
 // ---------------------------------------------------------------------------
 
 void main() {
     vec2 uv = gl_FragCoord.xy / u_resolution.xy;
+    float time = u_time * u_speed_scale;
 
-    float t = u_time * u_speed_scale;
+    // Dark sky background — just a faint hint of palette colour.
+    vec3 color = palette(0.05) * 0.08;
 
-    // Very dark sky tint — just enough to see the palette colour in the voids.
-    vec3 color = palette(0.05) * 0.1;
-
+    // --- CURTAIN BANDS ---
+    // 4 vertical curtain bands distributed across the screen width.
     const int NUM_BANDS = 4;
 
     for (int i = 0; i < NUM_BANDS; i++) {
         float fi = float(i);
 
-        // Evenly distribute band centres across the full screen width.
+        // Band centre x, evenly spaced: 0.125, 0.375, 0.625, 0.875
         float band_x = (fi + 0.5) / float(NUM_BANDS);
 
-        // Two-frequency sine wobble driven by Y — the curtain sways left/right
-        // as it descends down the screen.
-        float wobble = sin(uv.y * 2.5 + t * 0.12 + fi * 1.7) * 0.12
-                     + sin(uv.y * 6.0 - t * 0.20 + fi * 3.1) * 0.04;
+        // Multi-frequency sine wobble driven by Y — curtain sways as it
+        // descends.  Three frequencies give a natural, non-periodic sway.
+        float wobble = sin(uv.y * 3.0  + time * 0.10 + fi * 2.5) * 0.060
+                     + sin(uv.y * 7.0  - time * 0.15 + fi * 4.2) * 0.025
+                     + sin(uv.y * 13.0 + time * 0.22 + fi * 1.8) * 0.010;
 
-        // fBm displacement along Y breaks up the sine regularity for a more
-        // organic, wind-blown curtain shape.
-        float noise_offset = fbm(vec2(uv.y * 3.0 + fi * 10.0,
-                                      t * 0.05)) * 0.08;
+        // Single noise() call for small organic displacement — cheap, no fBm.
+        float noise_displace = (noise(vec2(uv.y * 4.0 + fi * 10.0,
+                                           time * 0.08)) - 0.5) * 0.04;
 
-        float path_x = band_x + wobble + noise_offset;
+        float center = band_x + wobble + noise_displace;
 
-        // Tight Gaussian profile perpendicular to the band path.
-        // Factor 120 keeps bands narrow (~0.06 screen-width wide) and
-        // prevents them from bleeding into each other.
-        float dist = abs(uv.x - path_x);
-        float band = exp(-dist * dist * 120.0);
+        // Signed distance: positive = right of centre, negative = left.
+        float dist = uv.x - center;
 
-        // fBm shimmer — characteristic aurora pulsing / rippling intensity.
-        band *= 0.4 + 0.6 * fbm(vec2(uv.y * 8.0 + t * 0.15 + fi,
-                                      uv.x * 4.0));
+        // --- ASYMMETRIC FALLOFF — the aurora signature ---
+        // Positive dist (right of centre): tight Gaussian → sharp bright edge.
+        // Negative dist (left of centre):  wide Gaussian  → long glowing tail.
+        float band;
+        if (dist > 0.0) {
+            band = exp(-dist * dist * 300.0);
+        } else {
+            band = exp(-dist * dist * 20.0);
+        }
 
-        // Palette gradient from bottom to top — all curtains share the same
-        // colour range so the full spectrum is visible across each curtain's
-        // height (bottom → palette(0.1), top → palette(0.9)).
-        vec3 band_color = palette(uv.y * 0.8 + 0.1);
-        vec3 contribution = band_color * band;
+        // --- SHIMMER ---
+        // Single noise() call — intensity pulses organically along the curtain.
+        float shimmer = 0.6 + 0.4 * noise(vec2(uv.y * 10.0 + fi * 7.0,
+                                                time * 0.12));
+        band *= shimmer;
 
-        color += contribution;
+        // --- COLOR GRADIENT ---
+        // Palette driven by distance from centre — color radiates outward from
+        // the bright edge through the tail.  NOT by vertical position.
+        // All bands share this same gradient (no per-band offset).
+        float palette_t = clamp(abs(dist) * 5.0, 0.0, 0.85);
+        // Bright edge → palette(0.15), far tail → palette(0.85)
+        vec3 band_color = palette(0.15 + palette_t * 0.70);
+
+        // Additive blend — bands layer naturally on top of each other.
+        color += band_color * band * 0.7;
     }
 
-    // Soft tone-map: prevents blowout where bands overlap while keeping
-    // isolated bands at full brightness.
-    color = color / (1.0 + color * 0.3);
+    // Soft Reinhard-style tone-map: prevents blowout where bands overlap.
+    color = color / (1.0 + color * 0.2);
 
     fragColor = vec4(color, 1.0);
 }
