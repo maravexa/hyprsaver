@@ -43,9 +43,9 @@ void main() {
         sin(d0 * 0.8 + t * 0.30) * 0.30,
         cos(d0 * 1.1 + t * 0.22) * 0.28
     );
-    // Taper wobble off near screen edge (close to camera) for stable framing.
-    float wt   = smoothstep(0.05, 0.35, r0);
-    vec2  uv2  = uv - wobble * wt;
+    // Fade displacement to zero near center — prevents orbiting-singularity artifact.
+    wobble *= smoothstep(0.0, 0.3, r0);
+    vec2  uv2  = uv - wobble;
 
     // ── 2. Polar conversion ───────────────────────────────────────────────────
     float r_raw  = length(uv2);
