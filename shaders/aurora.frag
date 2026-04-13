@@ -2,7 +2,7 @@
 precision highp float;
 
 // ---------------------------------------------------------------------------
-// hyprsaver — aurora.frag  (v3 — domain-warped FBM rewrite)
+// hyprsaver — aurora.frag  (v4 — diagonal drift + aggressive wiggle)
 //
 // Overhead aurora borealis — viewer looks straight up at the sky.
 // Three horizontal curtain bands drift organically via FBM domain warping
@@ -115,22 +115,27 @@ vec3 aurora_band(vec2 uv, float t,
     //
     // warp_p advances along Y as time passes (t * 0.08), sampling
     // successive rows of the 2D warp field and creating slow, continuously
-    // evolving (aperiodic) horizontal undulation — no sine waves.
+    // evolving (aperiodic) undulation — no sine waves.
     //
     // Two independent fbm4 samples at offset positions produce a 2D warp
     // vector. Values are centred (−0.5) before multiplying so undulation
     // is symmetric: bands drift left AND right, up AND down.
     //
-    // warp_strength 0.40 → effective ±0.20 in X, well under the 0.35
-    // collapse threshold. Y warp is 1/3 of X: bands breathe vertically
-    // without drifting off-screen.
+    // warp_strength 0.56 → effective ±0.28 in X (up from ±0.20).
+    // Ceiling is ±0.35 before band structure collapses to blobs.
+    //
+    // DIAGONAL DRIFT: drift_y includes a cross-term from qx so Y motion
+    // is coupled to X motion. The coupling (0.20 multiplier) creates a
+    // ~20° diagonal bias — bands appear to flow at an angle rather than
+    // purely side-to-side. Y warp also increased to ±0.12 (from ±0.07)
+    // to match the more aggressive wiggle amplitude.
     // ------------------------------------------------------------------
     vec2  warp_p   = vec2(uv.x * 2.5, t * 0.08) + warp_seed;
     float qx       = fbm4(warp_p);
     float qy       = fbm4(warp_p + vec2(5.2, 1.3));
 
-    float warped_x = uv.x + (qx - 0.5) * 0.40;   // X warp: ±0.20 range
-    float drift_y  = (qy - 0.5) * 0.14;            // Y drift: ±0.07 range
+    float warped_x = uv.x + (qx - 0.5) * 0.56;              // X warp: ±0.28 range
+    float drift_y  = (qy - 0.5) * 0.24 + (qx - 0.5) * 0.20; // Y: ±0.12 + diagonal coupling
 
     // Signed vertical distance from the drifted band centre.
     // Positive = above the band (upward glow zone).
