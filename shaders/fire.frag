@@ -49,7 +49,7 @@ float fbm(vec3 p) {
     float value     = 0.0;
     float amplitude = 0.5;
     for (int i = 0; i < 5; i++) {
-        value    += amplitude * abs(noise(p.xy + vec2(p.z)) * 2.0 - 1.0);
+        value    += amplitude * abs(noise(p.xy + vec2(0.0, p.z)) * 2.0 - 1.0);
         p.xy      = p.xy * 2.02 + vec2(1.3, 1.7);
         p.z      += 0.5;
         amplitude *= 0.5;
