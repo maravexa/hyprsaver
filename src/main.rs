@@ -515,7 +515,7 @@ fn shader_descriptions() -> std::collections::HashMap<&'static str, &'static str
         ),
         (
             "aurora",
-            "Ground-up view of the aurora borealis — shimmering sine-fold curtains with fBm shimmer and vertical ray striations over a dark sky",
+            "Overhead view of the aurora borealis — sinuous ribbon bands span the full sky with fBm shimmer, gaussian profiles and vertical ray striations",
         ),
         (
             "bezier",
