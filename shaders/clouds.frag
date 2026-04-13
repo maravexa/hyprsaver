@@ -58,7 +58,7 @@ void main() {
     vec2 uv = (gl_FragCoord.xy - 0.5 * u_resolution.xy) / u_resolution.y;
 
     // Slow horizontal drift + very slow vertical drift.
-    vec2 movement = vec2(u_time * 0.02 * u_speed_scale, u_time * 0.005);
+    vec2 movement = vec2(u_time * 0.04 * u_speed_scale, u_time * 0.01);
 
     // Two fBm layers at different scales for depth.
     float clouds1 = fbm(uv * 2.0 + movement);
