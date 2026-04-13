@@ -82,6 +82,10 @@ pub const BUILTIN_WORMHOLE: &str = include_str!("../shaders/wormhole.frag");
 /// CRT scanlines, phosphor glow, and a blinking cursor.
 pub const BUILTIN_TERMINAL: &str = include_str!("../shaders/terminal.frag");
 
+/// Realistic CRT oscilloscope — three animated waveform traces over a phosphor
+/// measurement grid with scanlines, vignette, and green phosphor tint.
+pub const BUILTIN_OSCILLOSCOPE: &str = include_str!("../shaders/oscilloscope.frag");
+
 /// Slowly drifting procedural clouds — plain 5-octave value-noise fBm at two scales
 /// over a palette-tinted sky. Tier-1 fBm: one of the lightest shaders in the set.
 pub const BUILTIN_CLOUDS: &str = include_str!("../shaders/clouds.frag");
@@ -250,6 +254,7 @@ impl ShaderManager {
             ("mandelbrot", BUILTIN_MANDELBROT),
             ("matrix", BUILTIN_MATRIX),
             ("network", BUILTIN_NETWORK),
+            ("oscilloscope", BUILTIN_OSCILLOSCOPE),
             ("plasma", BUILTIN_PLASMA),
             ("donut", BUILTIN_DONUT),
             ("snowfall", BUILTIN_SNOWFALL),
@@ -802,7 +807,7 @@ mod tests {
 
     #[test]
     fn test_builtin_shader_count() {
-        assert_eq!(manager().list().len(), 23);
+        assert_eq!(manager().list().len(), 24);
     }
 
     #[test]
@@ -824,6 +829,7 @@ mod tests {
             "mandelbrot",
             "matrix",
             "network",
+            "oscilloscope",
             "plasma",
             "donut",
             "snowfall",
