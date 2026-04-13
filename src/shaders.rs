@@ -63,6 +63,10 @@ pub const BUILTIN_MATRIX: &str = include_str!("../shaders/matrix.frag");
 /// Procedural fire — roiling flames rising from the bottom with three-octave noise and ember particles.
 pub const BUILTIN_FIRE: &str = include_str!("../shaders/fire.frag");
 
+/// fBm + domain-warping fire — Inigo Quilez two-pass domain warping combined with
+/// abs(noise) turbulence. A/B companion to fire.frag for visual comparison.
+pub const BUILTIN_FLAMES: &str = include_str!("../shaders/flames.frag");
+
 /// Underwater caustic light patterns — sine-wave summation caustics with water-surface heave.
 pub const BUILTIN_CAUSTICS: &str = include_str!("../shaders/caustics.frag");
 
@@ -250,6 +254,7 @@ impl ShaderManager {
             ("caustics", BUILTIN_CAUSTICS),
             ("clouds", BUILTIN_CLOUDS),
             ("fire", BUILTIN_FIRE),
+            ("flames", BUILTIN_FLAMES),
             ("marble", BUILTIN_MARBLE),
             ("hypercube", BUILTIN_HYPERCUBE),
             ("geometry", BUILTIN_GEOMETRY),
