@@ -151,9 +151,9 @@ void main() {
 
     float bg_intensity = fbm3(p_bg + q_bg * 0.5);
 
-    // Noise-in-edge1: inject per-column noise into the smoothstep upper bound.
-    // Range [0.0, 0.25] → edge1 in [0.70, 0.95] — wide, slow-drifting peaks.
-    float bg_height_noise = vnoise(vec2(flame_uv.x * 2.5, t * 0.5)) * 0.25;
+    // Noise-in-edge1: centered noise [-0.25, +0.25] → edge1 in [0.45, 0.95].
+    // Centered range creates real valleys as well as peaks — no flat floor.
+    float bg_height_noise = (vnoise(vec2(flame_uv.x * 4.0, t * 0.5)) * 2.0 - 1.0) * 0.25;
     float bg_height_mask  = 1.0 - smoothstep(0.3, 0.70 + bg_height_noise, flame_uv.y);
     bg_height_mask = clamp(bg_height_mask, 0.0, 1.0);
 
@@ -187,9 +187,9 @@ void main() {
 
     float mid_intensity = fbm3(p_mid + q_mid * 0.5);
 
-    // Noise-in-edge1: medium frequency peaks, moderate amplitude.
-    // Range [0.0, 0.20] → edge1 in [0.65, 0.85].
-    float mid_height_noise = vnoise(vec2(flame_uv.x * 3.5, t * 0.8)) * 0.20;
+    // Noise-in-edge1: centered noise [-0.20, +0.20] → edge1 in [0.45, 0.85].
+    // Centered range creates real valleys as well as peaks — no flat floor.
+    float mid_height_noise = (vnoise(vec2(flame_uv.x * 5.5, t * 0.8)) * 2.0 - 1.0) * 0.20;
     float mid_height_mask  = 1.0 - smoothstep(0.3, 0.65 + mid_height_noise, flame_uv.y);
     mid_height_mask = clamp(mid_height_mask, 0.0, 1.0);
 
