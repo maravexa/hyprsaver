@@ -90,8 +90,8 @@ pub const BUILTIN_OSCILLOSCOPE: &str = include_str!("../shaders/oscilloscope.fra
 /// over a palette-tinted sky. Tier-1 fBm: one of the lightest shaders in the set.
 pub const BUILTIN_CLOUDS: &str = include_str!("../shaders/clouds.frag");
 
-/// Ground-up view of the aurora borealis — 4 sine-fold curtain bands with fBm
-/// shimmer and fine vertical ray striations over a dark sky with a ground mask.
+/// Overhead view of the aurora borealis — 4 sinuous ribbon bands spanning the
+/// full sky, with fBm shimmer, tight Gaussian profiles, and vertical ray striations.
 pub const BUILTIN_AURORA: &str = include_str!("../shaders/aurora.frag");
 
 // ---------------------------------------------------------------------------
