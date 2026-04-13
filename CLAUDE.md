@@ -45,7 +45,7 @@ cargo build --release
 - Built-in shaders: compiled into binary via `include_str!()`
 - Logs: stderr (journalctl if launched by hypridle)
 
-## Built-in Shaders (v0.4.1 — 25 total)
+## Built-in Shaders (v0.4.1 — 24 total)
 
 | Name          | Description                                              |
 |---------------|----------------------------------------------------------|
@@ -73,7 +73,6 @@ cargo build --release
 | wormhole      | Curving wormhole tunnel with ring-textured walls         |
 | oscilloscope  | Realistic CRT oscilloscope display with three animated waveform traces |
 | clouds        | Slowly drifting procedural fBm clouds over a tinted sky  |
-| aurora        | Ground-up view of aurora borealis — shimmering curtains of light       |
 
 ## Playlist / Cycle System (v0.3.0)
 
@@ -132,7 +131,7 @@ Two additional uniforms are injected by `prepare_shader()` in `shaders.rs` for e
 - v0.2.0: LUT + gradient palettes, per-monitor config, palette transitions, egui preview panel. ✓ shipped
 - v0.3.0: 6 new shaders, cycle mode with playlists, shader descriptions, random start position. ✓ shipped
 - v0.4.0: `cycle.rs` extracted, `preview.rs` separated, config path migration to `~/.config/hypr/`. ✓ shipped
-- v0.4.1: 3 new shaders (oscilloscope, clouds, aurora), doc path updates, patch fixes. ✓ shipped
+- v0.4.1: 2 new shaders (oscilloscope, clouds), doc path updates, patch fixes. ✓ shipped
 - v1.0.0: Stable config format, AUR/Nix packages, full Shadertoy uniform support, wgpu/Vulkan backend.
 
 ## v0.4.1 Status
@@ -152,5 +151,5 @@ All features through v0.4.1 implemented:
 - Config and shader paths migrated to `~/.config/hypr/hyprsaver.toml` / `~/.config/hypr/hyprsaver/shaders/`; legacy paths deprecated with v0.5.0 removal scheduled.
 
 **v0.4.1 (new shaders + docs):**
-- 3 new built-in shaders: oscilloscope, clouds, aurora (total 25).
+- 2 new built-in shaders: oscilloscope, clouds (total 24).
 - Doc comment example paths updated to canonical `~/.config/hypr/hyprsaver/` layout.
