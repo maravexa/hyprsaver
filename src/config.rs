@@ -250,7 +250,7 @@ pub struct GradientStopConfig {
 /// [[palette]]
 /// name = "fire"
 /// type = "lut"
-/// path = "~/.config/hyprsaver/palettes/fire.png"
+/// path = "~/.config/hypr/hyprsaver/palettes/fire.png"
 ///
 /// [[palette]]
 /// name = "sunset"
@@ -568,7 +568,7 @@ d = [0.0, 0.1, 0.2]
 [[palette]]
 name = "fire"
 type = "lut"
-path = "~/.config/hyprsaver/palettes/fire.png"
+path = "~/.config/hypr/hyprsaver/palettes/fire.png"
 "#;
         let cfg: Config = toml::from_str(toml_str).expect("lut TOML must parse");
         assert_eq!(cfg.palette_entries.len(), 1);
@@ -577,7 +577,7 @@ path = "~/.config/hyprsaver/palettes/fire.png"
         assert_eq!(entry.kind, "lut");
         assert_eq!(
             entry.path.as_deref(),
-            Some("~/.config/hyprsaver/palettes/fire.png")
+            Some("~/.config/hypr/hyprsaver/palettes/fire.png")
         );
     }
 
