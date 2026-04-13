@@ -9,11 +9,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Shaders**: oscilloscope, clouds, aurora (3 new built-ins; total 25)
+- **Shader: terminal** — scrolling terminal output with bitmap glyphs, discrete
+  line-jump scrolling, and choppy cadence
+- **Shader: clouds** — lightweight fBm cloud layer with parallax background layer
+- **Shader: oscilloscope** — CRT oscilloscope with waveform traces, measurement
+  grid, scanlines, and vignette
+- **Starfield**: progressive tail growth — tails start at zero length and expand
+  over star lifetime for realistic hyperspeed effect
+- **Mandelbrot**: additional zoom targets (seahorse valley, elephant valley, double
+  spiral, mini-brot, antenna tip, scepter valley), loop zoom mode replacing
+  pingpong
+- **Preview panel**: Playlists tab redesigned with shader/palette sub-tabs,
+  corrected entry list ordering, playlist name input field
+
+### Changed
+
+- **Oscilloscope**: palette-derived background color, thicker grid lines
+- **Clouds**: doubled scroll speed, added parallax background cloud layer
 
 ### Fixed
 
-- Doc comment example paths updated from legacy `~/.config/hyprsaver/` to canonical `~/.config/hypr/hyprsaver/`
+- **Packaging**: Cargo.toml version now committed to repo before release workflow
+  runs, fixing deb/rpm version mismatch
+
+### Deferred to v0.5.0
+
+- Aurora (flat sky shader) — needs visual rework
+- Fire shader improvements — reverted to v0.4.0 baseline pending fBm domain warp
+  rewrite
+- Wormhole improvements — center singularity artifact unresolved, reverted to
+  v0.4.0 baseline
+- Ping-pong FBO / dual framebuffer infrastructure
+- Expanded terminal glyph character set
 
 ## [0.4.0] - 2026-04-11
 
