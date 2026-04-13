@@ -153,7 +153,11 @@ void main() {
     float y_td   = (u_resolution.y - fc.y) / u_resolution.y;
     float x_norm =  fc.x / u_resolution.y;
 
-    float scroll_offset = choppyScroll(t);
+    // Discrete (stepped) scroll: snap to the nearest whole-line boundary so
+    // rows jump by exactly one cell height at a time — no sub-line glide.
+    float raw_scroll    = choppyScroll(t);
+    float lines_scrolled = floor(raw_scroll / cell_h);
+    float scroll_offset  = lines_scrolled * cell_h;
     float scroll_y = y_td + scroll_offset;
 
     float row_id   = floor(scroll_y / cell_h);
@@ -243,13 +247,12 @@ void main() {
                     int gcol = clamp(int(floor(gx * 5.0)), 0, 4);
                     int grow = clamp(int(floor(gy * 6.0)), 0, 5);
 
-                    // 4-neighbor dilation: pixel is filled if it or any cardinal
-                    // neighbor in the bitmap is set — thickens every glyph stroke.
+                    // Horizontal-only dilation: pixel is filled if it or either
+                    // horizontal neighbor in the bitmap is set — widens strokes
+                    // without making them taller (bold but not blobby).
                     float glyph_bit = max(sampleGlyph(glyph_id, gcol,     grow),
                                      max(sampleGlyph(glyph_id, gcol - 1, grow),
-                                     max(sampleGlyph(glyph_id, gcol + 1, grow),
-                                     max(sampleGlyph(glyph_id, gcol,     grow - 1),
-                                         sampleGlyph(glyph_id, gcol,     grow + 1)))));
+                                         sampleGlyph(glyph_id, gcol + 1, grow)));
 
                     // Per-character brightness variation [0.82, 1.0] — tight range
                     // keeps characters bold and consistently bright like matrix shader.
