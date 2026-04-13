@@ -44,7 +44,7 @@ void main() {
         cos(d0 * 1.1 + t * 0.22) * 0.28
     );
     // Fade displacement to zero near center — prevents orbiting-singularity artifact.
-    wobble *= smoothstep(0.0, 0.3, r0);
+    wobble *= smoothstep(0.0, 0.08, r0);
     vec2  uv2  = uv - wobble;
 
     // ── 2. Polar conversion ───────────────────────────────────────────────────
@@ -52,7 +52,7 @@ void main() {
     // Clamp to 0.05: prevents 1/r explosion and eliminates the asymmetric
     // "d"-shaped artifact caused by the wobble displacement crossing zero.
     // Fragments inside this zone are rendered as exit glow (see step 7).
-    float radius = max(r_raw, 0.05);
+    float radius = max(r_raw, 0.005);
     float angle  = atan(uv2.y, uv2.x);      // -PI .. PI
 
     // ── 3. Depth (inverse radius) ─────────────────────────────────────────────
@@ -90,17 +90,15 @@ void main() {
 
     // ── 6. Depth fog — fade distant geometry to black ─────────────────────────
     // Large depth = near screen center = far in tunnel.
-    float fog = smoothstep(4.0, 10.0, depth);
+    float fog = smoothstep(8.0, 20.0, depth);
     col = mix(col, vec3(0.0), fog);
 
     // ── 7. Center glow — exit light at vanishing point ────────────────────────
     // Use r_raw (unclamped) so the Gaussian glow peaks sharply at true center.
+    // Gaussian exit-light at vanishing point. No solid disc fill — the Gaussian
+    // alone produces a natural soft glow without an opaque circle artifact.
     float center_glow = exp(-r_raw * r_raw * 28.0);
-    col += palette(0.5) * center_glow * 0.90;
-    // Fragments inside the clamp zone (r_raw < 0.05) are fully fogged already;
-    // blend them into a bright exit-light disc for a clean tunnel vanishing point.
-    float exit_glow = smoothstep(0.05, 0.0, r_raw);
-    col = mix(col, palette(0.5) * 1.5, exit_glow);
+    col += palette(0.5) * center_glow * 1.5;
 
     // ── Near-camera vignette (large radius = close to viewer) ────────────────
     float vignette = smoothstep(1.0, 0.55, radius);
