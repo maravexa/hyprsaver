@@ -4,27 +4,28 @@ precision highp float;
 // ---------------------------------------------------------------------------
 // hyprsaver — vortex.frag
 //
-// Polar tunnel with wobbling mouth, depth-dependent curvature, and
-// wormhole-inspired ribbed-ring wall texture.
+// Polar tunnel with wobbling mouth, depth-angular curvature, and
+// wormhole-inspired ribbed-ring cartoon wall texture.
 //
-// Architecture: two-pass displaced-center polar coordinates.
-//   Pass 1: compute initial depth from the wobbled center (singularity fix).
-//   Pass 2: apply a depth-dependent curve_offset so deep pixels see a shifted
-//           vanishing point — the brain reads this parallax as tunnel curvature.
-//
-// Wall texture adapted from wormhole.frag's ribbed-ring style:
-//   - fract(depth) ring banding with floor()-indexed per-ring palette colors
-//   - smoothstep rib pulses for sharp ring edges (cartoon/mechanical feel)
-//   - 8-segment angular dividers on each rib band (all angle multipliers integer)
-//   - Subdued inter-ring base wall blended against bright ring color
+// Architecture:
+//   - Displaced-center polar coordinates (singularity fix: the vanishing point
+//     sits at the wobbled center, not the screen center).
+//   - Depth-dependent angular bend: the angle used for texture lookup shifts as
+//     a function of depth (1/r). At deep pixels the angle deviates ~31° from
+//     shallow pixels, producing a parallax the brain reads as tunnel curvature.
+//     Geometry (fog, disc) uses the original r/depth/angle, so rings remain
+//     circular and the singularity fix is unaffected.
+//   - Wall texture mirrors wormhole.frag exactly: sharp 0.06-width rib pulses,
+//     per-ring integer-indexed palette colors (ring_idx * 0.125), subdued base
+//     wall (0.3), bright ring bands (0.65), 12 angular segment dividers.
 //
 // Features:
-//   1. Wobbling tunnel mouth — slow Lissajous drift, ~15% of screen height.
-//   2. Depth-dependent curvature — far tunnel bends away, hiding its far end.
-//   3. Ribbed ring wall texture — concentric bands with per-ring palette colors.
-//   4. Angular segment marks — 8 tick marks per ring (integer multipliers only).
-//   5. Depth fog — far end fades to palette(0.0); tight range for curvature feel.
-//   6. Dark vanishing-point disc — smooth singularity at the tunnel mouth.
+//   1. Wobbling tunnel mouth — slow Lissajous drift, ≤15% of screen height.
+//   2. Depth-angular curvature — far end bends away, hiding behind fog.
+//   3. Ribbed ring wall texture — wormhole cartoon band shading.
+//   4. Angular segment marks — 12 per ring (integer multipliers, seam-free).
+//   5. Depth fog — far end fades to black; tight range enhances curve feel.
+//   6. Dark vanishing-point disc — smooth black center at tunnel mouth.
 // ---------------------------------------------------------------------------
 
 uniform float u_time;
@@ -43,94 +44,88 @@ void main() {
     float t = u_time * u_speed_scale;
 
     // ── 1. Wobbling tunnel mouth (displaced center) ──────────────────────────
-    // Two independent sinusoids per axis give organic, non-repeating motion.
-    // Amplitude kept at ≤15% of screen height to stay roughly centred.
+    // Two independent sinusoids per axis → organic, non-repeating drift.
     vec2 center = vec2(
         sin(t * 0.31) * 0.13 + sin(t * 0.17) * 0.05,
         cos(t * 0.37) * 0.10 + cos(t * 0.21) * 0.04
     );
 
-    // ── 2. Pass 1 — initial polar coords for curvature depth estimate ────────
+    // ── 2. Displaced polar coordinates ──────────────────────────────────────
     // The singularity lives at (center), not at screen center.
-    vec2  pre_uv    = uv - center;
-    float r_pre     = length(pre_uv);
-    float depth_pre = 1.0 / max(r_pre, 0.005);
+    // r, angle, depth are used for ALL geometry (fog, disc, ring bands).
+    vec2  displaced_uv = uv - center;
+    float r             = length(displaced_uv);
+    float angle         = atan(displaced_uv.y, displaced_uv.x);
+    float depth         = 1.0 / max(r, 0.005);
 
-    // ── 3. Depth-dependent curve offset — visible tunnel curvature ───────────
-    // Each depth level sees a slightly different vanishing point.  The brain
-    // interprets the resulting parallax shift between concentric rings as the
-    // tunnel curving away into the distance.
+    // ── 3. Depth-dependent angular bend — tunnel curvature illusion ──────────
+    // Offset the angle used for TEXTURE lookup as a function of depth.
+    // Deep pixels (small r → large depth) see a larger angular offset than
+    // shallow pixels. The segment marks on each ring band appear at different
+    // angular positions at different depths; the brain reads this parallax as
+    // the tunnel curving around a bend.
     //
-    // The smoothstep blend ensures the tunnel mouth (low depth) is stable while
-    // the far end (high depth) bends — so the viewer feels the tunnel curve
-    // around a corner rather than the whole scene wobbling.
-    vec2 curve_offset = vec2(
-        sin(depth_pre * 0.4  + t * 0.25) * 0.12,
-        cos(depth_pre * 0.35 + t * 0.18) * 0.08
-    );
-    curve_offset *= smoothstep(1.0, 8.0, depth_pre);
+    // bend_amount = 0.6 → max angular deviation ≈ arctan(0.6) ≈ 31°.
+    // x/y components use different frequencies so the tunnel curves in varied
+    // directions (S-bend), not a uniform helix.
+    // u_time terms animate the bends so the passage feels alive.
+    float bend_amount  = 0.6;
+    float bend_freq    = 0.15;
+    float bend_phase_x = sin(depth * bend_freq         + t * 0.20) * bend_amount;
+    float bend_phase_y = cos(depth * bend_freq * 0.8   + t * 0.15) * bend_amount * 0.7;
 
-    // ── 4. Pass 2 — final polar coords with curvature applied ───────────────
-    vec2  curved_uv = uv - center - curve_offset;
-    float r          = length(curved_uv);
-    float angle      = atan(curved_uv.y, curved_uv.x);
-    float depth      = 1.0 / max(r, 0.005);
+    // Scale bend by r: nearby pixels get proportional (not absolute) offset.
+    vec2  bent_dir   = displaced_uv + vec2(bend_phase_x, bend_phase_y) * r;
+    float bent_angle = atan(bent_dir.y, bent_dir.x);
 
-    // ── 5. Animated scroll — viewer pulled inward ────────────────────────────
-    // Adding scroll to the depth phase shifts ring boundaries toward lower
-    // depth (screen edge) over time, creating the illusion of forward motion.
+    // ── 4. Animated scroll — viewer pulled inward ────────────────────────────
     float scroll = t * 1.8;
 
-    // ── 6. Ribbed ring wall texture (adapted from wormhole.frag) ─────────────
-    // Ring bands from the scrolled depth; floor() gives a discrete per-ring
-    // index — the source of the cartoon/mechanical colour-stepping effect.
-
+    // ── 5. Ribbed ring wall texture (wormhole.frag cartoon style) ────────────
+    //
+    // Ring bands keyed to depth + scroll. floor() gives a discrete per-ring
+    // integer index — this is what creates the cartoon stepped-colour effect.
     float scroll_depth = depth + scroll * 0.28;
     float ring_phase   = fract(scroll_depth);
     float ring_idx     = floor(scroll_depth);
 
-    // Rib strength: narrow smoothstep pulse centred on each ring boundary.
-    // Mirrors wormhole's: smoothstep(0.06, 0.0, abs(ring_frc - 0.5) * 2.0)
-    float rib_str = smoothstep(0.07, 0.0, abs(ring_phase - 0.5) * 2.0);
+    // Sharp rib pulse. Narrow 0.06 window → hard cartoon ring edges.
+    // Mirrors wormhole exactly: smoothstep(0.06, 0.0, abs(f - 0.5) * 2.0)
+    float rib_str = smoothstep(0.06, 0.0, abs(ring_phase - 0.5) * 2.0);
 
     // Base wall — subdued angular + depth pattern on inter-ring surfaces.
-    // Mirrors wormhole's: fract(angle / TAU + 0.5 + p.z * 0.04)
-    float base_t    = fract(angle / TAU + 0.5 + depth * 0.038 - t * 0.028);
-    vec3  base_wall  = palette(base_t) * 0.28;
+    // Uses bent_angle so the base texture curves with the bend.
+    // Mirrors wormhole: fract(angle / TAU + 0.5 + p.z * 0.04)  * 0.3
+    float base_t  = fract(bent_angle / TAU + 0.5 + depth * 0.04 - t * 0.028);
+    vec3  base_wall = palette(base_t) * 0.3;
 
-    // Per-ring color: each ring gets a slowly-evolving palette entry keyed to
-    // its integer index — creates the distinct colour bands of the wormhole look.
-    // Mirrors wormhole's: palette(fract(ring_idx * 0.125 + t * 0.05))
-    vec3  ring_col = palette(fract(ring_idx * 0.13 + t * 0.05));
+    // Per-ring color: integer-indexed → distinct color per ring, not gradient.
+    // Mirrors wormhole exactly: palette(fract(ring_idx * 0.125 + t * 0.05))
+    vec3 ring_col = palette(fract(ring_idx * 0.125 + t * 0.05));
 
-    // Blend: inter-ring zones are dark/subdued; ring bands glow with ring_col.
-    vec3 wall = mix(base_wall, ring_col * 0.70, rib_str);
+    // Blend: dark/subdued base ↔ bright ring. High contrast = cartoon bands.
+    // Mirrors wormhole exactly: mix(wall, ring_col * 0.65, rib_str)
+    vec3 wall = mix(base_wall, ring_col * 0.65, rib_str);
 
-    // Angular segment marks on rib bands — 8 divisions around the circumference.
-    // Multiplier 8 is an integer → fract(angle/TAU * 8) is seamless at ±π.
-    // Mirrors wormhole's 12-segment divider pattern with 8 for a chunkier feel.
-    float seg_phase = abs(fract(angle / TAU * 8.0) - 0.5) - 0.41;
-    float seg       = smoothstep(0.025, 0.0, seg_phase);
-    wall += ring_col * seg * rib_str * 0.22;
+    // Angular segment dividers on rib bands — 12 divisions (integer: no seam).
+    // Uses bent_angle so the tick marks curve with the tunnel.
+    // Mirrors wormhole exactly: smoothstep(0.02, 0.0, abs(fract(...*12)-0.5)-0.45)
+    float seg = smoothstep(0.02, 0.0, abs(fract(bent_angle / TAU * 12.0) - 0.5) - 0.45);
+    wall += ring_col * seg * rib_str * 0.15;
 
-    // Spiral accent in inter-ring zones — single spiral arm (4 is integer).
-    // Stays subtle: blended only where rib_str is low (between rings).
-    float spiral  = sin(depth * 6.0 + scroll - angle * 4.0) * 0.5 + 0.5;
-    wall += palette(fract(base_t + spiral * 0.22)) * (1.0 - rib_str) * 0.11;
-
-    // ── 7. Depth fog — tighter range so curvature hides the far end ──────────
+    // ── 6. Depth fog — tighter range so curvature hides the far end ──────────
     // smoothstep(hi, lo, depth): 1.0 near viewer, 0.0 deep in tunnel.
-    // Clamping at depth≈12 (r≈0.083) means bends curve into dark fog.
+    // Fog fully kicks in by depth=12 (r≈0.083) so bends curve into darkness.
     float fog = smoothstep(12.0, 5.0, depth);
     wall *= fog;
 
-    // ── 8. Radial vignette at screen edges ───────────────────────────────────
+    // ── 7. Radial vignette at screen edges ───────────────────────────────────
     float vignette = 1.0 - smoothstep(0.55, 0.85, length(uv));
     wall *= vignette;
 
-    // ── 9. Dark disc at the vanishing point ──────────────────────────────────
-    // Smoothly darkens the very center of the tunnel mouth so the 1/r
-    // singularity fades to black rather than flickering at extreme depth.
+    // ── 8. Dark disc at the vanishing point ──────────────────────────────────
+    // Smooth black fade at the tunnel mouth center so the 1/r singularity
+    // transitions to black cleanly rather than flickering at extreme depth.
     float disc = smoothstep(0.018, 0.0, r);
     wall = mix(wall, vec3(0.0), disc);
 
