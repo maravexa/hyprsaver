@@ -138,8 +138,8 @@ void main() {
 
     // Height mask: full intensity at the base, zero at the top.
     // High-frequency noise octave adds small sharp spikes to the flame tips.
-    float height_mask = smoothstep(1.0, 0.0, flame_uv.y * 1.1)
-                       + noise2(vec2(flame_uv.x * 20.0, t * 3.0)) * 0.06;
+    float height_mask = smoothstep(0.70, 0.30, flame_uv.y)
+                       + noise2(vec2(flame_uv.x * 20.0, t * 3.0)) * 0.035;
 
     // Combined intensity — noise shaped by the height mask.
     float intensity = clamp(n * height_mask * 2.2 - 0.05, 0.0, 1.0);
