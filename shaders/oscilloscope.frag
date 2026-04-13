@@ -53,19 +53,19 @@ float vnoise(float x) {
 
 float wave1(float x, float t) {
     // Composite sine: two-tone interference.
-    return 0.25 * sin(6.0  * x + t * 1.2)
-         + 0.08 * sin(14.0 * x + t * 3.1);
+    return 0.35 * sin(6.0  * x + t * 1.2)
+         + 0.112 * sin(14.0 * x + t * 3.1);
 }
 
 float wave2(float x, float t) {
     // Lissajous-influenced amplitude modulation.
-    return 0.20 * sin(8.0 * x + t) * cos(x * 0.5 + t * 0.3);
+    return 0.28 * sin(8.0 * x + t) * cos(x * 0.5 + t * 0.3);
 }
 
 float wave3(float x, float t) {
     // Irregular, noisy signal.
-    return 0.15 * sin(4.0 * x + t * 2.0)
-         + 0.06 * vnoise(x * 5.0 + t);
+    return 0.21 * sin(4.0 * x + t * 2.0)
+         + 0.084 * vnoise(x * 5.0 + t);
 }
 
 // ---------------------------------------------------------------------------
@@ -97,11 +97,11 @@ void main() {
     vec2 fMin = mod(fc, cellMin);
     vec2 dMin = min(fMin, cellMin - fMin);   // pixels from nearest minor line
 
-    // 4-pixel major lines, 2-pixel minor lines.
-    float majX   = 1.0 - smoothstep(0.0, 4.0, dMaj.x);
-    float majY   = 1.0 - smoothstep(0.0, 4.0, dMaj.y);
-    float minorX = 1.0 - smoothstep(0.0, 2.0, dMin.x);
-    float minorY = 1.0 - smoothstep(0.0, 2.0, dMin.y);
+    // 8-pixel major lines, 4-pixel minor lines.
+    float majX   = 1.0 - smoothstep(0.0, 8.0, dMaj.x);
+    float majY   = 1.0 - smoothstep(0.0, 8.0, dMaj.y);
+    float minorX = 1.0 - smoothstep(0.0, 4.0, dMin.x);
+    float minorY = 1.0 - smoothstep(0.0, 4.0, dMin.y);
     float major  = max(majX, majY);
     float minor  = max(minorX, minorY);
 
@@ -109,9 +109,9 @@ void main() {
     col += palette(0.2) * minor * 0.05;
     col += palette(0.3) * major * 0.15;
 
-    // Center crosshair — 4px H + V lines through screen midpoint.
-    float cx = 1.0 - smoothstep(0.0, 4.0, abs(fc.x - 0.5 * res.x));
-    float cy = 1.0 - smoothstep(0.0, 4.0, abs(fc.y - 0.5 * res.y));
+    // Center crosshair — 8px H + V lines through screen midpoint.
+    float cx = 1.0 - smoothstep(0.0, 8.0, abs(fc.x - 0.5 * res.x));
+    float cy = 1.0 - smoothstep(0.0, 8.0, abs(fc.y - 0.5 * res.y));
     col += palette(0.3) * max(cx, cy) * 0.25;
 
     // Subtle screen-edge border (~2px frame).
@@ -127,6 +127,16 @@ void main() {
     float y1 = wave1(x_phase, t);
     float y2 = wave2(x_phase, t);
     float y3 = wave3(x_phase, t);
+
+    // Intermittent spikes: hash-based trigger at irregular intervals.
+    // ~8% of x positions are active at any moment; each channel spikes independently.
+    float spike_trigger1 = step(0.92, fract(sin(floor(xn * 8.0 + u_time * 0.5 + 0.0)) * 43758.5));
+    float spike_trigger2 = step(0.92, fract(sin(floor(xn * 8.0 + u_time * 0.5 + 3.0)) * 43758.5));
+    float spike_trigger3 = step(0.92, fract(sin(floor(xn * 8.0 + u_time * 0.5 + 6.0)) * 43758.5));
+    float spike_height = sin(xn * 30.0 + u_time * 5.0) * 0.3;
+    y1 += spike_trigger1 * spike_height;
+    y2 += spike_trigger2 * spike_height;
+    y3 += spike_trigger3 * spike_height;
 
     float d1 = yn - y1;
     float d2 = yn - y2;
