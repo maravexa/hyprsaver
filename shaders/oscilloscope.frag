@@ -97,21 +97,21 @@ void main() {
     vec2 fMin = mod(fc, cellMin);
     vec2 dMin = min(fMin, cellMin - fMin);   // pixels from nearest minor line
 
-    // 1-pixel major lines, 0.5-pixel minor lines.
-    float majX   = 1.0 - smoothstep(0.0, 1.0, dMaj.x);
-    float majY   = 1.0 - smoothstep(0.0, 1.0, dMaj.y);
-    float minorX = 1.0 - smoothstep(0.0, 0.5, dMin.x);
-    float minorY = 1.0 - smoothstep(0.0, 0.5, dMin.y);
+    // 4-pixel major lines, 2-pixel minor lines.
+    float majX   = 1.0 - smoothstep(0.0, 4.0, dMaj.x);
+    float majY   = 1.0 - smoothstep(0.0, 4.0, dMaj.y);
+    float minorX = 1.0 - smoothstep(0.0, 2.0, dMin.x);
+    float minorY = 1.0 - smoothstep(0.0, 2.0, dMin.y);
     float major  = max(majX, majY);
     float minor  = max(minorX, minorY);
 
-    vec3 col = vec3(0.0);
+    vec3 col = palette(0.0) * 0.08;
     col += palette(0.2) * minor * 0.05;
     col += palette(0.3) * major * 0.15;
 
-    // Center crosshair — 1px H + V lines through screen midpoint.
-    float cx = 1.0 - smoothstep(0.0, 1.0, abs(fc.x - 0.5 * res.x));
-    float cy = 1.0 - smoothstep(0.0, 1.0, abs(fc.y - 0.5 * res.y));
+    // Center crosshair — 4px H + V lines through screen midpoint.
+    float cx = 1.0 - smoothstep(0.0, 4.0, abs(fc.x - 0.5 * res.x));
+    float cy = 1.0 - smoothstep(0.0, 4.0, abs(fc.y - 0.5 * res.y));
     col += palette(0.3) * max(cx, cy) * 0.25;
 
     // Subtle screen-edge border (~2px frame).
