@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1] - 2026-04-13
+
+### Added
+
+- **Shaders**: oscilloscope, clouds, aurora (3 new built-ins; total 25)
+
+### Fixed
+
+- Doc comment example paths updated from legacy `~/.config/hyprsaver/` to canonical `~/.config/hypr/hyprsaver/`
+
+## [0.4.0] - 2026-04-11
+
+### Added
+
+- **`cycle.rs`**: `CycleManager` extracted from `wayland.rs`; tick()-driven scheduler with `CycleEvent` and `CycleOrder` (`Random` / `Sequential`) types
+- **`preview.rs`**: windowed preview mode separated from `main.rs`; egui control panel with Shader, Palette, and Display sections; thumbnail previews; keyboard shortcuts (Space, ←/→, ↑/↓, R, F, T, Q)
+
+### Changed
+
+- Config path migrated to `~/.config/hypr/hyprsaver.toml`; legacy `~/.config/hyprsaver/config.toml` deprecated (warns on load, removal scheduled for v0.5.0)
+- Shader directory migrated to `~/.config/hypr/hyprsaver/shaders/`; legacy `~/.config/hyprsaver/shaders/` deprecated
+
 ## [0.3.0] - 2026-04-09
 
 ### Added
@@ -91,6 +113,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Zero-config mode with sensible built-in defaults
 - hypridle integration via `on-timeout` / `on-resume`
 
+[0.4.1]: https://github.com/maravexa/hyprsaver/compare/v0.4.0...v0.4.1
+[0.4.0]: https://github.com/maravexa/hyprsaver/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/maravexa/hyprsaver/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/maravexa/hyprsaver/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/maravexa/hyprsaver/compare/v0.1.0...v0.1.1
