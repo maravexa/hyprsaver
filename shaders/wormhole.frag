@@ -95,10 +95,12 @@ void main() {
 
     // ── 7. Center glow — exit light at vanishing point ────────────────────────
     // Use r_raw (unclamped) so the Gaussian glow peaks sharply at true center.
-    // Gaussian exit-light at vanishing point. No solid disc fill — the Gaussian
-    // alone produces a natural soft glow without an opaque circle artifact.
-    float center_glow = exp(-r_raw * r_raw * 28.0);
-    col += palette(0.5) * center_glow * 1.5;
+    // Wider falloff (8.0 vs old 28.0) ensures the glow FULLY COVERS the 1/r
+    // singularity zone before it becomes visible. mix() replaces tunnel color
+    // instead of adding to it, so no distortion bleeds through near center.
+    float center_glow = exp(-r_raw * r_raw * 8.0);
+    vec3 glow_color = palette(0.5) * 1.2;
+    col = mix(col, glow_color, center_glow);
 
     // ── Near-camera vignette (large radius = close to viewer) ────────────────
     float vignette = smoothstep(1.0, 0.55, radius);
