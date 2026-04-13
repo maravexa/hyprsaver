@@ -94,8 +94,8 @@ pub const BUILTIN_OSCILLOSCOPE: &str = include_str!("../shaders/oscilloscope.fra
 /// with parallax depth (background half-speed, foreground full-speed). Tier-1 fBm.
 pub const BUILTIN_CLOUDS: &str = include_str!("../shaders/clouds.frag");
 
-/// Overhead aurora borealis — vertical curtain bands with asymmetric exponential falloff
-/// (sharp bright edge, long soft glow tail). Pure trig + exp, no fBm.
+/// Overhead aurora borealis — horizontal curtain bands with asymmetric exponential falloff
+/// (sharp bright lower edge, long soft glow tail upward). Pure trig + exp, no fBm.
 pub const BUILTIN_AURORA: &str = include_str!("../shaders/aurora.frag");
 
 /// Polar tunnel with a wobbling mouth — 2D polar inverse-radius mapping with
