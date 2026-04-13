@@ -45,7 +45,7 @@ cargo build --release
 - Built-in shaders: compiled into binary via `include_str!()`
 - Logs: stderr (journalctl if launched by hypridle)
 
-## Built-in Shaders (v0.4.1 — 24 total)
+## Built-in Shaders (v0.4.2 — 25 total)
 
 | Name          | Description                                              |
 |---------------|----------------------------------------------------------|
@@ -73,6 +73,7 @@ cargo build --release
 | wormhole      | Curving wormhole tunnel with ring-textured walls         |
 | oscilloscope  | Realistic CRT oscilloscope display with three animated waveform traces |
 | clouds        | Slowly drifting procedural fBm clouds over a tinted sky  |
+| vortex        | Polar tunnel with wobbling mouth — singularity-free 2D polar mapping |
 
 ## Playlist / Cycle System (v0.3.0)
 
