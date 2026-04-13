@@ -550,6 +550,10 @@ fn shader_descriptions() -> std::collections::HashMap<&'static str, &'static str
             "network",
             "Neural network visualization with parallax nodes and pulsing connections",
         ),
+        (
+            "oscilloscope",
+            "Realistic CRT oscilloscope — three animated waveform traces over a phosphor measurement grid with scanlines and vignette",
+        ),
         ("plasma", "Classic plasma effect"),
         ("donut", "Raymarched torus with Phong lighting"),
         ("snowfall", "Five-layer parallax snowfall"),
