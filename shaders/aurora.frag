@@ -14,7 +14,6 @@ precision highp float;
 //     band an organic, swaying path
 //   - Tight Gaussian profile (exp(-d*d*120)) keeps bands narrow and distinct
 //   - Per-band fBm shimmer creates the characteristic pulsing/breathing
-//   - High-frequency sine adds fine horizontal shimmer lines within each band
 //   - Additive compositing with soft tone-map (x/(1+0.3x)) prevents blowout
 //   - Unified palette gradient (bottom→top = palette(0.1)→palette(0.9)) so
 //     the full colour spectrum is visible in every curtain
@@ -97,9 +96,6 @@ void main() {
         // fBm shimmer — characteristic aurora pulsing / rippling intensity.
         band *= 0.4 + 0.6 * fbm(vec2(uv.y * 8.0 + t * 0.15 + fi,
                                       uv.x * 4.0));
-
-        // Fine horizontal shimmer lines within the band.
-        band *= 0.7 + 0.3 * sin(uv.y * 60.0 + uv.x * 3.0 + t * 0.3 + fi);
 
         // Palette gradient from bottom to top — all curtains share the same
         // colour range so the full spectrum is visible across each curtain's
