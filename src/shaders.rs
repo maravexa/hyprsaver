@@ -86,8 +86,8 @@ pub const BUILTIN_TERMINAL: &str = include_str!("../shaders/terminal.frag");
 /// measurement grid with scanlines, vignette, and green phosphor tint.
 pub const BUILTIN_OSCILLOSCOPE: &str = include_str!("../shaders/oscilloscope.frag");
 
-/// Slowly drifting procedural clouds — plain 5-octave value-noise fBm at two scales
-/// over a palette-tinted sky. Tier-1 fBm: one of the lightest shaders in the set.
+/// Slowly drifting procedural clouds — plain 5-octave value-noise fBm at three scales
+/// with parallax depth (background half-speed, foreground full-speed). Tier-1 fBm.
 pub const BUILTIN_CLOUDS: &str = include_str!("../shaders/clouds.frag");
 
 /// Overhead view of the aurora borealis — 4 sinuous ribbon bands spanning the

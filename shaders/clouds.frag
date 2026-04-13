@@ -6,12 +6,13 @@ precision highp float;
 //
 // Slowly drifting procedural clouds over a tinted sky. Uses plain value-noise
 // fBm (5 octaves, smooth — no abs()/turbulence, no domain warping) evaluated at
-// two different spatial scales to produce large cloud shapes with finer detail
-// riding on top. A smoothstep contrast adjustment carves out distinct cloud vs
-// sky regions; the palette provides the mood (sunset, overcast, synthwave...).
+// three different spatial scales to produce a parallax depth effect: a dim,
+// fine-grained background layer drifts at half speed behind the main foreground
+// clouds. A smoothstep contrast adjustment carves out distinct cloud vs sky
+// regions; the palette provides the mood (sunset, overcast, synthwave...).
 //
 // This is a Tier-1 fBm application — one of the lightest shaders in the set
-// (2 fBm calls × 5 octaves = 10 noise lookups per fragment).
+// (3 fBm calls × 5 octaves = 15 noise lookups per fragment).
 // ---------------------------------------------------------------------------
 
 uniform float u_time;
@@ -60,6 +61,13 @@ void main() {
     // Slow horizontal drift + very slow vertical drift.
     vec2 movement = vec2(u_time * 0.04 * u_speed_scale, u_time * 0.01);
 
+    // --- Background layer: higher frequency, half speed, spatially offset ---
+    vec2 bg_offset = vec2(50.0, 30.0);
+    float bg_clouds = fbm(uv * 6.0 + movement * 0.5 + bg_offset);
+    bg_clouds = smoothstep(0.35, 0.65, bg_clouds) * 0.4;
+    vec3 bg_color = palette(0.3 + bg_clouds * 0.3);
+
+    // --- Foreground layer (unchanged) ---
     // Two fBm layers at different scales for depth.
     float clouds1 = fbm(uv * 2.0 + movement);
     float clouds2 = fbm(uv * 4.0 + movement * 1.5 + vec2(10.0, 10.0));
@@ -73,7 +81,11 @@ void main() {
     // Color: sky is palette(0.05) dimmed, clouds span palette(0.5..1.0).
     vec3 sky_color   = palette(0.05) * 0.3;
     vec3 cloud_color = palette(0.5 + cloud * 0.5);
-    vec3 color       = mix(sky_color, cloud_color, cloud);
+
+    // Composite: sky base → background clouds (dim/slow) → foreground clouds.
+    vec3 color = sky_color;
+    color = mix(color, bg_color, bg_clouds);
+    color = mix(color, cloud_color, cloud);
 
     fragColor = vec4(color, 1.0);
 }
