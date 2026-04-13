@@ -82,7 +82,7 @@ cargo install hyprsaver
 - **Shadertoy-compatible** shader format -- paste Shadertoy code with minimal edits, it just works
 - **Hot-reload** shaders from `~/.config/hypr/hyprsaver/shaders/` -- edit, save, see the change instantly
 - **Cycle mode** for shaders and palettes -- rotate through all or a named playlist on a configurable interval
-- **Built-in shader collection** (23 shaders):
+- **Built-in shader collection** (24 shaders):
 
   | Name            | Description                                          |
   |-----------------|------------------------------------------------------|
@@ -109,6 +109,7 @@ cargo install hyprsaver
   | `tesla`         | Tesla coil arcs — fractal-lightning between three electrodes with branching |
   | `terminal`      | Scrolling build-log output — block-glyph rows scroll upward with CRT scanlines and phosphor glow |
   | `wormhole`      | Curving wormhole tunnel with ring-textured walls, depth fog, and interior point lights |
+  | `oscilloscope`  | Realistic CRT oscilloscope — three animated waveform traces over a phosphor grid with scanlines and vignette |
 - **Built-in palette collection**: rainbow, autumn, vaporwave, frost, ember, ocean, monochrome, sunset, aurora, midnight
 - Configurable FPS and dismiss triggers
 - **Preview mode** for shader authoring (`--preview <shader>`) with speed/zoom control panel
