@@ -575,10 +575,6 @@ fn shader_descriptions() -> std::collections::HashMap<&'static str, &'static str
         ),
         ("tunnel", "Infinite tunnel flythrough"),
         ("voronoi", "Animated Voronoi cells"),
-        (
-            "wormhole",
-            "Curving wormhole tunnel — centerline-driven angular curvature, 2D polar rendering, cartoon ring walls",
-        ),
     ]
     .into_iter()
     .collect()

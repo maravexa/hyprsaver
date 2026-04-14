@@ -76,10 +76,6 @@ pub const BUILTIN_BEZIER: &str = include_str!("../shaders/bezier.frag");
 /// Tesla coil arcs — fractal-lightning between three electrodes with branching and a wandering endpoint.
 pub const BUILTIN_TESLA: &str = include_str!("../shaders/tesla.frag");
 
-/// Curving wormhole tunnel with ring-textured walls, 2D polar rendering, centerline-driven
-/// angular curvature, and no center artifact.
-pub const BUILTIN_WORMHOLE: &str = include_str!("../shaders/wormhole.frag");
-
 /// Scrolling terminal / build-log output — horizontal block-glyph rows scroll upward with
 /// CRT scanlines, phosphor glow, and a blinking cursor.
 pub const BUILTIN_TERMINAL: &str = include_str!("../shaders/terminal.frag");
@@ -270,7 +266,6 @@ impl ShaderManager {
             ("tesla", BUILTIN_TESLA),
             ("tunnel", BUILTIN_TUNNEL),
             ("voronoi", BUILTIN_VORONOI),
-            ("wormhole", BUILTIN_WORMHOLE),
         ];
         for (name, raw_const) in builtins {
             let raw = raw_const
@@ -846,7 +841,6 @@ mod tests {
             "tesla",
             "tunnel",
             "voronoi",
-            "wormhole",
         ] {
             assert!(
                 names.contains(expected),
