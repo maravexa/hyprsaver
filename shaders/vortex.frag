@@ -15,7 +15,7 @@ precision highp float;
 //     pixels (large depth = small r) receive a larger angular offset, so the
 //     segment marks on far ring bands appear at different angular positions than
 //     near ring bands — the brain reads this parallax as tunnel curvature.
-//     Geometry (fog, disc) uses the original r/depth/angle, so rings remain
+//     Geometry (disc) uses the original r/depth/angle, so rings remain
 //     circular and the singularity fix is unaffected.
 //   - Wall texture mirrors wormhole.frag exactly: sharp 0.06-width rib pulses,
 //     per-ring integer-indexed palette colors (ring_idx * 0.125), subdued base
@@ -23,12 +23,10 @@ precision highp float;
 //
 // Features:
 //   1. Wobbling tunnel mouth — slow Lissajous drift, ≤15% of screen height.
-//   2. Depth-angular curvature — far end bends away, hiding behind fog.
+//   2. Depth-angular curvature — far end bends away from the viewer.
 //   3. Ribbed ring wall texture — wormhole cartoon band shading.
 //   4. Angular segment marks — 12 per ring (integer multipliers, seam-free).
-//   5. Angular bend-occlusion fog — wall side occluded early, open side extends
-//      further; bend_phase matches ring_warp for coherent curve direction.
-//   6. Dark vanishing-point disc — smooth black center at tunnel mouth.
+//   5. Dark vanishing-point disc — smooth black center at tunnel mouth.
 // ---------------------------------------------------------------------------
 
 uniform float u_time;
@@ -55,7 +53,7 @@ void main() {
 
     // ── 2. Displaced polar coordinates ──────────────────────────────────────
     // The singularity lives at (center), not at screen center.
-    // r, angle, depth are used for ALL geometry (fog, disc, ring bands).
+    // r, angle, depth are used for ALL geometry (disc, ring bands).
     vec2  displaced_uv = uv - center;
     float r             = length(displaced_uv);
     float angle         = atan(displaced_uv.y, displaced_uv.x);
@@ -74,7 +72,7 @@ void main() {
     // smoothstep(1.0, 6.0, depth) ramps the offset up gradually so the near-
     // field ring bands stay stable and the curvature builds into the mid-field.
     //
-    // bent_angle is used ONLY for texture lookup — fog, disc, and all geometry
+    // bent_angle is used ONLY for texture lookup — disc and all geometry
     // still use the original angle / r / depth (singularity fix preserved).
     float bend1       = sin(depth * 0.15 + t * 0.25) * 0.8;
     float bend2       = cos(depth * 0.22 + t * 0.18) * 0.5;
@@ -124,32 +122,11 @@ void main() {
     float seg = smoothstep(0.02, 0.0, abs(fract(bent_angle / TAU * 12.0) - 0.5) - 0.45);
     wall += ring_col * seg * rib_str * 0.15;
 
-    // ── 6. Angular bend occlusion fog ────────────────────────────────────────
-    // bend_phase MUST match curve1's phase for visual coherence —
-    // ring tilt (ring_warp) and fog occlusion must agree on which side is
-    // the "wall of the bend" vs the open/outside side.
-    float bend_phase = depth * 0.4 + t * 0.25;
-
-    // Which side of the bend this pixel is on:
-    //   +1 = outside of bend (open side — can see further down tunnel)
-    //   -1 = inside/wall of bend (view blocked early by the curve)
-    float bend_side = sin(angle - bend_phase);
-
-    // Asymmetric fog: "wall" side darkens much earlier than "open" side.
-    // bend_side shifts effective depth by ±1.5, creating a ~3-unit
-    // difference in fog onset between the two sides of the tunnel.
-    float effective_depth = depth - bend_side * 1.5;
-
-    // Tight fog range: viewer can only see ~3–5 depth units ahead.
-    // fog=0.0 → fully visible; fog=1.0 → fully occluded.
-    float fog = smoothstep(2.5, 5.5, effective_depth);
-    wall *= (1.0 - fog);
-
-    // ── 7. Radial vignette at screen edges ───────────────────────────────────
+    // ── 6. Radial vignette at screen edges ───────────────────────────────────
     float vignette = 1.0 - smoothstep(0.55, 0.85, length(uv));
     wall *= vignette;
 
-    // ── 8. Dark disc at the vanishing point ──────────────────────────────────
+    // ── 7. Dark disc at the vanishing point ──────────────────────────────────
     // Smooth black fade at the tunnel mouth center so the 1/r singularity
     // transitions to black cleanly rather than flickering at extreme depth.
     float disc = smoothstep(0.018, 0.0, r);
