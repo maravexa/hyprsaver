@@ -29,10 +29,10 @@ shader = "cycle"
 palette = "cycle"
 
 # When shader = "cycle", how many seconds to display each shader before advancing.
-shader_cycle_interval = 300   # 5 minutes
+shader_cycle_interval = 120   # 2 minutes
 
 # When palette = "cycle", how many seconds to display each palette before advancing.
-palette_cycle_interval = 60   # 1 minute
+palette_cycle_interval = 20   # 20 seconds
 
 # Cycle selection order: "random" (default) shuffles; "sequential" goes in order.
 cycle_order = "random"
@@ -51,7 +51,7 @@ shader_playlist = "default"
 palette_playlist = "default"
 
 # Cross-fade duration when switching palettes, in seconds. 0.0 = instant snap.
-# palette_transition_duration = 2.0
+palette_transition_duration = 2.0
 
 # ---------------------------------------------------------------------------
 # [behavior] -- Input and transition settings
@@ -166,3 +166,54 @@ dismiss_on = ["key", "mouse_move", "mouse_click", "touch"]
 # name = "HDMI-A-1"
 # shader = "snowfall"
 # palette = "vaporwave"
+
+# ---------------------------------------------------------------------------
+# Default named playlists
+# ---------------------------------------------------------------------------
+# These playlists are active by default. You can add your own [playlists.<name>]
+# sections, remove entries, or swap in shaders from --list-shaders.
+
+[playlists.elements]
+shaders = [
+    "plasma",
+    "flames",
+    "snowfall",
+    "tesla",
+]
+
+[playlists.math]
+shaders = [
+    "hypercube",
+    "lissajous",
+    "bezier",
+    "donut",
+    "geometry",
+    "julia",
+]
+
+[playlists.nature]
+shaders = [
+    "aurora",
+    "clouds",
+    "planet",
+    "snowfall",
+    "starfield",
+]
+
+[playlists.psychedelic]
+shaders = [
+    "mandelbrot",
+    "lissajous",
+    "plasma",
+    "hypercube",
+    "julia",
+    "kaleidoscope",
+]
+
+[playlists.tech]
+shaders = [
+    "matrix",
+    "network",
+    "oscilloscope",
+    "terminal",
+]
