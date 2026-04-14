@@ -88,14 +88,10 @@ void main() {
     // Ring bands keyed to depth + scroll. floor() gives a discrete per-ring
     // integer index — this is what creates the cartoon stepped-colour effect.
     //
-    // ring_warp: sin(bent_angle) is +1 at top, -1 at bottom of tunnel.
-    // Multiplied by angle_offset (depth-dependent) so amplitude grows with depth.
-    // At depth=6, angle_offset≈0.585 → ring_warp amplitude = ±0.702, i.e. rings
-    // shift by ~0.7 ring widths top-to-bottom. This MUST produce visible tilt.
-    // bent_angle * 1.0 keeps the integer multiplier requirement (seam safety).
-    // The old radial term (+ angle_offset * 0.4) is removed — it shifted all
-    // ring pixels equally and contributed zero angular variation.
-    float ring_warp    = sin(bent_angle * 1.0) * angle_offset * 1.2;
+    // Extreme curvature test — rings should be wildly distorted.
+    // * 3.0 gives ring_warp amplitude of ±1.755 at max angle_offset, shifting
+    // rings by nearly 3.5 ring widths across the tunnel diameter.
+    float ring_warp = sin(bent_angle) * angle_offset * 3.0;
     float scroll_depth = depth + scroll * 0.28 + ring_warp;
     float ring_phase   = fract(scroll_depth);
     float ring_idx     = floor(scroll_depth);
