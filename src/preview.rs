@@ -667,6 +667,30 @@ impl PreviewState {
             }
         }
 
+        // Precompute 12-sample gradient swatches for all palettes (cosine + LUT)
+        // so the dropdown entries can show a compact colour strip next to each name.
+        const SWATCH_STEPS: usize = 12;
+        let palette_gradients: std::collections::HashMap<String, Vec<egui::Color32>> = self
+            .palette_manager
+            .list()
+            .iter()
+            .filter_map(|&name| {
+                let lut = self.palette_manager.get(name)?.to_lut(); // 256 samples
+                let colors: Vec<egui::Color32> = (0..SWATCH_STEPS)
+                    .map(|i| {
+                        let idx = i * 255 / (SWATCH_STEPS - 1);
+                        let [r, g, b] = lut[idx];
+                        egui::Color32::from_rgb(
+                            (r * 255.0) as u8,
+                            (g * 255.0) as u8,
+                            (b * 255.0) as u8,
+                        )
+                    })
+                    .collect();
+                Some((name.to_string(), colors))
+            })
+            .collect();
+
         let fps_val = self.fps_display;
         let is_paused = self.paused;
         let thumbnail_textures = &mut self.thumbnail_textures;
@@ -681,6 +705,7 @@ impl PreviewState {
                     &shader_list,
                     &palette_list,
                     &cosine_palettes,
+                    &palette_gradients,
                     thumbnail_textures,
                 );
             }
@@ -1957,6 +1982,7 @@ fn draw_panel(
     shader_list: &[String],
     palette_list: &[String],
     cosine_palettes: &std::collections::BTreeMap<String, Palette>,
+    palette_gradients: &std::collections::HashMap<String, Vec<egui::Color32>>,
     thumbnail_textures: &mut std::collections::HashMap<String, egui::TextureHandle>,
 ) {
     egui::SidePanel::right("control_panel")
@@ -2041,10 +2067,24 @@ fn draw_panel(
 
             match state.active_tab {
                 PreviewTab::Preview => {
-                    draw_preview_tab(ui, state, shader_list, palette_list, thumbnail_textures);
+                    draw_preview_tab(
+                        ui,
+                        state,
+                        shader_list,
+                        palette_list,
+                        palette_gradients,
+                        thumbnail_textures,
+                    );
                 }
                 PreviewTab::Playlists => {
-                    draw_playlists_tab(ui, state, shader_list, palette_list);
+                    draw_playlists_tab(
+                        ui,
+                        state,
+                        shader_list,
+                        palette_list,
+                        palette_gradients,
+                        thumbnail_textures,
+                    );
                 }
                 PreviewTab::PaletteEditor => {
                     draw_palette_editor_tab(ui, state, cosine_palettes);
@@ -2053,12 +2093,44 @@ fn draw_panel(
         });
 }
 
+/// Draw a compact 50×body_height gradient swatch for a palette dropdown entry.
+///
+/// Paints `colors.len()` vertical strips side-by-side across a 50 px wide rect
+/// allocated at the current cursor position. When `colors` is `None` (palette
+/// not found in the map) nothing is allocated so the row degrades gracefully.
+fn draw_palette_swatch(ui: &mut egui::Ui, colors: Option<&Vec<egui::Color32>>) {
+    let Some(colors) = colors else { return };
+    let text_h = ui.text_style_height(&egui::TextStyle::Body);
+    let swatch_w = 50.0;
+    let (rect, _) =
+        ui.allocate_exact_size(egui::vec2(swatch_w, text_h), egui::Sense::hover());
+    if ui.is_rect_visible(rect) {
+        let n = colors.len() as f32;
+        let step_w = swatch_w / n;
+        let painter = ui.painter();
+        for (i, &color) in colors.iter().enumerate() {
+            let x0 = rect.left() + i as f32 * step_w;
+            // Overlap by half a pixel so no seam shows at fractional widths.
+            let x1 = x0 + step_w + 0.5;
+            painter.rect_filled(
+                egui::Rect::from_min_max(
+                    egui::pos2(x0, rect.top()),
+                    egui::pos2(x1, rect.bottom()),
+                ),
+                0.0,
+                color,
+            );
+        }
+    }
+}
+
 /// Contents of the "Preview" tab — organized with collapsible sections.
 fn draw_preview_tab(
     ui: &mut egui::Ui,
     state: &mut PreviewPanelState,
     shader_list: &[String],
     palette_list: &[String],
+    palette_gradients: &std::collections::HashMap<String, Vec<egui::Color32>>,
     thumbnail_textures: &mut std::collections::HashMap<String, egui::TextureHandle>,
 ) {
     egui::ScrollArea::vertical()
@@ -2071,27 +2143,39 @@ fn draw_preview_tab(
             egui::CollapsingHeader::new(egui::RichText::new("Shader").strong())
                 .default_open(true)
                 .show(ui, |ui| {
+                    let combo_w = avail_w - 12.0;
                     egui::ComboBox::from_id_salt("shader_combo")
-                        .width(avail_w - 12.0)
+                        .width(combo_w)
                         .selected_text(&state.selected_shader)
                         .show_ui(ui, |ui| {
-                            for name in shader_list {
-                                ui.horizontal(|ui| {
-                                    // Show 64×64 thumbnail if available
-                                    if let Some(tex) = thumbnail_textures.get(name.as_str()) {
-                                        ui.image(egui::load::SizedTexture::new(
-                                            tex.id(),
-                                            egui::Vec2::new(32.0, 32.0),
-                                        ));
-                                    }
-                                    if ui
-                                        .selectable_label(state.selected_shader == *name, name)
-                                        .clicked()
-                                    {
-                                        state.selected_shader = name.clone();
+                            ui.set_min_width(combo_w);
+                            egui::ScrollArea::vertical()
+                                .max_height(300.0)
+                                .show(ui, |ui| {
+                                    ui.set_min_width(combo_w);
+                                    for name in shader_list {
+                                        ui.horizontal(|ui| {
+                                            // Show thumbnail if available
+                                            if let Some(tex) =
+                                                thumbnail_textures.get(name.as_str())
+                                            {
+                                                ui.image(egui::load::SizedTexture::new(
+                                                    tex.id(),
+                                                    egui::Vec2::new(32.0, 32.0),
+                                                ));
+                                            }
+                                            if ui
+                                                .selectable_label(
+                                                    state.selected_shader == *name,
+                                                    name,
+                                                )
+                                                .clicked()
+                                            {
+                                                state.selected_shader = name.clone();
+                                            }
+                                        });
                                     }
                                 });
-                            }
                         });
 
                     ui.add_space(4.0);
@@ -2130,17 +2214,34 @@ fn draw_preview_tab(
             egui::CollapsingHeader::new(egui::RichText::new("Palette").strong())
                 .default_open(true)
                 .show(ui, |ui| {
+                    let combo_w = avail_w - 12.0;
                     egui::ComboBox::from_id_salt("palette_combo")
-                        .width(avail_w - 12.0)
+                        .width(combo_w)
                         .selected_text(&state.selected_palette)
                         .show_ui(ui, |ui| {
-                            for name in palette_list {
-                                ui.selectable_value(
-                                    &mut state.selected_palette,
-                                    name.clone(),
-                                    name,
-                                );
-                            }
+                            ui.set_min_width(combo_w);
+                            egui::ScrollArea::vertical()
+                                .max_height(300.0)
+                                .show(ui, |ui| {
+                                    ui.set_min_width(combo_w);
+                                    for name in palette_list {
+                                        ui.horizontal(|ui| {
+                                            draw_palette_swatch(
+                                                ui,
+                                                palette_gradients.get(name.as_str()),
+                                            );
+                                            if ui
+                                                .selectable_label(
+                                                    state.selected_palette == *name,
+                                                    name,
+                                                )
+                                                .clicked()
+                                            {
+                                                state.selected_palette = name.clone();
+                                            }
+                                        });
+                                    }
+                                });
                         });
 
                     ui.add_space(4.0);
@@ -2263,6 +2364,8 @@ fn draw_playlists_tab(
     state: &mut PreviewPanelState,
     shader_list: &[String],
     palette_list: &[String],
+    palette_gradients: &std::collections::HashMap<String, Vec<egui::Color32>>,
+    thumbnail_textures: &mut std::collections::HashMap<String, egui::TextureHandle>,
 ) {
     let avail_w = ui.available_width();
 
@@ -2328,17 +2431,38 @@ fn draw_playlists_tab(
                         } else {
                             &ed.add_shader_selected
                         };
+                        let combo_w = avail_w - 48.0;
                         egui::ComboBox::from_id_salt("add_shader_combo")
-                            .width(avail_w - 48.0)
+                            .width(combo_w)
                             .selected_text(combo_text)
                             .show_ui(ui, |ui| {
-                                for name in &available {
-                                    ui.selectable_value(
-                                        &mut ed.add_shader_selected,
-                                        name.clone(),
-                                        name,
-                                    );
-                                }
+                                ui.set_min_width(combo_w);
+                                egui::ScrollArea::vertical()
+                                    .max_height(300.0)
+                                    .show(ui, |ui| {
+                                        ui.set_min_width(combo_w);
+                                        for name in &available {
+                                            ui.horizontal(|ui| {
+                                                if let Some(tex) =
+                                                    thumbnail_textures.get(name.as_str())
+                                                {
+                                                    ui.image(egui::load::SizedTexture::new(
+                                                        tex.id(),
+                                                        egui::Vec2::new(32.0, 32.0),
+                                                    ));
+                                                }
+                                                if ui
+                                                    .selectable_label(
+                                                        ed.add_shader_selected == *name,
+                                                        name,
+                                                    )
+                                                    .clicked()
+                                                {
+                                                    ed.add_shader_selected = name.clone();
+                                                }
+                                            });
+                                        }
+                                    });
                             });
                         let can_add = !ed.add_shader_selected.is_empty()
                             && !ed.shader_items.contains(&ed.add_shader_selected);
@@ -2415,17 +2539,34 @@ fn draw_playlists_tab(
                         } else {
                             &ed.add_palette_selected
                         };
+                        let combo_w = avail_w - 48.0;
                         egui::ComboBox::from_id_salt("add_palette_combo")
-                            .width(avail_w - 48.0)
+                            .width(combo_w)
                             .selected_text(combo_text)
                             .show_ui(ui, |ui| {
-                                for name in &available {
-                                    ui.selectable_value(
-                                        &mut ed.add_palette_selected,
-                                        name.clone(),
-                                        name,
-                                    );
-                                }
+                                ui.set_min_width(combo_w);
+                                egui::ScrollArea::vertical()
+                                    .max_height(300.0)
+                                    .show(ui, |ui| {
+                                        ui.set_min_width(combo_w);
+                                        for name in &available {
+                                            ui.horizontal(|ui| {
+                                                draw_palette_swatch(
+                                                    ui,
+                                                    palette_gradients.get(name.as_str()),
+                                                );
+                                                if ui
+                                                    .selectable_label(
+                                                        ed.add_palette_selected == *name,
+                                                        name,
+                                                    )
+                                                    .clicked()
+                                                {
+                                                    ed.add_palette_selected = name.clone();
+                                                }
+                                            });
+                                        }
+                                    });
                             });
                         let can_add = !ed.add_palette_selected.is_empty()
                             && !ed.palette_items.contains(&ed.add_palette_selected);
