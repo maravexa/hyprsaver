@@ -117,8 +117,8 @@ void main() {
     float fg_intensity = fbm(p_fg + q_fg * 0.5);
 
     // Noise-in-edge1: high spatial frequency for narrow, lively tips.
-    // Range [0.0, 0.15] → edge1 in [0.60, 0.75].
-    float fg_height_noise = vnoise(vec2(flame_uv.x * 5.0, t * 1.2)) * 0.15;
+    // Range [-0.15, +0.15] → edge1 in [0.45, 0.75]. Centered so valleys dip below 0.60.
+    float fg_height_noise = (vnoise(vec2(flame_uv.x * 5.0, t * 1.2)) * 2.0 - 1.0) * 0.15;
     float fg_height_mask  = 1.0 - smoothstep(0.3, 0.60 + fg_height_noise, flame_uv.y);
     fg_height_mask = clamp(fg_height_mask, 0.0, 1.0);
 
