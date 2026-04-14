@@ -2,17 +2,34 @@
 precision highp float;
 
 // ---------------------------------------------------------------------------
-// hyprsaver — wormhole.frag
+// hyprsaver — wormhole.frag (v2)
 //
-// Curving wormhole tunnel with ring-textured walls. The camera flies forward
-// along a sinusoidal centerline. Raymarched with <= 48 steps for integrated
-// GPU safety. Features:
-//   1. Ribbed ring geometry — concentric ridges at regular z intervals,
-//      colored with palette(fract(ring_index * 0.125 + u_time * 0.05)).
-//   2. Depth fog — wall fragments beyond z 6.0 fade toward palette(0.0).
-//   3. Barrel distortion — subtle fisheye applied before raymarching.
-//   4. Exit light — soft glow circle at the tunnel's far end.
-//   5. Interior point lights — faint lights every 2.0 z-units on centerline.
+// Curving wormhole tunnel with ring-textured walls.
+//
+// The original wormhole used a 48-step SDF raymarcher to fly the camera along
+// a sinusoidal centerline. This rewrite preserves the centerline() curve math
+// exactly but replaces the expensive raymarcher with a 2D polar pipeline
+// (same technique as the former vortex shader).
+//
+// Curve technique:
+//   centerline(z) gives the XY offset of the tunnel axis at depth z. The
+//   camera follows this path (cam_xy = centerline(cam_z)). In 2D polar space
+//   the curvature manifests as two effects:
+//     1. Wobbling tunnel mouth — the displaced polar origin tracks the camera's
+//        look-ahead direction: center = centerline(cam_z+3) - cam_xy, scaled to
+//        ≤ 15% screen height. This shifts the vanishing point as the path bends.
+//     2. Depth-angular bend — at apparent depth d the tunnel center is at
+//        centerline(cam_z + d*scale). The angle of that XY offset (atan2) is
+//        added to the texture lookup angle, so far rings appear angularly
+//        shifted relative to near rings — the brain reads this as curvature.
+//
+// Rendering pipeline (2D polar, O(1) per pixel):
+//   - Displaced-center polar coords (singularity at wobbling center, not origin)
+//   - Centerline-driven angular bend applied only to texture lookup (bent_angle)
+//   - Ribbed ring texture: sharp 0.06-width rib pulses, per-ring integer-indexed
+//     palette colors (ring_idx * 0.125), 12 angular segment dividers
+//   - Dark disc at the vanishing point — eliminates the old center glow artifact
+//   - Radial vignette at screen edges
 // ---------------------------------------------------------------------------
 
 uniform float u_time;
@@ -24,15 +41,9 @@ uniform float u_alpha;
 const float PI  = 3.14159265359;
 const float TAU = 6.28318530718;
 
-const float TUNNEL_R   = 1.2;    // base tunnel radius
-const float RIB_DEPTH  = 0.09;   // how far ribs protrude inward
-const float RIB_PERIOD = 1.0;    // one ring every 1.0 z-units
-const float MAX_MARCH  = 16.0;   // max ray travel distance
-const float EPSILON    = 0.003;  // surface hit threshold
-
-// ── Tunnel centerline displacement ─────────────────────────────────────────
-// Two sine/cosine harmonics per axis produce a smoothly curving path that
-// never doubles back on itself (the z-component is the parameter itself).
+// ── Tunnel centerline (preserved verbatim from the raymarched version) ─────
+// Two sine/cosine harmonics per axis → smoothly curving path that never
+// doubles back on itself (z is the parameter / travel distance).
 vec2 centerline(float z) {
     return vec2(
         sin(z * 0.25) * 0.55 + sin(z * 0.13) * 0.25,
@@ -40,139 +51,91 @@ vec2 centerline(float z) {
     );
 }
 
-// ── Scene SDF: curved tunnel with ribbed rings ─────────────────────────────
-// Returns positive values inside the tunnel (distance to nearest wall).
-// Rib rings are narrow ridges that decrease the effective radius at regular
-// z intervals, creating visible concentric ring geometry on the walls.
-float map(vec3 p) {
-    vec2  c = centerline(p.z);
-    float d = length(p.xy - c);
-
-    // Rib ring: sharp inward bump at each integer-z boundary
-    float f   = fract(p.z / RIB_PERIOD);
-    float rib = smoothstep(0.06, 0.0, abs(f - 0.5) * 2.0);
-
-    return (TUNNEL_R - RIB_DEPTH * rib) - d;
-}
-
-// ── Central-difference surface normal ──────────────────────────────────────
-vec3 normal_at(vec3 p) {
-    const float e = 0.002;
-    float d = map(p);
-    return normalize(vec3(
-        map(p + vec3(e, 0.0, 0.0)) - d,
-        map(p + vec3(0.0, e, 0.0)) - d,
-        map(p + vec3(0.0, 0.0, e)) - d
-    ));
-}
-
-// ── Main ───────────────────────────────────────────────────────────────────
 void main() {
     vec2 uv = (gl_FragCoord.xy - 0.5 * u_resolution.xy) / u_resolution.y;
 
     float t = u_time * u_speed_scale;
 
-    // ── 3. Barrel distortion — subtle fisheye at edges ─────────────────────
-    // Applied before ray generation so distortion warps the view naturally.
-    vec2 uv_d = uv * (1.0 + dot(uv, uv) * 0.1);
-
-    // ── Camera flying along the centerline ─────────────────────────────────
+    // ── Camera position along the centerline ──────────────────────────────
     float cam_z  = t * 1.2;
     vec2  cam_xy = centerline(cam_z);
-    vec3  ro     = vec3(cam_xy, cam_z);
 
-    // Look-ahead target for forward direction
-    float ahead = 3.0;
-    vec3 target  = vec3(centerline(cam_z + ahead), cam_z + ahead);
+    // ── 1. Wobbling tunnel mouth — displaced polar center ─────────────────
+    // The look-ahead vector (3 units forward) gives the direction the tunnel
+    // is heading from the camera's viewpoint. Scaling to ~14% screen height
+    // keeps the singularity well within the screen without clipping.
+    vec2 look_ahead = centerline(cam_z + 3.0) - cam_xy;
+    vec2 center     = look_ahead * 0.18;
 
-    vec3 fwd = normalize(target - ro);
-    vec3 rgt = normalize(cross(fwd, vec3(0.0, 1.0, 0.0)));
-    vec3 up  = cross(rgt, fwd);
+    // ── 2. Displaced polar coordinates ───────────────────────────────────
+    // Singularity lives at (center), not at screen origin.
+    vec2  displaced_uv = uv - center;
+    float r             = length(displaced_uv);
+    float angle         = atan(displaced_uv.y, displaced_uv.x);
+    float depth         = 1.0 / max(r, 0.005);
 
-    // Gentle camera roll for immersion
-    float roll = sin(t * 0.17) * 0.1;
-    float cr = cos(roll), sr = sin(roll);
-    vec3 rgt2 = rgt * cr + up * sr;
-    vec3 up2  = -rgt * sr + up * cr;
+    // ── Animated scroll — viewer pulled inward ────────────────────────────
+    float scroll = t * 1.2;
 
-    // Ray direction — u_zoom_scale narrows the FOV (zoom in)
-    vec3 rd = normalize(fwd * u_zoom_scale + uv_d.x * rgt2 + uv_d.y * up2);
+    // ── 3. Centerline-driven angular bend — tunnel curvature illusion ─────
+    // Sample the centerline at an apparent tunnel depth (capped at 15 to
+    // prevent probe_z from oscillating wildly near the centre singularity).
+    // The XY offset of the centerline relative to the camera, converted to an
+    // angle, tells us how much the tunnel has bent by that depth. Adding this
+    // to the texture-lookup angle makes far rings appear to shift angularly,
+    // which the visual system interprets as the tunnel curving away.
+    //
+    // ONLY bent_angle is used for texture lookups. Geometry (r, depth, disc)
+    // always uses the original angle so the singularity fix is unaffected.
+    float probe_depth  = min(depth, 15.0);
+    float probe_z      = cam_z + probe_depth * 0.7 * u_zoom_scale;
+    vec2  c_probe      = centerline(probe_z) - cam_xy;
+    float angle_offset = atan(c_probe.y, c_probe.x)
+                         * smoothstep(0.8, 5.0, depth) * 0.55;
+    float bent_angle   = angle + angle_offset;
 
-    // ── Raymarch (48 steps max) ────────────────────────────────────────────
-    float ray_t = 0.0;
-    bool  hit   = false;
-    vec3  p;
+    // ── 4. Ribbed ring wall texture ────────────────────────────────────────
+    // Ring bands keyed to depth + scroll. Two sinusoidal harmonics warp the
+    // ring boundaries slightly, adding the impression of tubes tilting around
+    // the curve. Integer-multiplier angles keep the seams closed.
+    float curve1    = sin(angle * 1.0 + depth * 0.4 + t * 0.25) * 0.6;
+    float curve2    = sin(angle * 2.0 + depth * 0.25 + t * 0.15) * 0.15;
+    float ring_warp = (curve1 + curve2) * smoothstep(0.3, 1.5, depth);
 
-    for (int i = 0; i < 48; i++) {
-        p = ro + rd * ray_t;
-        float d = map(p);
-        if (d < EPSILON) { hit = true; break; }
-        ray_t += d * 0.6;   // conservative step for curved geometry
-        if (ray_t > MAX_MARCH) break;
-    }
+    float scroll_depth = depth + scroll * 0.28 + ring_warp;
+    float ring_phase   = fract(scroll_depth);
+    float ring_idx     = floor(scroll_depth);
 
-    vec3 fog_color = palette(0.0);
-    vec3 col       = vec3(0.0);
+    // Sharp rib pulse — narrow 0.06 window → hard cartoon ring edges.
+    // Mirrors the original wormhole: smoothstep(0.06, 0.0, abs(f-0.5)*2.0)
+    float rib_str = smoothstep(0.06, 0.0, abs(ring_phase - 0.5) * 2.0);
 
-    if (hit) {
-        vec3  n     = normal_at(p);
-        float z_cam = length(p - ro);   // distance from camera to hit
+    // Base wall — subdued angular + depth pattern on inter-ring surfaces.
+    // Uses bent_angle so the base texture curves with the tunnel bend.
+    float base_t    = fract(bent_angle / TAU + 0.5 + depth * 0.04 - t * 0.028);
+    vec3  base_wall = palette(base_t) * 0.3;
 
-        // ── 1. Wall detail: ribbed ring geometry & coloring ────────────────
-        float ring_idx = floor(p.z / RIB_PERIOD);
-        float ring_frc = fract(p.z / RIB_PERIOD);
-        float rib_str  = smoothstep(0.06, 0.0, abs(ring_frc - 0.5) * 2.0);
+    // Per-ring colour: integer-indexed → distinct colour per ring, not gradient.
+    // Mirrors original: palette(fract(ring_idx * 0.125 + t * 0.05))
+    vec3 ring_col = palette(fract(ring_idx * 0.125 + t * 0.05 + angle_offset * 0.08));
 
-        vec2  c     = centerline(p.z);
-        float angle = atan(p.y - c.y, p.x - c.x);
+    // Blend: dark/subdued base ↔ bright ring. High contrast = cartoon bands.
+    vec3 wall = mix(base_wall, ring_col * 0.65, rib_str);
 
-        // Base wall: subdued palette pattern from angle + depth
-        float wt   = fract(angle / TAU + 0.5 + p.z * 0.04);
-        vec3  wall = palette(wt) * 0.3;
+    // Angular segment dividers on rib bands — 12 divisions (integer: seam-free).
+    // Uses bent_angle so the tick marks curve with the tunnel.
+    float seg = smoothstep(0.02, 0.0, abs(fract(bent_angle / TAU * 12.0) - 0.5) - 0.45);
+    wall += ring_col * seg * rib_str * 0.15;
 
-        // Ring colour: slow per-ring colour rotation
-        vec3 ring_col = palette(fract(ring_idx * 0.125 + t * 0.05));
-        wall = mix(wall, ring_col * 0.65, rib_str);
+    // ── 5. Radial vignette at screen edges ────────────────────────────────
+    float vignette = 1.0 - smoothstep(0.55, 0.85, length(uv));
+    wall *= vignette;
 
-        // Angular segment lines on ribs — 12 segments around circumference
-        float seg = smoothstep(0.02, 0.0, abs(fract(angle / TAU * 12.0) - 0.5) - 0.45);
-        wall += ring_col * seg * rib_str * 0.15;
+    // ── 6. Dark disc at the vanishing point ───────────────────────────────
+    // Smooth black fade at the tunnel mouth so the 1/r singularity transitions
+    // to black cleanly — eliminates the center glow artifact of the old version.
+    float disc = smoothstep(0.018, 0.0, r);
+    wall = mix(wall, vec3(0.0), disc);
 
-        // ── 5. Interior point lights ───────────────────────────────────────
-        // Faint lights every 2.0 z-units along the centerline.
-        float lighting = 0.0;
-        float base_lz  = floor(p.z / 2.0) * 2.0;
-        for (int li = -1; li <= 2; li++) {
-            float lz  = base_lz + float(li) * 2.0;
-            vec3  lp  = vec3(centerline(lz), lz);
-            float dl  = length(p - lp);
-            lighting += 1.0 / (1.0 + dl * dl * 2.0);
-        }
-
-        // Combine diffuse-like shading with point-light contribution
-        float ndot = max(dot(n, -rd), 0.0);
-        wall *= 0.2 + ndot * 0.25 + lighting * 0.65;
-
-        // ── 2. Depth fog ───────────────────────────────────────────────────
-        // Objects beyond z_depth 6.0 fade toward palette(0.0).
-        wall = mix(wall, fog_color, smoothstep(4.0, 8.0, z_cam));
-
-        col = wall;
-
-    } else {
-        // ── 4. Exit light — soft glow at the tunnel's far end ──────────────
-        // Rays that don't hit a wall are looking down the tunnel toward the
-        // far opening. Render a soft glow circle with palette(0.5), intensity
-        // falling off with exp(-r*r*4.0).
-        vec3  far_p = ro + rd * MAX_MARCH;
-        vec2  far_c = centerline(far_p.z);
-        float r     = length(far_p.xy - far_c) / TUNNEL_R;
-        float glow  = exp(-r * r * 4.0);
-        col = palette(0.5) * glow * 0.45;
-
-        // Light fog tint on the exit glow — keep it visible but atmospheric
-        col = mix(col, fog_color, 0.3);
-    }
-
-    fragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
+    fragColor = vec4(clamp(wall, 0.0, 1.0), u_alpha);
 }

@@ -530,8 +530,8 @@ fn shader_descriptions() -> std::collections::HashMap<&'static str, &'static str
             "Slowly drifting procedural clouds over a palette-tinted sky (plain 5-octave fBm)",
         ),
         (
-            "fire",
-            "Procedural flames rising with fractal noise turbulence",
+            "flames",
+            "fBm domain-warped fire — two-pass Quilez warping with abs(noise) turbulence",
         ),
         ("marble", "Curl-noise flow field with particle tracing"),
         (
@@ -577,7 +577,7 @@ fn shader_descriptions() -> std::collections::HashMap<&'static str, &'static str
         ("voronoi", "Animated Voronoi cells"),
         (
             "wormhole",
-            "Curving wormhole tunnel with ring-textured walls, depth fog, and interior point lights",
+            "Curving wormhole tunnel — centerline-driven angular curvature, 2D polar rendering, cartoon ring walls",
         ),
     ]
     .into_iter()
