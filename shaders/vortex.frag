@@ -26,7 +26,8 @@ precision highp float;
 //   2. Depth-angular curvature — far end bends away, hiding behind fog.
 //   3. Ribbed ring wall texture — wormhole cartoon band shading.
 //   4. Angular segment marks — 12 per ring (integer multipliers, seam-free).
-//   5. Depth fog — far end fades to black; tight range enhances curve feel.
+//   5. Angular bend-occlusion fog — wall side occluded early, open side extends
+//      further; bend_phase matches ring_warp for coherent curve direction.
 //   6. Dark vanishing-point disc — smooth black center at tunnel mouth.
 // ---------------------------------------------------------------------------
 
@@ -123,17 +124,26 @@ void main() {
     float seg = smoothstep(0.02, 0.0, abs(fract(bent_angle / TAU * 12.0) - 0.5) - 0.45);
     wall += ring_col * seg * rib_str * 0.15;
 
-    // ── 6. Depth fog — tighter range so curvature hides the far end ──────────
-    // smoothstep(hi, lo, depth): 1.0 near viewer, 0.0 deep in tunnel.
-    // Fog fully kicks in by depth=12 (r≈0.083) so bends curve into darkness.
-    //
-    // fog_warp: angular variation of the fog threshold — one side of the tunnel
-    // appears deeper (darker) than the other. This is an INDEPENDENT visual cue
-    // for curvature on top of the ring_warp phase shift above. The brain reads
-    // asymmetric darkness-with-depth as the tunnel turning.
-    float fog_warp = sin(bent_angle) * angle_offset * 0.3;
-    float fog = 0.0;
-    wall *= fog;
+    // ── 6. Angular bend occlusion fog ────────────────────────────────────────
+    // bend_phase MUST match curve1's phase for visual coherence —
+    // ring tilt (ring_warp) and fog occlusion must agree on which side is
+    // the "wall of the bend" vs the open/outside side.
+    float bend_phase = depth * 0.4 + t * 0.25;
+
+    // Which side of the bend this pixel is on:
+    //   +1 = outside of bend (open side — can see further down tunnel)
+    //   -1 = inside/wall of bend (view blocked early by the curve)
+    float bend_side = sin(angle - bend_phase);
+
+    // Asymmetric fog: "wall" side darkens much earlier than "open" side.
+    // bend_side shifts effective depth by ±1.5, creating a ~3-unit
+    // difference in fog onset between the two sides of the tunnel.
+    float effective_depth = depth - bend_side * 1.5;
+
+    // Tight fog range: viewer can only see ~3–5 depth units ahead.
+    // fog=0.0 → fully visible; fog=1.0 → fully occluded.
+    float fog = smoothstep(2.5, 5.5, effective_depth);
+    wall *= (1.0 - fog);
 
     // ── 7. Radial vignette at screen edges ───────────────────────────────────
     float vignette = 1.0 - smoothstep(0.55, 0.85, length(uv));
