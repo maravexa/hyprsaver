@@ -60,11 +60,8 @@ pub const BUILTIN_GEOMETRY: &str = include_str!("../shaders/geometry.frag");
 /// Classic Matrix digital rain — falling columns of procedural bitmask glyphs.
 pub const BUILTIN_MATRIX: &str = include_str!("../shaders/matrix.frag");
 
-/// Procedural fire — roiling flames rising from the bottom with three-octave noise and ember particles.
-pub const BUILTIN_FIRE: &str = include_str!("../shaders/fire.frag");
-
 /// fBm + domain-warping fire — Inigo Quilez two-pass domain warping combined with
-/// abs(noise) turbulence. A/B companion to fire.frag for visual comparison.
+/// abs(noise) turbulence.
 pub const BUILTIN_FLAMES: &str = include_str!("../shaders/flames.frag");
 
 /// Underwater caustic light patterns — sine-wave summation caustics with water-surface heave.
@@ -79,7 +76,8 @@ pub const BUILTIN_BEZIER: &str = include_str!("../shaders/bezier.frag");
 /// Tesla coil arcs — fractal-lightning between three electrodes with branching and a wandering endpoint.
 pub const BUILTIN_TESLA: &str = include_str!("../shaders/tesla.frag");
 
-/// Curving wormhole tunnel with ring-textured walls, depth fog, and interior point lights.
+/// Curving wormhole tunnel with ring-textured walls, 2D polar rendering, centerline-driven
+/// angular curvature, and no center artifact.
 pub const BUILTIN_WORMHOLE: &str = include_str!("../shaders/wormhole.frag");
 
 /// Scrolling terminal / build-log output — horizontal block-glyph rows scroll upward with
@@ -97,11 +95,6 @@ pub const BUILTIN_CLOUDS: &str = include_str!("../shaders/clouds.frag");
 /// Overhead aurora borealis — horizontal curtain bands with asymmetric exponential falloff
 /// (sharp bright lower edge, long soft glow tail upward). Pure trig + exp, no fBm.
 pub const BUILTIN_AURORA: &str = include_str!("../shaders/aurora.frag");
-
-/// Polar tunnel with a wobbling mouth — 2D polar inverse-radius mapping with
-/// polar coords relative to the displaced center, eliminating the fixed singularity
-/// artifact present in wormhole.frag.
-pub const BUILTIN_VORTEX: &str = include_str!("../shaders/vortex.frag");
 
 // ---------------------------------------------------------------------------
 // Vertex shader for the fullscreen quad (triangle-strip, no VBO needed)
@@ -258,7 +251,6 @@ impl ShaderManager {
             ("bezier", BUILTIN_BEZIER),
             ("caustics", BUILTIN_CAUSTICS),
             ("clouds", BUILTIN_CLOUDS),
-            ("fire", BUILTIN_FIRE),
             ("flames", BUILTIN_FLAMES),
             ("marble", BUILTIN_MARBLE),
             ("hypercube", BUILTIN_HYPERCUBE),
@@ -278,7 +270,6 @@ impl ShaderManager {
             ("tesla", BUILTIN_TESLA),
             ("tunnel", BUILTIN_TUNNEL),
             ("voronoi", BUILTIN_VORONOI),
-            ("vortex", BUILTIN_VORTEX),
             ("wormhole", BUILTIN_WORMHOLE),
         ];
         for (name, raw_const) in builtins {
@@ -831,11 +822,12 @@ mod tests {
         let mgr = manager();
         let names = mgr.list();
         for expected in &[
+            "aurora",
             "planet",
             "bezier",
             "caustics",
             "clouds",
-            "fire",
+            "flames",
             "marble",
             "geometry",
             "hypercube",
@@ -854,7 +846,6 @@ mod tests {
             "tesla",
             "tunnel",
             "voronoi",
-            "vortex",
             "wormhole",
         ] {
             assert!(
