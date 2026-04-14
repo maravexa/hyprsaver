@@ -132,7 +132,7 @@ void main() {
     // for curvature on top of the ring_warp phase shift above. The brain reads
     // asymmetric darkness-with-depth as the tunnel turning.
     float fog_warp = sin(bent_angle) * angle_offset * 0.3;
-    float fog = smoothstep(12.0 + fog_warp * 3.0, 5.0, depth);
+    float fog = 0.0;
     wall *= fog;
 
     // ── 7. Radial vignette at screen edges ───────────────────────────────────
