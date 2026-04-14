@@ -87,12 +87,16 @@ void main() {
     //
     // Ring bands keyed to depth + scroll. floor() gives a discrete per-ring
     // integer index — this is what creates the cartoon stepped-colour effect.
-    // ring_warp: adds angular variation to ring bands so the tunnel appears to
-    // curve rather than being perfect concentric circles. sin(bent_angle) is
-    // positive on one side of the tunnel, negative on the other; angle_offset
-    // (depth-dependent) controls the amplitude, so the tilt grows with depth.
-    float ring_warp   = sin(bent_angle) * angle_offset * 0.6;
-    float scroll_depth = depth + scroll * 0.28 + angle_offset * 0.4 + ring_warp;
+    //
+    // ring_warp: sin(bent_angle) is +1 at top, -1 at bottom of tunnel.
+    // Multiplied by angle_offset (depth-dependent) so amplitude grows with depth.
+    // At depth=6, angle_offset≈0.585 → ring_warp amplitude = ±0.702, i.e. rings
+    // shift by ~0.7 ring widths top-to-bottom. This MUST produce visible tilt.
+    // bent_angle * 1.0 keeps the integer multiplier requirement (seam safety).
+    // The old radial term (+ angle_offset * 0.4) is removed — it shifted all
+    // ring pixels equally and contributed zero angular variation.
+    float ring_warp    = sin(bent_angle * 1.0) * angle_offset * 1.2;
+    float scroll_depth = depth + scroll * 0.28 + ring_warp;
     float ring_phase   = fract(scroll_depth);
     float ring_idx     = floor(scroll_depth);
 
@@ -123,7 +127,13 @@ void main() {
     // ── 6. Depth fog — tighter range so curvature hides the far end ──────────
     // smoothstep(hi, lo, depth): 1.0 near viewer, 0.0 deep in tunnel.
     // Fog fully kicks in by depth=12 (r≈0.083) so bends curve into darkness.
-    float fog = smoothstep(12.0, 5.0, depth);
+    //
+    // fog_warp: angular variation of the fog threshold — one side of the tunnel
+    // appears deeper (darker) than the other. This is an INDEPENDENT visual cue
+    // for curvature on top of the ring_warp phase shift above. The brain reads
+    // asymmetric darkness-with-depth as the tunnel turning.
+    float fog_warp = sin(bent_angle) * angle_offset * 0.3;
+    float fog = smoothstep(12.0 + fog_warp * 3.0, 5.0, depth);
     wall *= fog;
 
     // ── 7. Radial vignette at screen edges ───────────────────────────────────
