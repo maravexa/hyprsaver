@@ -17,7 +17,8 @@ precision highp float;
 //   that approach is intentionally NOT used here.
 //
 // Foreground:  fbm  (4 oct), spatial 2.0x,  scroll t*1.5,  seeds (0.0/0.0,
-//              5.2/1.3), noise-in-edge1 freq=5.0 amp=0.15, edge1=0.60,
+//              5.2/1.3), 3-octave fractal height boundary (freqs 4/8/16,
+//              weights 0.55/0.30/0.15, amp 0.22) → edge1 in [0.38, 0.82],
 //              brightness 1.00 — finest detail, fastest, brightest.
 //
 // Key implementation invariants:
@@ -100,10 +101,10 @@ void main() {
     //   - Domain warp seeds (0.0/0.0) and (5.2/1.3): same as the original
     //     foreground — preserves its established fine-detail character.
     //   - fbm (4 octaves): maximum detail on the frontmost layer.
-    //   - Noise-in-edge1: freq=5.0 (narrow peaks — fine flame tips), amp=0.15
-    //     (15% variation), edge1 base=0.60 — peaks reach up to y=0.75.
-    //     This replaces the old additive-noise-on-mask approach which produced
-    //     only ≤3% variation and a visually flat horizontal cutoff.
+    //   - 3-octave fractal height boundary: freqs 4/8/16 × t 0.8/1.5/2.5,
+    //     weights 0.55/0.30/0.15 (sum 1.0), outer amp 0.22 → edge1 ∈ [0.38, 0.82].
+    //     Large octave sets broad silhouette; medium disrupts periodicity;
+    //     fine adds constant flickering detail at the tips.
     //   - 100% brightness: full intensity, front layer dominates compositing.
     // -----------------------------------------------------------------------
     vec3 p_fg = vec3(flame_uv.x * 2.0, flame_uv.y * 1.5 - t * 1.5, t * 0.5);
@@ -116,9 +117,13 @@ void main() {
 
     float fg_intensity = fbm(p_fg + q_fg * 0.5);
 
-    // Noise-in-edge1: high spatial frequency for narrow, lively tips.
-    // Range [-0.15, +0.15] → edge1 in [0.45, 0.75]. Centered so valleys dip below 0.60.
-    float fg_height_noise = (vnoise(vec2(flame_uv.x * 5.0, t * 1.2)) * 2.0 - 1.0) * 0.15;
+    // 3-octave fractal height boundary: large shape + medium disruption + fine flicker.
+    // Octave weights (0.55+0.30+0.15=1.0) normalised by * 0.22 → edge1 in [0.38, 0.82].
+    float fg_height_noise = (
+        (vnoise(vec2(flame_uv.x *  4.0, t * 0.8)) * 2.0 - 1.0) * 0.55 +
+        (vnoise(vec2(flame_uv.x *  8.0, t * 1.5)) * 2.0 - 1.0) * 0.30 +
+        (vnoise(vec2(flame_uv.x * 16.0, t * 2.5)) * 2.0 - 1.0) * 0.15
+    ) * 0.22;
     float fg_height_mask  = 1.0 - smoothstep(0.3, 0.60 + fg_height_noise, flame_uv.y);
     fg_height_mask = clamp(fg_height_mask, 0.0, 1.0);
 
