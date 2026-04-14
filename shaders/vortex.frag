@@ -87,7 +87,7 @@ void main() {
     //
     // Ring bands keyed to depth + scroll. floor() gives a discrete per-ring
     // integer index — this is what creates the cartoon stepped-colour effect.
-    float scroll_depth = depth + scroll * 0.28;
+    float scroll_depth = depth + scroll * 0.28 + angle_offset * 0.4;
     float ring_phase   = fract(scroll_depth);
     float ring_idx     = floor(scroll_depth);
 
