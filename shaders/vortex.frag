@@ -88,10 +88,13 @@ void main() {
     // Ring bands keyed to depth + scroll. floor() gives a discrete per-ring
     // integer index — this is what creates the cartoon stepped-colour effect.
     //
-    // Extreme curvature test — rings should be wildly distorted.
-    // * 3.0 gives ring_warp amplitude of ±1.755 at max angle_offset, shifting
-    // rings by nearly 3.5 ring widths across the tunnel diameter.
-    float ring_warp = sin(bent_angle) * angle_offset * 3.0;
+    // Tunnel curvature: rings tilt at different depths, creating a winding passage.
+    // Two harmonics with integer angle multipliers (seam-safe).
+    // smoothstep(0.3, 1.5, depth) activates across the wide visible tunnel area —
+    // full strength by depth=1.5 (r≈0.67), fading at the screen edge (depth=0.3).
+    float curve1 = sin(angle * 1.0 + depth * 0.4 + t * 0.25) * 0.6;
+    float curve2 = sin(angle * 2.0 + depth * 0.25 + t * 0.15) * 0.15;
+    float ring_warp = (curve1 + curve2) * smoothstep(0.3, 1.5, depth);
     float scroll_depth = depth + scroll * 0.28 + ring_warp;
     float ring_phase   = fract(scroll_depth);
     float ring_idx     = floor(scroll_depth);
