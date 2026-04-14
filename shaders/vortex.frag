@@ -87,7 +87,12 @@ void main() {
     //
     // Ring bands keyed to depth + scroll. floor() gives a discrete per-ring
     // integer index — this is what creates the cartoon stepped-colour effect.
-    float scroll_depth = depth + scroll * 0.28 + angle_offset * 0.4;
+    // ring_warp: adds angular variation to ring bands so the tunnel appears to
+    // curve rather than being perfect concentric circles. sin(bent_angle) is
+    // positive on one side of the tunnel, negative on the other; angle_offset
+    // (depth-dependent) controls the amplitude, so the tilt grows with depth.
+    float ring_warp   = sin(bent_angle) * angle_offset * 0.6;
+    float scroll_depth = depth + scroll * 0.28 + angle_offset * 0.4 + ring_warp;
     float ring_phase   = fract(scroll_depth);
     float ring_idx     = floor(scroll_depth);
 
