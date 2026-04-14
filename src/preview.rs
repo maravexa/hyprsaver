@@ -2102,8 +2102,7 @@ fn draw_palette_swatch(ui: &mut egui::Ui, colors: Option<&Vec<egui::Color32>>) {
     let Some(colors) = colors else { return };
     let text_h = ui.text_style_height(&egui::TextStyle::Body);
     let swatch_w = 50.0;
-    let (rect, _) =
-        ui.allocate_exact_size(egui::vec2(swatch_w, text_h), egui::Sense::hover());
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(swatch_w, text_h), egui::Sense::hover());
     if ui.is_rect_visible(rect) {
         let n = colors.len() as f32;
         let step_w = swatch_w / n;
@@ -2113,10 +2112,7 @@ fn draw_palette_swatch(ui: &mut egui::Ui, colors: Option<&Vec<egui::Color32>>) {
             // Overlap by half a pixel so no seam shows at fractional widths.
             let x1 = x0 + step_w + 0.5;
             painter.rect_filled(
-                egui::Rect::from_min_max(
-                    egui::pos2(x0, rect.top()),
-                    egui::pos2(x1, rect.bottom()),
-                ),
+                egui::Rect::from_min_max(egui::pos2(x0, rect.top()), egui::pos2(x1, rect.bottom())),
                 0.0,
                 color,
             );
@@ -2156,8 +2152,7 @@ fn draw_preview_tab(
                                     for name in shader_list {
                                         ui.horizontal(|ui| {
                                             // Show thumbnail if available
-                                            if let Some(tex) =
-                                                thumbnail_textures.get(name.as_str())
+                                            if let Some(tex) = thumbnail_textures.get(name.as_str())
                                             {
                                                 ui.image(egui::load::SizedTexture::new(
                                                     tex.id(),
