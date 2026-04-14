@@ -125,7 +125,7 @@ void main() {
     float fg_shaped = clamp(fg_intensity * fg_height_mask * 2.5 - 0.05, 0.0, 1.0);
 
     float fg_ember     = smoothstep(0.3, 0.0, flame_uv.y);
-    float fg_palette_t = max(fg_shaped, 0.6 + fg_ember * 0.4);
+    float fg_palette_t = max(fg_shaped, fg_ember * (0.6 + fg_ember * 0.4));
 
     vec3 fg_color = palette(pow(clamp(fg_palette_t, 0.0, 1.0), 0.65));
     fg_color *= smoothstep(0.0, 0.04, fg_shaped);
