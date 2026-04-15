@@ -4,17 +4,16 @@ precision highp float;
 // ---------------------------------------------------------------------------
 // hyprsaver — snowfall.frag
 //
-// Five parallax layers of falling snow dots. Layer 0 is closest (fast, large),
-// layer 4 is furthest (slow, tiny). Dots fall straight down; x position is
-// stationary per dot (no horizontal drift). Background is a slow-drifting
-// dark palette color, or pure black when the active palette is monochrome.
-// All layers are additively composited over the background. Fully stateless
-// GLSL — no per-frame CPU work.
+// Grid-based spatial-lookup snowfall. Three parallax layers (near, mid, far)
+// each tile UV space into a grid of cells. Each cell contains exactly one
+// randomised snowflake. Each pixel checks only its own cell plus the 8
+// surrounding neighbours — 3 layers × 9 checks = 27 distance evaluations,
+// down from the original 100 (5 layers × 20 dots each).
 //
-// Layer parameters (i = 0 nearest … 4 furthest):
-//   speed   = float[](0.144, 0.126, 0.108, 0.090, 0.072) + jitter
-//   size_px = float[](9.0, 5.5, 3.0, 1.6, 0.7)  (exponential depth falloff)
-//   density = int[](18, 16, 12, 8, 5)  (59 total across 5 layers)
+// Layer parameters (0 = near … 2 = far):
+//   grid_scale : 6.0 / 10.0 / 16.0   (cells per screen height)
+//   radius_px  : 7–9 / 3–5 / 0.8–1.8 (randomised per cell)
+//   fall_speed : 0.14 / 0.10 / 0.06
 // ---------------------------------------------------------------------------
 
 uniform float u_time;
@@ -23,7 +22,7 @@ uniform vec2  u_mouse;
 uniform int   u_frame;
 
 // ---------------------------------------------------------------------------
-// Hash — float → float in [0, 1)
+// Hash functions — all results in [0, 1)
 // ---------------------------------------------------------------------------
 
 float hash11(float p) {
@@ -33,78 +32,69 @@ float hash11(float p) {
     return fract(p);
 }
 
+float hash21(vec2 p) {
+    vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+    p3 += dot(p3, p3.yzx + 33.33);
+    return fract((p3.x + p3.y) * p3.z);
+}
+
+vec2 hash22(vec2 p) {
+    vec3 p3 = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973));
+    p3 += dot(p3, p3.yzx + 33.33);
+    return fract((p3.xx + p3.yz) * p3.zy);
+}
+
 // ---------------------------------------------------------------------------
-// Accumulate glow for one snow layer.
-//   fi     : float(layer_index), 0.0 = closest … 4.0 = furthest
-//   aspect : u_resolution.x / u_resolution.y
+// Accumulate glow for one grid-based snow layer.
+//
+//   uv         : centred UV (origin at screen center, normalised by height)
+//   grid_scale : cells per screen height
+//   fall_speed : scroll rate (cells/second at u_speed_scale = 1.0)
+//   min_px     : minimum dot radius in pixels
+//   max_px     : maximum dot radius in pixels
+//   pal_t      : palette sample offset for this layer's hue
 // ---------------------------------------------------------------------------
 
-vec3 snowLayer(vec2 uv, float fi, float aspect) {
-    // Layer kinematics — compressed range, less mechanical lockstep.
-    float speed_base[5] = float[](0.144, 0.126, 0.108, 0.090, 0.072);
-    // Exponential size falloff for strong depth illusion; layer 4 sub-pixel → soft haze.
-    float size_px[5]    = float[](9.0, 5.5, 3.0, 1.6, 0.7);
-    // Far layers have sub-pixel dots; high dot counts add no visible detail.
-    int dot_count[5]    = int[](18, 16, 12, 8, 5);  // 59 total
+vec3 snowGridLayer(vec2 uv, float grid_scale, float fall_speed,
+                   float min_px, float max_px, float pal_t) {
+    // Scale UV to cell space and scroll the grid downward over time.
+    vec2 suv = uv * grid_scale;
+    suv.y += u_time * u_speed_scale * fall_speed;
 
-    int li      = int(fi);
-    float base  = speed_base[li];
-    float dot_r = size_px[li] / min(u_resolution.x, u_resolution.y);
+    vec2 cell_id   = floor(suv);
+    vec2 local_pos = fract(suv) - 0.5;   // [-0.5, +0.5] within current cell
 
-    // Layer-constant values hoisted out of the dot loop.
-    float inner = dot_r * (fi / 4.0) * 0.65;
+    vec3 dot_col = palette(pal_t);
+    vec3 acc = vec3(0.0);
 
-    // Per-layer hash seed so dot positions are independent across layers.
-    float seed = fi * 137.531;
+    for (int dx = -1; dx <= 1; dx++) {
+        for (int dy = -1; dy <= 1; dy++) {
+            vec2 neighbor_id = cell_id + vec2(float(dx), float(dy));
 
-    // One palette hue per layer — 5 evenly spaced samples.
-    vec3 dot_col = palette(fi / 5.0);
+            // Random dot offset within the neighbour cell: [-0.4, +0.4].
+            vec2 dot_offset = (hash22(neighbor_id) - 0.5) * 0.8;
 
-    vec3 col = vec3(0.0);
+            // Per-cell size variation — use a shifted seed for independence.
+            float t_size = hash21(neighbor_id + vec2(7.13, 3.71));
+            float dot_r  = mix(min_px, max_px, t_size) / u_resolution.y * grid_scale;
 
-    for (int j = 0; j < dot_count[li]; j++) {
-        float fj = float(j);
+            float dist = length(local_pos - vec2(float(dx), float(dy)) - dot_offset);
 
-        // Independent position hashes for each dot.
-        float hx         = hash11(seed + fj * 17.37 + 1.11);
-        float hy         = hash11(seed + fj * 53.19 + 2.22);
-        float hash_phase = hash11(seed + fj * 73.11 + 4.44);
+            float inner = dot_r * 0.4;
+            float glow  = smoothstep(dot_r, inner, dist);
+            glow *= glow;
 
-        // Per-dot speed jitter breaks mechanical lockstep within a layer.
-        float effective_speed = base + (hash_phase - 0.5) * 0.02;
-
-        // x: stationary, spread across the full screen width.
-        float dot_x = (hx - 0.5) * aspect;
-
-        // y: falls straight down; wraps from bottom back to top.
-        //    fract(hy + speed*t) grows over time → mapped to decreasing UV y.
-        float dot_y = 0.5 - fract(hy + effective_speed * u_time * u_speed_scale);
-
-        float dist = length(uv - vec2(dot_x, dot_y));
-
-        // Smoothstep glow. inner is hoisted above the loop.
-        float glow = smoothstep(dot_r, inner, dist);
-        glow *= glow;   // sharpen the falloff
-
-        // Pulse: far layers (li >= 3) use constant 1.0 — sub-pixel dots where
-        // the sin oscillation is imperceptible, so skip the sin/hash cost.
-        float pulse = 1.0;
-        if (li < 3) {
-            float phase = hash11(seed + fj * 91.73 + 3.33) * 6.28318;
-            pulse = 0.75 + 0.25 * sin(u_time * u_speed_scale * 0.8 + phase);
+            acc += dot_col * glow;
         }
-
-        col += dot_col * glow * pulse;
     }
 
-    return col;
+    return acc;
 }
 
 // ---------------------------------------------------------------------------
 
 void main() {
-    float aspect = u_resolution.x / u_resolution.y;
-    vec2  uv     = (gl_FragCoord.xy - 0.5 * u_resolution.xy) / u_resolution.y;
+    vec2 uv = (gl_FragCoord.xy - 0.5 * u_resolution.xy) / u_resolution.y;
 
     // Background color.
     // Detect monochrome palette: sample LUT endpoints; if they're nearly the
@@ -120,12 +110,18 @@ void main() {
         bg = palette(bg_t) * 0.18;   // dark but not black — enough to contrast snow
     }
 
-    // Composite: start with background, additively blend all 5 snow layers.
-    // Render back-to-front (layer 4 first) so near layers appear on top.
+    // Composite: start with background, additively blend all 3 snow layers.
+    // Render back-to-front (layer 2 / far first) so near flakes composite on top.
     vec3 col = bg;
-    for (int i = 4; i >= 0; i--) {
-        col += snowLayer(uv, float(i), aspect);
-    }
+
+    // Layer 2 — far: dense fine haze
+    col += snowGridLayer(uv, 16.0, 0.06,  0.8,  1.8, 0.7);
+
+    // Layer 1 — mid: medium fill
+    col += snowGridLayer(uv, 10.0, 0.10,  3.0,  5.0, 0.35);
+
+    // Layer 0 — near: large foreground flakes
+    col += snowGridLayer(uv,  6.0, 0.14,  7.0,  9.0, 0.0);
 
     fragColor = vec4(col, 1.0);
 }
