@@ -7,7 +7,8 @@ precision highp float;
 // Tesla coil / electric arc screensaver.
 // One fixed center electrode at (0.0, 0.0) and three triangle electrodes
 // that orbit it as a rigid body: base positions (-0.45,-0.27), (0.45,-0.27),
-// (0.0,0.45), rotated slowly by u_time * 0.15 * u_speed_scale.
+// (0.0,0.45), scaled at runtime to fit within the screen, then rotated slowly
+// by u_time * 0.15 * u_speed_scale.
 // Between each pair a fractal-lightning arc is rendered using 4-octave jagged
 // (C0-continuous) noise displacement. Arcs restrike every 0.1 s — the seed
 // is floor(t * 10.0) — so they flicker like real tesla coils. Each triangle
@@ -127,9 +128,23 @@ void main() {
     mat2 rot = mat2(cos(orbit_angle), -sin(orbit_angle),
                     sin(orbit_angle),  cos(orbit_angle));
 
-    vec2 e0 = rot * vec2(-0.45, -0.27);
-    vec2 e1 = rot * vec2( 0.45, -0.27);
-    vec2 e2 = rot * vec2( 0.0,   0.45);
+    // Constrain orbit so the nodes never clip off the screen edge.
+    // UV space: height spans -0.5..0.5; width spans -(aspect/2)..(aspect/2).
+    // The triangle's circumradius is length(vec2(0.45,0.27)) ≈ 0.5248, which
+    // exceeds the half-height (0.5) and clips when any node rotates upward.
+    float half_width  = (u_resolution.x / u_resolution.y) * 0.5;
+    float half_height = 0.5;
+    float padding          = 0.05;  // gap from screen edge (UV units)
+    float node_visual_rad  = 0.03;  // visual radius of each electrode disc
+    float max_orbit_radius = min(half_width, half_height) - padding - node_visual_rad;
+
+    // Scale the triangle uniformly so its farthest vertex sits at max_orbit_radius.
+    float base_max_dist = length(vec2(0.45, 0.27));  // circumradius of base triangle
+    float orbit_scale   = min(1.0, max_orbit_radius / base_max_dist);
+
+    vec2 e0 = rot * vec2(-0.45, -0.27) * orbit_scale;
+    vec2 e1 = rot * vec2( 0.45, -0.27) * orbit_scale;
+    vec2 e2 = rot * vec2( 0.0,   0.45) * orbit_scale;
 
     // Pixel-size metrics (resolution-independent).
     float px     = 1.0 / u_resolution.y;
