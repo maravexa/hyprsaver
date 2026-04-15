@@ -13,7 +13,7 @@ precision highp float;
 // Layer parameters (0 = near … 2 = far):
 //   grid_scale : 6.0 / 10.0 / 16.0   (cells per screen height)
 //   radius_px  : 7–9 / 3–5 / 0.8–1.8 (randomised per cell)
-//   fall_speed : 0.14 / 0.10 / 0.06
+//   fall_speed : 0.21 / 0.16 / 0.12
 // ---------------------------------------------------------------------------
 
 uniform float u_time;
@@ -115,13 +115,13 @@ void main() {
     vec3 col = bg;
 
     // Layer 2 — far: dense fine haze
-    col += snowGridLayer(uv, 16.0, 0.06,  0.8,  1.8, 0.7);
+    col += snowGridLayer(uv, 16.0, 0.12,  0.8,  1.8, 0.7);
 
     // Layer 1 — mid: medium fill
-    col += snowGridLayer(uv, 10.0, 0.10,  3.0,  5.0, 0.35);
+    col += snowGridLayer(uv, 10.0, 0.16,  3.0,  5.0, 0.35);
 
     // Layer 0 — near: large foreground flakes
-    col += snowGridLayer(uv,  6.0, 0.14,  7.0,  9.0, 0.0);
+    col += snowGridLayer(uv,  6.0, 0.21,  7.0,  9.0, 0.0);
 
     fragColor = vec4(col, 1.0);
 }
