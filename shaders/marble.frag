@@ -62,13 +62,24 @@ float snoise(vec2 v) {
 }
 
 // ---------------------------------------------------------------------------
-// Curl noise: numerical gradient of snoise rotated 90° → divergence-free
+// Curl noise: numerical gradient of snoise rotated 90° → divergence-free.
+// Returns .xy = curl velocity, .z = approximate center noise value
+// (average of the 4 finite-difference samples ≈ snoise(p) to O(eps²)).
 // ---------------------------------------------------------------------------
-vec2 curlNoise(vec2 p) {
+vec3 curlNoiseWithCenter(vec2 p) {
     const float eps = 0.0015;
-    float dX = (snoise(p + vec2(0.0,  eps)) - snoise(p - vec2(0.0,  eps))) / (2.0 * eps);
-    float dY = (snoise(p + vec2(eps,  0.0)) - snoise(p - vec2(eps,  0.0))) / (2.0 * eps);
-    return vec2(dX, -dY);   // 90° rotation of the gradient
+    float ny_pos = snoise(p + vec2(0.0, eps));
+    float ny_neg = snoise(p - vec2(0.0, eps));
+    float nx_pos = snoise(p + vec2(eps, 0.0));
+    float nx_neg = snoise(p - vec2(eps, 0.0));
+
+    float dX = (ny_pos - ny_neg) / (2.0 * eps);
+    float dY = (nx_pos - nx_neg) / (2.0 * eps);
+
+    // Average of 4 offset samples ≈ snoise(p) to O(eps²) accuracy
+    float center = (ny_pos + ny_neg + nx_pos + nx_neg) * 0.25;
+
+    return vec3(dX, -dY, center);
 }
 
 // ---------------------------------------------------------------------------
@@ -82,20 +93,21 @@ void main() {
     // Near-black background so glow lines read clearly.
     vec3 col = vec3(0.03);
 
-    const int   STEPS = 8;
-    const float DT    = 0.10;
+    const int   STEPS = 6;
+    const float DT    = 0.12;
 
     for (int i = 0; i < STEPS; i++) {
         float t = float(i) / float(STEPS);
 
         // Noise coordinate: scale, then animate phase at 0.03 speed.
-        vec2 np  = pos * 1.5 + vec2(u_time * u_speed_scale * 0.03, 0.0);
-        vec2 vel = curlNoise(np);
+        vec2 np  = pos * 1.0 + vec2(u_time * u_speed_scale * 0.03, 0.0);
+        vec3 cnc = curlNoiseWithCenter(np);
+        vec2 vel = cnc.xy;
+        float n  = cnc.z;
 
-        // Glow contribution: bright near zero-crossings of a secondary noise
-        // layer, which align with the streamlines of the curl field.
-        float n    = snoise(np * 2.0);
-        float glow = exp(-n * n * 8.0) * 0.30;
+        // Glow: bright near zero-crossings. smoothstep approximates
+        // exp(-n*n*8) at a fraction of the cost.
+        float glow = smoothstep(0.35, 0.0, abs(n)) * 0.30;
 
         col += palette(t) * glow;
 
