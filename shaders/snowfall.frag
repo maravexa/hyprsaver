@@ -14,7 +14,7 @@ precision highp float;
 // Layer parameters (i = 0 nearest … 4 furthest):
 //   speed   = float[](0.144, 0.126, 0.108, 0.090, 0.072) + jitter
 //   size_px = float[](9.0, 5.5, 3.0, 1.6, 0.7)  (exponential depth falloff)
-//   density = int[](20, 20, 15, 12, 8)  (75 total across 5 layers)
+//   density = int[](18, 16, 12, 8, 5)  (59 total across 5 layers)
 // ---------------------------------------------------------------------------
 
 uniform float u_time;
@@ -45,7 +45,7 @@ vec3 snowLayer(vec2 uv, float fi, float aspect) {
     // Exponential size falloff for strong depth illusion; layer 4 sub-pixel → soft haze.
     float size_px[5]    = float[](9.0, 5.5, 3.0, 1.6, 0.7);
     // Far layers have sub-pixel dots; high dot counts add no visible detail.
-    int dot_count[5]    = int[](20, 20, 15, 12, 8);
+    int dot_count[5]    = int[](18, 16, 12, 8, 5);  // 59 total
 
     int li      = int(fi);
     float base  = speed_base[li];
@@ -53,7 +53,6 @@ vec3 snowLayer(vec2 uv, float fi, float aspect) {
 
     // Layer-constant values hoisted out of the dot loop.
     float inner = dot_r * (fi / 4.0) * 0.65;
-    float r2    = dot_r * dot_r;
 
     // Per-layer hash seed so dot positions are independent across layers.
     float seed = fi * 137.531;
@@ -81,12 +80,7 @@ vec3 snowLayer(vec2 uv, float fi, float aspect) {
         //    fract(hy + speed*t) grows over time → mapped to decreasing UV y.
         float dot_y = 0.5 - fract(hy + effective_speed * u_time * u_speed_scale);
 
-        // Early bail: skip all glow math when pixel is outside the dot radius.
-        // Uses squared distance to avoid sqrt on the skip path.
-        vec2  delta = uv - vec2(dot_x, dot_y);
-        float dist2 = dot(delta, delta);
-        if (dist2 > r2) continue;
-        float dist = sqrt(dist2);
+        float dist = length(uv - vec2(dot_x, dot_y));
 
         // Smoothstep glow. inner is hoisted above the loop.
         float glow = smoothstep(dot_r, inner, dist);
