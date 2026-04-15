@@ -92,9 +92,6 @@ pub const BUILTIN_CLOUDS: &str = include_str!("../shaders/clouds.frag");
 /// (sharp bright lower edge, long soft glow tail upward). Pure trig + exp, no fBm.
 pub const BUILTIN_AURORA: &str = include_str!("../shaders/aurora.frag");
 
-/// Polar tunnel with a wobbling mouth — singularity-free 2D polar mapping.
-pub const BUILTIN_VORTEX: &str = include_str!("../shaders/vortex.frag");
-
 // ---------------------------------------------------------------------------
 // Vertex shader for the fullscreen quad (triangle-strip, no VBO needed)
 // ---------------------------------------------------------------------------
@@ -269,7 +266,6 @@ impl ShaderManager {
             ("tesla", BUILTIN_TESLA),
             ("tunnel", BUILTIN_TUNNEL),
             ("voronoi", BUILTIN_VORONOI),
-            ("vortex", BUILTIN_VORTEX),
         ];
         for (name, raw_const) in builtins {
             let raw = raw_const
@@ -813,7 +809,7 @@ mod tests {
 
     #[test]
     fn test_builtin_shader_count() {
-        assert_eq!(manager().list().len(), 25);
+        assert_eq!(manager().list().len(), 24);
     }
 
     #[test]
@@ -845,7 +841,6 @@ mod tests {
             "tesla",
             "tunnel",
             "voronoi",
-            "vortex",
         ] {
             assert!(
                 names.contains(expected),
