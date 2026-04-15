@@ -5,6 +5,49 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.2] - 2026-04-15
+
+### Added
+
+- **Shader: aurora** — Full rewrite using domain-warped FBM with striation ridges.
+  Overhead sky view with organic aperiodic curtain movement, asymmetric exponential
+  falloff (sharp lower edge, soft upward glow), and fine internal filament shimmer.
+  Diagonal movement with aggressive wiggle.
+- **Shader: flames** — New fire shader replacing Fire. Single-layer fBm with domain
+  warping and turbulence noise. Fractal 3-octave height boundary for chaotic flame
+  tips. Ember glow floor at base.
+- **Default playlists** added to example config: Elements, Math, Nature,
+  Psychedelic, Tech.
+- **Preview UI**: shader screenshot thumbnails in Playlists tab shader dropdown
+  (matching Preview tab); compact gradient preview rectangles in all palette
+  dropdowns; dropdown items selectable by clicking anywhere on the row.
+- **Preview UI**: Playlists sub-tab menu uses larger centered text spanning full
+  width; playlist delete button moved above item list for stable positioning during
+  bulk deletion.
+
+### Changed
+
+- Default preview shader changed from Mandelbrot to Oscilloscope.
+- Config defaults updated: `shader_cycle_interval = 120`,
+  `palette_cycle_interval = 20`, `palette_transition_duration = 2.0`.
+- Preview dropdown layout: thumbnails/gradients right-aligned, text left-aligned.
+
+### Fixed
+
+- **Preview UI**: scroll wheel not working in dropdown menus.
+- **Preview UI**: dropdown scrollbar anchored to far right edge instead of
+  floating alongside the list.
+- **Oscilloscope**: sine wave precision degradation after extended runtime (hours)
+  — time value now wraps to prevent float overflow in noise functions.
+- **Tesla**: orbiting nodes clipping off screen edges — orbit radius now
+  constrained to screen bounds with padding.
+
+### Removed
+
+- **Shader: fire** — superseded by Flames.
+- **Shader: vortex** — experimental shader removed.
+- **Shader: wormhole** — removed pending future rewrite (deferred to v0.5.0).
+
 ## [0.4.1] - 2026-04-13
 
 ### Added
@@ -140,6 +183,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Zero-config mode with sensible built-in defaults
 - hypridle integration via `on-timeout` / `on-resume`
 
+[0.4.2]: https://github.com/maravexa/hyprsaver/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/maravexa/hyprsaver/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/maravexa/hyprsaver/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/maravexa/hyprsaver/compare/v0.2.0...v0.3.0
