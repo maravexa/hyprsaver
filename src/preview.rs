@@ -1293,7 +1293,7 @@ pub fn run(
     let output_state = OutputState::new(&globals, &qh);
     let registry_state = RegistryState::new(&globals);
 
-    // Resolve shader name (CLI override → config → "mandelbrot" fallback).
+    // Resolve shader name (CLI override → config → "oscilloscope" fallback).
     let active_shader = resolve_shader(&config, &shader_manager, shader_override);
     let active_palette = resolve_palette(&config, &palette_manager);
 
@@ -1529,16 +1529,16 @@ fn resolve_shader(
                     );
                     return "planet".to_string();
                 }
-                log::warn!("preview: unknown shader '{n}', falling back to mandelbrot");
+                log::warn!("preview: unknown shader '{n}', falling back to oscilloscope");
                 shader_manager
-                    .get("mandelbrot")
-                    .map(|_| "mandelbrot".to_string())
+                    .get("oscilloscope")
+                    .map(|_| "oscilloscope".to_string())
                     .unwrap_or_else(|| {
                         shader_manager
                             .list()
                             .first()
                             .map(|s| s.to_string())
-                            .unwrap_or_else(|| "mandelbrot".to_string())
+                            .unwrap_or_else(|| "oscilloscope".to_string())
                     })
             }
         }
@@ -1959,6 +1959,55 @@ impl PointerHandler for PreviewState {
                 PointerEventKind::Leave { .. } => {
                     self.egui_events.push(egui::Event::PointerGone);
                 }
+                PointerEventKind::Axis {
+                    horizontal,
+                    vertical,
+                    ..
+                } => {
+                    // Forward scroll events to egui regardless of cursor position
+                    // so that dropdowns and scroll areas inside the panel respond
+                    // to the mouse wheel.
+                    //
+                    // egui convention: positive delta = content moves in that direction
+                    // (positive Y = content moves down). Wayland sends positive axis
+                    // values for "scroll down" (content should move up), so we negate.
+                    //
+                    // Prefer discrete steps (line units); fall back to the continuous
+                    // absolute pixel value when discrete is unavailable (e.g. touchpad).
+                    let (dx, x_unit) = if !horizontal.is_none() {
+                        if horizontal.discrete != 0 {
+                            (-(horizontal.discrete as f32), egui::MouseWheelUnit::Line)
+                        } else {
+                            (-(horizontal.absolute as f32), egui::MouseWheelUnit::Point)
+                        }
+                    } else {
+                        (0.0, egui::MouseWheelUnit::Point)
+                    };
+                    let (dy, y_unit) = if !vertical.is_none() {
+                        if vertical.discrete != 0 {
+                            (-(vertical.discrete as f32), egui::MouseWheelUnit::Line)
+                        } else {
+                            (-(vertical.absolute as f32), egui::MouseWheelUnit::Point)
+                        }
+                    } else {
+                        (0.0, egui::MouseWheelUnit::Point)
+                    };
+                    if dx != 0.0 || dy != 0.0 {
+                        // Pick the most informative unit (Line > Point).
+                        let unit = if x_unit == egui::MouseWheelUnit::Line
+                            || y_unit == egui::MouseWheelUnit::Line
+                        {
+                            egui::MouseWheelUnit::Line
+                        } else {
+                            egui::MouseWheelUnit::Point
+                        };
+                        self.egui_events.push(egui::Event::MouseWheel {
+                            unit,
+                            delta: egui::vec2(dx, dy),
+                            modifiers: egui::Modifiers::default(),
+                        });
+                    }
+                }
                 _ => {}
             }
         }
@@ -2120,6 +2169,32 @@ fn draw_palette_swatch(ui: &mut egui::Ui, colors: Option<&Vec<egui::Color32>>) {
     }
 }
 
+/// Paint a gradient swatch into an already-allocated `rect` using a `Painter`.
+///
+/// Used by full-row dropdown items where space is pre-allocated with
+/// `allocate_exact_size` so the swatch does not need to allocate its own rect.
+fn draw_palette_swatch_in_rect(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    colors: Option<&Vec<egui::Color32>>,
+) {
+    let Some(colors) = colors else { return };
+    if colors.is_empty() {
+        return;
+    }
+    let n = colors.len() as f32;
+    let step_w = rect.width() / n;
+    for (i, &color) in colors.iter().enumerate() {
+        let x0 = rect.left() + i as f32 * step_w;
+        let x1 = x0 + step_w + 0.5;
+        painter.rect_filled(
+            egui::Rect::from_min_max(egui::pos2(x0, rect.top()), egui::pos2(x1, rect.bottom())),
+            0.0,
+            color,
+        );
+    }
+}
+
 /// Contents of the "Preview" tab — organized with collapsible sections.
 fn draw_preview_tab(
     ui: &mut egui::Ui,
@@ -2150,31 +2225,59 @@ fn draw_preview_tab(
                                 .show(ui, |ui| {
                                     ui.set_min_width(combo_w);
                                     for name in shader_list {
-                                        ui.horizontal(|ui| {
-                                            // Text label — left aligned
-                                            if ui
-                                                .selectable_label(
-                                                    state.selected_shader == *name,
-                                                    name,
-                                                )
-                                                .clicked()
-                                            {
-                                                state.selected_shader = name.clone();
-                                            }
-                                            // Thumbnail — pushed to right edge
-                                            if let Some(tex) = thumbnail_textures.get(name.as_str())
-                                            {
-                                                let remaining = ui.available_width();
-                                                let img_size = 32.0;
-                                                if remaining > img_size {
-                                                    ui.add_space(remaining - img_size);
-                                                }
-                                                ui.image(egui::load::SizedTexture::new(
-                                                    tex.id(),
-                                                    egui::Vec2::new(img_size, img_size),
-                                                ));
-                                            }
-                                        });
+                                        let row_h = 34.0;
+                                        let is_selected = state.selected_shader == *name;
+                                        let (rect, response) = ui.allocate_exact_size(
+                                            egui::vec2(ui.available_width(), row_h),
+                                            egui::Sense::click(),
+                                        );
+                                        // Background highlight
+                                        let bg = if is_selected {
+                                            ui.visuals().selection.bg_fill
+                                        } else if response.hovered() {
+                                            ui.visuals().widgets.hovered.weak_bg_fill
+                                        } else {
+                                            egui::Color32::TRANSPARENT
+                                        };
+                                        if bg != egui::Color32::TRANSPARENT {
+                                            ui.painter().rect_filled(rect, 2.0, bg);
+                                        }
+                                        // Text label — left aligned
+                                        let text_color = if is_selected {
+                                            ui.visuals().selection.stroke.color
+                                        } else {
+                                            ui.visuals().text_color()
+                                        };
+                                        ui.painter().text(
+                                            rect.left_center() + egui::vec2(6.0, 0.0),
+                                            egui::Align2::LEFT_CENTER,
+                                            name,
+                                            egui::TextStyle::Body.resolve(ui.style()),
+                                            text_color,
+                                        );
+                                        // Thumbnail — right edge
+                                        if let Some(tex) = thumbnail_textures.get(name.as_str()) {
+                                            let img_size = 28.0;
+                                            let img_rect = egui::Rect::from_min_size(
+                                                egui::pos2(
+                                                    rect.right() - img_size - 4.0,
+                                                    rect.center().y - img_size / 2.0,
+                                                ),
+                                                egui::vec2(img_size, img_size),
+                                            );
+                                            ui.painter().image(
+                                                tex.id(),
+                                                img_rect,
+                                                egui::Rect::from_min_max(
+                                                    egui::pos2(0.0, 0.0),
+                                                    egui::pos2(1.0, 1.0),
+                                                ),
+                                                egui::Color32::WHITE,
+                                            );
+                                        }
+                                        if response.clicked() {
+                                            state.selected_shader = name.clone();
+                                        }
                                     }
                                 });
                         });
@@ -2226,28 +2329,53 @@ fn draw_preview_tab(
                                 .show(ui, |ui| {
                                     ui.set_min_width(combo_w);
                                     for name in palette_list {
-                                        ui.horizontal(|ui| {
-                                            // Text label — left aligned
-                                            if ui
-                                                .selectable_label(
-                                                    state.selected_palette == *name,
-                                                    name,
-                                                )
-                                                .clicked()
-                                            {
-                                                state.selected_palette = name.clone();
-                                            }
-                                            // Gradient swatch — pushed to right edge
-                                            let swatch_w = 50.0;
-                                            let remaining = ui.available_width();
-                                            if remaining > swatch_w {
-                                                ui.add_space(remaining - swatch_w);
-                                            }
-                                            draw_palette_swatch(
-                                                ui,
-                                                palette_gradients.get(name.as_str()),
-                                            );
-                                        });
+                                        let row_h = 24.0;
+                                        let is_selected = state.selected_palette == *name;
+                                        let (rect, response) = ui.allocate_exact_size(
+                                            egui::vec2(ui.available_width(), row_h),
+                                            egui::Sense::click(),
+                                        );
+                                        // Background highlight
+                                        let bg = if is_selected {
+                                            ui.visuals().selection.bg_fill
+                                        } else if response.hovered() {
+                                            ui.visuals().widgets.hovered.weak_bg_fill
+                                        } else {
+                                            egui::Color32::TRANSPARENT
+                                        };
+                                        if bg != egui::Color32::TRANSPARENT {
+                                            ui.painter().rect_filled(rect, 2.0, bg);
+                                        }
+                                        // Text label — left aligned
+                                        let text_color = if is_selected {
+                                            ui.visuals().selection.stroke.color
+                                        } else {
+                                            ui.visuals().text_color()
+                                        };
+                                        ui.painter().text(
+                                            rect.left_center() + egui::vec2(6.0, 0.0),
+                                            egui::Align2::LEFT_CENTER,
+                                            name,
+                                            egui::TextStyle::Body.resolve(ui.style()),
+                                            text_color,
+                                        );
+                                        // Gradient swatch — right edge
+                                        let swatch_w = 50.0;
+                                        let swatch_rect = egui::Rect::from_min_size(
+                                            egui::pos2(
+                                                rect.right() - swatch_w - 4.0,
+                                                rect.top() + 2.0,
+                                            ),
+                                            egui::vec2(swatch_w, row_h - 4.0),
+                                        );
+                                        draw_palette_swatch_in_rect(
+                                            ui.painter(),
+                                            swatch_rect,
+                                            palette_gradients.get(name.as_str()),
+                                        );
+                                        if response.clicked() {
+                                            state.selected_palette = name.clone();
+                                        }
                                     }
                                 });
                         });
@@ -2378,28 +2506,46 @@ fn draw_playlists_tab(
     let avail_w = ui.available_width();
 
     // ── Sub-tab bar ──────────────────────────────────────────────────
-    // Visually distinct from the main tab bar: uses SelectableLabel with
-    // small text instead of full button widgets.
+    // Two equal-width buttons spanning the full panel width with larger,
+    // centred text so the sub-tabs read as a proper tab bar.
     {
         let ed = &mut state.playlist_editor;
         ui.horizontal(|ui| {
-            if ui
-                .add(egui::SelectableLabel::new(
-                    ed.active_subtab == PlaylistSubTab::Shaders,
-                    egui::RichText::new("Shaders").small(),
-                ))
-                .clicked()
-            {
+            let tab_w = ui.available_width() / 2.0;
+            let tab_h = 30.0;
+
+            let shaders_active = ed.active_subtab == PlaylistSubTab::Shaders;
+            let palettes_active = ed.active_subtab == PlaylistSubTab::Palettes;
+
+            let r = ui
+                .allocate_ui_with_layout(
+                    egui::vec2(tab_w, tab_h),
+                    egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
+                    |ui| {
+                        ui.add(egui::SelectableLabel::new(
+                            shaders_active,
+                            egui::RichText::new("Shaders").size(16.0),
+                        ))
+                    },
+                )
+                .inner;
+            if r.clicked() {
                 ed.active_subtab = PlaylistSubTab::Shaders;
             }
-            ui.separator();
-            if ui
-                .add(egui::SelectableLabel::new(
-                    ed.active_subtab == PlaylistSubTab::Palettes,
-                    egui::RichText::new("Palettes").small(),
-                ))
-                .clicked()
-            {
+
+            let r = ui
+                .allocate_ui_with_layout(
+                    egui::vec2(tab_w, tab_h),
+                    egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
+                    |ui| {
+                        ui.add(egui::SelectableLabel::new(
+                            palettes_active,
+                            egui::RichText::new("Palettes").size(16.0),
+                        ))
+                    },
+                )
+                .inner;
+            if r.clicked() {
                 ed.active_subtab = PlaylistSubTab::Palettes;
             }
         });
@@ -2450,32 +2596,57 @@ fn draw_playlists_tab(
                                     .show(ui, |ui| {
                                         ui.set_min_width(combo_w);
                                         for name in &available {
-                                            ui.horizontal(|ui| {
-                                                // Text label — left aligned
-                                                if ui
-                                                    .selectable_label(
-                                                        ed.add_shader_selected == *name,
-                                                        name,
-                                                    )
-                                                    .clicked()
-                                                {
-                                                    ed.add_shader_selected = name.clone();
-                                                }
-                                                // Thumbnail — pushed to right edge
-                                                if let Some(tex) =
-                                                    thumbnail_textures.get(name.as_str())
-                                                {
-                                                    let remaining = ui.available_width();
-                                                    let img_size = 32.0;
-                                                    if remaining > img_size {
-                                                        ui.add_space(remaining - img_size);
-                                                    }
-                                                    ui.image(egui::load::SizedTexture::new(
-                                                        tex.id(),
-                                                        egui::Vec2::new(img_size, img_size),
-                                                    ));
-                                                }
-                                            });
+                                            let row_h = 34.0;
+                                            let is_selected = ed.add_shader_selected == *name;
+                                            let (rect, response) = ui.allocate_exact_size(
+                                                egui::vec2(ui.available_width(), row_h),
+                                                egui::Sense::click(),
+                                            );
+                                            let bg = if is_selected {
+                                                ui.visuals().selection.bg_fill
+                                            } else if response.hovered() {
+                                                ui.visuals().widgets.hovered.weak_bg_fill
+                                            } else {
+                                                egui::Color32::TRANSPARENT
+                                            };
+                                            if bg != egui::Color32::TRANSPARENT {
+                                                ui.painter().rect_filled(rect, 2.0, bg);
+                                            }
+                                            let text_color = if is_selected {
+                                                ui.visuals().selection.stroke.color
+                                            } else {
+                                                ui.visuals().text_color()
+                                            };
+                                            ui.painter().text(
+                                                rect.left_center() + egui::vec2(6.0, 0.0),
+                                                egui::Align2::LEFT_CENTER,
+                                                name,
+                                                egui::TextStyle::Body.resolve(ui.style()),
+                                                text_color,
+                                            );
+                                            if let Some(tex) = thumbnail_textures.get(name.as_str())
+                                            {
+                                                let img_size = 28.0;
+                                                let img_rect = egui::Rect::from_min_size(
+                                                    egui::pos2(
+                                                        rect.right() - img_size - 4.0,
+                                                        rect.center().y - img_size / 2.0,
+                                                    ),
+                                                    egui::vec2(img_size, img_size),
+                                                );
+                                                ui.painter().image(
+                                                    tex.id(),
+                                                    img_rect,
+                                                    egui::Rect::from_min_max(
+                                                        egui::pos2(0.0, 0.0),
+                                                        egui::pos2(1.0, 1.0),
+                                                    ),
+                                                    egui::Color32::WHITE,
+                                                );
+                                            }
+                                            if response.clicked() {
+                                                ed.add_shader_selected = name.clone();
+                                            }
                                         }
                                     });
                             });
@@ -2569,28 +2740,50 @@ fn draw_playlists_tab(
                                     .show(ui, |ui| {
                                         ui.set_min_width(combo_w);
                                         for name in &available {
-                                            ui.horizontal(|ui| {
-                                                // Text label — left aligned
-                                                if ui
-                                                    .selectable_label(
-                                                        ed.add_palette_selected == *name,
-                                                        name,
-                                                    )
-                                                    .clicked()
-                                                {
-                                                    ed.add_palette_selected = name.clone();
-                                                }
-                                                // Gradient swatch — pushed to right edge
-                                                let swatch_w = 50.0;
-                                                let remaining = ui.available_width();
-                                                if remaining > swatch_w {
-                                                    ui.add_space(remaining - swatch_w);
-                                                }
-                                                draw_palette_swatch(
-                                                    ui,
-                                                    palette_gradients.get(name.as_str()),
-                                                );
-                                            });
+                                            let row_h = 24.0;
+                                            let is_selected = ed.add_palette_selected == *name;
+                                            let (rect, response) = ui.allocate_exact_size(
+                                                egui::vec2(ui.available_width(), row_h),
+                                                egui::Sense::click(),
+                                            );
+                                            let bg = if is_selected {
+                                                ui.visuals().selection.bg_fill
+                                            } else if response.hovered() {
+                                                ui.visuals().widgets.hovered.weak_bg_fill
+                                            } else {
+                                                egui::Color32::TRANSPARENT
+                                            };
+                                            if bg != egui::Color32::TRANSPARENT {
+                                                ui.painter().rect_filled(rect, 2.0, bg);
+                                            }
+                                            let text_color = if is_selected {
+                                                ui.visuals().selection.stroke.color
+                                            } else {
+                                                ui.visuals().text_color()
+                                            };
+                                            ui.painter().text(
+                                                rect.left_center() + egui::vec2(6.0, 0.0),
+                                                egui::Align2::LEFT_CENTER,
+                                                name,
+                                                egui::TextStyle::Body.resolve(ui.style()),
+                                                text_color,
+                                            );
+                                            let swatch_w = 50.0;
+                                            let swatch_rect = egui::Rect::from_min_size(
+                                                egui::pos2(
+                                                    rect.right() - swatch_w - 4.0,
+                                                    rect.top() + 2.0,
+                                                ),
+                                                egui::vec2(swatch_w, row_h - 4.0),
+                                            );
+                                            draw_palette_swatch_in_rect(
+                                                ui.painter(),
+                                                swatch_rect,
+                                                palette_gradients.get(name.as_str()),
+                                            );
+                                            if response.clicked() {
+                                                ed.add_palette_selected = name.clone();
+                                            }
                                         }
                                     });
                             });
