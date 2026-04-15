@@ -29,6 +29,8 @@ const int   LAYERS          = 3;
 const int   NODES_PER_LAYER = 7;
 const float CONN_THRESH     = 0.63;   // +40 % from 0.45 — more pairs connect, free
 const float CROSS_THRESH    = 0.56;   // +40 % from 0.40 — free
+const float CONN_THRESH2    = CONN_THRESH * CONN_THRESH;    // 0.3969 — avoid sqrt
+const float CROSS_THRESH2   = CROSS_THRESH * CROSS_THRESH;  // 0.3136 — avoid sqrt
 
 // ---------------------------------------------------------------------------
 // Hash — float -> float in [0, 1)
@@ -49,6 +51,15 @@ float segDist(vec2 p, vec2 a, vec2 b) {
     vec2 pa = p - a, ba = b - a;
     float h = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0);
     return length(pa - ba * h);
+}
+
+// Squared-distance variant — skip the sqrt so callers can bail on d² > w²
+// before paying the sqrt cost.
+float segDist2(vec2 p, vec2 a, vec2 b) {
+    vec2 pa = p - a, ba = b - a;
+    float h = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0);
+    vec2 dv = pa - ba * h;
+    return dot(dv, dv);
 }
 
 // ---------------------------------------------------------------------------
@@ -118,6 +129,7 @@ void main() {
         int   base = L * NODES_PER_LAYER;
 
         float lineW    = 0.009 + fL * 0.003;   // tripled from 0.003+L*0.001
+        float lw2      = lineW * lineW;        // squared width — bail before sqrt
         float baseAlph = 0.12 + fL * 0.03;
 
         // Same-layer connections — cap at 3 per node to bound O(n²) evaluations.
@@ -130,14 +142,25 @@ void main() {
             for (int b = a + 1; b < NODES_PER_LAYER; b++) {
                 if (conns >= 3) break;
                 vec2 pB = np[base + b];
-                if (length(pA - pB) > CONN_THRESH) continue;
+                vec2 ab = pA - pB;
+                if (dot(ab, ab) > CONN_THRESH2) continue;   // squared — no sqrt
                 conns++;
 
                 float connId0  = hash11(float(base + a) * 13.37 + float(base + b) * 7.13);
                 vec2 midOff    = vec2(hash11(connId0 * 8.11) - 0.5,
                                      hash11(connId0 * 8.99) - 0.5) * 0.03;
                 vec2 mid       = (pA + pB) * 0.5 + midOff;
-                float ld       = min(segDist(uv, pA, mid), segDist(uv, mid, pB));
+
+                // AABB cull — pixels outside the connection's bounding box skip
+                // the segDist/smoothstep/pulse work entirely.
+                vec2 bb_lo = min(min(pA, pB), mid) - vec2(lineW);
+                vec2 bb_hi = max(max(pA, pB), mid) + vec2(lineW);
+                if (uv.x < bb_lo.x || uv.x > bb_hi.x ||
+                    uv.y < bb_lo.y || uv.y > bb_hi.y) continue;
+
+                float ld2 = min(segDist2(uv, pA, mid), segDist2(uv, mid, pB));
+                if (ld2 > lw2) continue;            // bail before sqrt
+                float ld = sqrt(ld2);
                 float lg = 1.0 - smoothstep(0.0, lineW, ld);
                 if (lg < 0.001) continue;   // skip heavy work for off-line pixels
 
@@ -160,9 +183,12 @@ void main() {
         // Cross-layer connections (L -> L+1) — cap at 2 per node.
         // Also routed as 2-segment polylines for visual density.
         if (L < LAYERS - 1) {
-            int   baseN  = (L + 1) * NODES_PER_LAYER;
-            float crossA = baseAlph * 0.55;
-            float crossW = lineW * 0.70;
+            int   baseN        = (L + 1) * NODES_PER_LAYER;
+            float crossA       = baseAlph * 0.55;
+            // Depth taper: narrower toward back layer, wider toward front.
+            float crossW_back  = (0.009 + fL * 0.003) * 0.70;          // layer L width
+            float crossW_front = (0.009 + (fL + 1.0) * 0.003) * 0.70;  // layer L+1 width
+            float cw2_max      = crossW_front * crossW_front;          // wider of the two
 
             for (int a = 0; a < NODES_PER_LAYER; a++) {
                 vec2 pA         = np[base + a];
@@ -171,15 +197,28 @@ void main() {
                 for (int b = 0; b < NODES_PER_LAYER; b++) {
                     if (crossConns >= 2) break;
                     vec2 pB = np[baseN + b];
-                    if (length(pA - pB) > CROSS_THRESH) continue;
+                    vec2 ab = pA - pB;
+                    if (dot(ab, ab) > CROSS_THRESH2) continue;   // squared — no sqrt
                     crossConns++;
 
                     float connId    = hash11(float(base + a) * 23.37 + float(baseN + b) * 5.13);
                     vec2 midOff     = vec2(hash11(connId * 8.11) - 0.5,
                                           hash11(connId * 8.99) - 0.5) * 0.03;
                     vec2 mid        = (pA + pB) * 0.5 + midOff;
-                    float ld        = min(segDist(uv, pA, mid), segDist(uv, mid, pB));
-                    float lg = 1.0 - smoothstep(0.0, crossW, ld);
+
+                    // AABB cull with the wider (front) margin to avoid clipping
+                    // visible pixels on the front half of the polyline.
+                    vec2 bb_lo = min(min(pA, pB), mid) - vec2(crossW_front);
+                    vec2 bb_hi = max(max(pA, pB), mid) + vec2(crossW_front);
+                    if (uv.x < bb_lo.x || uv.x > bb_hi.x ||
+                        uv.y < bb_lo.y || uv.y > bb_hi.y) continue;
+
+                    float d2_back  = segDist2(uv, pA, mid);   // pA on layer L (back)
+                    float d2_front = segDist2(uv, mid, pB);   // pB on layer L+1 (front)
+                    if (min(d2_back, d2_front) > cw2_max) continue;  // bail before sqrt
+                    float g_back  = 1.0 - smoothstep(0.0, crossW_back,  sqrt(d2_back));
+                    float g_front = 1.0 - smoothstep(0.0, crossW_front, sqrt(d2_front));
+                    float lg = max(g_back, g_front);
                     if (lg < 0.001) continue;
 
                     float tA = hash11(float(base + a) * 7.77 + 0.5);
@@ -210,13 +249,16 @@ void main() {
         // Layer size multipliers: back=1×, mid=1.8×, front=3× — deepens parallax.
         float lscale = (L == 2) ? 3.00 : (L == 1) ? 1.80 : 1.00;
         float nodeR  = (2.5 + fL * 1.8) / minDim * lscale;
+        float r2     = nodeR * nodeR;
         float bright = 0.45 + fL * 0.18;
 
         for (int j = 0; j < NODES_PER_LAYER; j++) {
-            vec2  pos  = np[base + j];
-            float dist = length(uv - pos);
+            vec2  pos   = np[base + j];
+            vec2  dv    = uv - pos;
+            float dist2 = dot(dv, dv);
 
-            if (dist > nodeR) continue;
+            if (dist2 > r2) continue;
+            float dist = sqrt(dist2);
 
             float phase = hash11(float(base + j) * 91.73 + 3.33) * 6.28318;
             float pulse = 0.85 + 0.15 * sin(t * 1.2 + phase);
