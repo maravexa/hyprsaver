@@ -4,7 +4,7 @@ precision highp float;
 // ---------------------------------------------------------------------------
 // hyprsaver — starfield.frag
 //
-// Hyperspace zoom tunnel. 120 stars radiate outward from a central vanishing
+// Hyperspace zoom tunnel. 80 stars radiate outward from a central vanishing
 // point. Each star zooms from its seed position toward the screen edge.
 // Tails are radial line segments drawn from each star back toward screen
 // center — bright at the star head, fading to transparent at the tail end.
@@ -18,7 +18,7 @@ uniform vec2  u_mouse;
 uniform int   u_frame;
 
 const float ZOOM = 0.4;   // zoom-cycle frequency (cycles / second)
-const int   N    = 120;   // total star count
+const int   N    = 80;    // total star count
 
 // ---------------------------------------------------------------------------
 // Hash — float → float in [0, 1)
@@ -55,7 +55,7 @@ void main() {
         // Dead zone: skip stars seeded within 5% of screen height from center.
         // Stars this close to origin have a near-zero radial vector; normalizing it
         // produces an unstable tail direction that flickers or points the wrong way.
-        if (length(seed_xy) < 0.05) continue;
+        if (dot(seed_xy, seed_xy) < 0.0025) continue;
 
         // Progressive tail growth: d is the star's age (0.0 at spawn, ~1.0 at exit).
         // Tails grow from zero to full length over the first 30% of the star's
@@ -70,47 +70,52 @@ void main() {
         if (abs(p.x) > 1.6 || abs(p.y) > 1.6) continue;
 
         // Core radius: pinpoint at birth (d≈0, r≈0.001), swells as star flies outward (d→1, r≈0.015).
-        float core_r    = d * 0.014 + 0.001;
-        float core_dist = length(uv - p);
+        float core_r = d * 0.014 + 0.001;
 
-        // Star color from palette.
-        vec3 star_color = palette(hc);
-
-        // Star head: bright dot at current position.
-        float star_dot = 1.0 - smoothstep(core_r * 0.7, core_r, core_dist);
-
-        // Tail: radial line segment from star back toward screen center.
-        // Stars further from center are moving faster, so their tails are longer.
+        // Tail geometry (uniform: same for all pixels). Compute BEFORE the per-pixel
+        // AABB cull so we can form a tight bounding box around head + tail.
         float dist_from_center = length(p);
         float base_tail_length = 0.18;
-        float tail_length      = base_tail_length * dist_from_center * 2.0 * tail_scale;
+        float tail_length      = 0.0;
         float tail_wid         = core_r * 1.4;   // thin streak, slightly wider than the core
+        vec2  tail_end         = p;
+
+        if (dist_from_center > 0.002 && tail_scale > 0.0) {
+            tail_length = base_tail_length * dist_from_center * 2.0 * tail_scale;
+            tail_end    = p - (p / dist_from_center) * tail_length;
+        }
+
+        // Per-pixel AABB cull: skip expensive distance math when this pixel is
+        // clearly outside the head+tail bounding box. Within a GPU wavefront,
+        // adjacent pixels will agree on skipping far-away stars.
+        float margin = max(core_r, tail_wid);
+        vec2  bb_min = min(p, tail_end) - vec2(margin);
+        vec2  bb_max = max(p, tail_end) + vec2(margin);
+        if (uv.x < bb_min.x || uv.x > bb_max.x ||
+            uv.y < bb_min.y || uv.y > bb_max.y) continue;
+
+        // Star color from palette.
+        vec3  star_color = palette(hc);
+        float core_dist  = length(uv - p);
+        float star_dot   = 1.0 - smoothstep(core_r * 0.7, core_r, core_dist);
 
         float tail_intensity = 0.0;
 
-        if (dist_from_center > 0.002 && tail_length > 0.0) {
-            vec2 radial_dir = p / dist_from_center;     // unit vector: center → star (direction of travel)
-            vec2 tail_end   = p - radial_dir * tail_length;   // tail end lies toward center
-
-            // Line segment distance from uv to (p → tail_end).
-            vec2  seg     = tail_end - p;                 // vector: star → tail_end (points toward center)
+        if (tail_length > 0.0) {
+            vec2  seg     = tail_end - p;
             float seg_len = length(seg);
-            vec2  seg_dir = seg / seg_len;
+            vec2  seg_dir = seg / max(seg_len, 0.001);
 
             vec2  to_pixel = uv - p;
             float proj     = clamp(dot(to_pixel, seg_dir), 0.0, seg_len);
             float dist     = length(to_pixel - seg_dir * proj);
 
-            // Lateral falloff: thin streak perpendicular to tail axis.
             float lateral = 1.0 - smoothstep(0.0, tail_wid, dist);
-
-            // Longitudinal fade: full brightness at star head (proj=0), transparent at tail end.
-            float fade = 1.0 - (proj / seg_len);
+            float fade    = 1.0 - (proj / max(seg_len, 0.001));
 
             tail_intensity = lateral * fade * tail_scale;
         }
 
-        // Combine head dot and tail — take the brighter contribution per pixel.
         float final_intensity = max(star_dot, tail_intensity);
         col += star_color * final_intensity;
     }
