@@ -56,21 +56,21 @@ cargo build --release
 | voronoi       | Animated Voronoi cells                                   |
 | snowfall      | Five-layer parallax snowfall with palette dot glow       |
 | starfield     | Hyperspace zoom tunnel with motion-blur tracers          |
+| aurora        | Overhead aurora curtains — domain-warped FBM with striation ridges, asymmetric falloff (sharp lower, soft upper), filament shimmer, diagonal movement |
 | kaleidoscope  | 6-fold kaleidoscope driven by domain-warped FBM          |
 | marble        | Curl-noise flow field with 8-step particle tracing       |
 | donut         | Raymarched torus with Phong lighting                     |
+| flames        | Single-layer fBm with domain warping + turbulence noise; fractal 3-octave height boundary for chaotic tips; ember glow floor |
 | lissajous     | Three overlapping Lissajous curves with glow             |
 | geometry      | Wireframe polyhedron morphing (cube→icosahedron→...)     |
 | hypercube     | Rotating 4D tesseract projected to 2D, neon glow         |
 | network       | Neural network node graph with glowing connections       |
 | matrix        | Classic Matrix digital rain with procedural glyphs       |
-| fire          | Roiling procedural flames with ember particles           |
 | caustics      | Underwater caustic light patterns                        |
 | bezier        | Five animated Bézier curves with additive palette glow   |
 | planet        | Raymarched planet sphere with aurora borealis bands      |
 | tesla         | Tesla coil arcs — fractal-lightning between electrodes   |
 | terminal      | Scrolling build-log output with CRT scanlines and glow   |
-| wormhole      | Curving wormhole tunnel with ring-textured walls         |
 | oscilloscope  | Realistic CRT oscilloscope display with three animated waveform traces |
 | clouds        | Slowly drifting procedural fBm clouds over a tinted sky  |
 
@@ -132,11 +132,12 @@ Two additional uniforms are injected by `prepare_shader()` in `shaders.rs` for e
 - v0.3.0: 6 new shaders, cycle mode with playlists, shader descriptions, random start position. ✓ shipped
 - v0.4.0: `cycle.rs` extracted, `preview.rs` separated, config path migration to `~/.config/hypr/`. ✓ shipped
 - v0.4.1: 2 new shaders (oscilloscope, clouds), doc path updates, patch fixes. ✓ shipped
+- v0.4.2: Aurora rewrite, Flames shader, preview UI fixes, shader precision fixes, default playlists. ✓ shipped
 - v1.0.0: Stable config format, AUR/Nix packages, full Shadertoy uniform support, wgpu/Vulkan backend.
 
-## v0.4.1 Status
+## v0.4.2 Status
 
-All features through v0.4.1 implemented:
+All features through v0.4.2 implemented:
 
 **v0.3.0 (cycle/playlist):**
 - config.rs: `shader_cycle_interval`, `palette_cycle_interval`, `shader_playlist`, `palette_playlist` fields in `[general]`; `[shader_playlists.<name>]` and `[palette_playlists.<name>]` table sections.
@@ -153,3 +154,13 @@ All features through v0.4.1 implemented:
 **v0.4.1 (new shaders + docs):**
 - 2 new built-in shaders: oscilloscope, clouds (total 24).
 - Doc comment example paths updated to canonical `~/.config/hypr/hyprsaver/` layout.
+
+**v0.4.2 (shader refresh + preview UI + fixes):**
+- New shaders: aurora (domain-warped FBM rewrite with striation ridges), flames (fBm + domain warp + fractal height boundary).
+- Removed shaders: fire (superseded by flames), vortex (experimental), wormhole (deferred to v0.5.0 — curved tunnel singularity unresolved).
+- Preview UI: scroll wheel fixed in dropdowns; scrollbar float fixed; shader thumbnails in Playlists tab; palette gradient previews in all dropdowns; full-row click targets; right-aligned thumbnails; Playlists sub-tab full-width centered text; delete button moved above list.
+- Default preview shader changed from Mandelbrot to Oscilloscope.
+- Shader fixes: Oscilloscope time wrapping (prevents float precision loss after hours); Tesla orbit radius clamped to screen bounds.
+- Config defaults: `shader_cycle_interval = 120`, `palette_cycle_interval = 20`, `palette_transition_duration = 2.0`.
+- Example config: default playlists added (Elements, Math, Nature, Psychedelic, Tech).
+- **Note**: After editing built-in shader `.frag` files in `shaders/`, run `touch src/shaders.rs` (or `cargo clean`) to force recompile — `include_str!()` does not trigger recompilation on shader-only changes in all tool configurations.

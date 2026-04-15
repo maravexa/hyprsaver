@@ -73,7 +73,7 @@ cargo install hyprsaver
 
 ---
 
-## Features (v0.3.0)
+## Features
 
 - **Wayland-native** via wlr-layer-shell -- not a window, a proper overlay surface
 - **GPU-accelerated GLSL** fragment shaders via OpenGL ES (glow crate)
@@ -93,22 +93,22 @@ cargo install hyprsaver
   | `voronoi`       | Animated Voronoi cells                               |
   | `snowfall`      | Five-layer parallax snowfall with palette dot glow   |
   | `starfield`     | Hyperspace zoom tunnel with motion-blur tracers      |
+  | `aurora`        | Overhead aurora curtains — domain-warped FBM with striation ridges and filament shimmer |
   | `kaleidoscope`  | 6-fold kaleidoscope driven by domain-warped FBM      |
   | `marble`        | Curl-noise flow field with 8-step particle tracing   |
   | `donut`         | Raymarched torus with Phong lighting and fog         |
+  | `flames`        | fBm fire with domain warping, turbulence noise, and fractal flame-tip boundary |
   | `lissajous`     | Three overlapping Lissajous curves with glow         |
   | `geometry`      | Wireframe polyhedron morphing (cube→icosahedron→...) |
   | `hypercube`     | Rotating 4D tesseract projected to 2D, neon glow     |
   | `network`       | Neural network node graph with glowing connections   |
   | `matrix`        | Classic Matrix digital rain with procedural glyphs   |
-  | `fire`          | Roiling procedural flames with ember particles       |
   | `caustics`      | Underwater caustic light patterns                    |
   | `clouds`        | Slowly drifting procedural clouds (plain 5-octave fBm) |
   | `bezier`        | Five animated Bézier curves with additive palette glow |
   | `planet`        | Raymarched planet sphere with aurora borealis bands and noise-perturbed curtains |
   | `tesla`         | Tesla coil arcs — fractal-lightning between three electrodes with branching |
   | `terminal`      | Scrolling build-log output — block-glyph rows scroll upward with CRT scanlines and phosphor glow |
-  | `wormhole`      | Curving wormhole tunnel with ring-textured walls, depth fog, and interior point lights |
   | `oscilloscope`  | Realistic CRT oscilloscope — three animated waveform traces over a phosphor grid with scanlines and vignette |
 - **Built-in palette collection**: rainbow, autumn, vaporwave, frost, ember, ocean, monochrome, sunset, aurora, midnight
 - Configurable FPS and dismiss triggers
@@ -160,14 +160,14 @@ yay -S hyprsaver
 
 ```bash
 # Download the .deb from the latest release
-sudo dpkg -i hyprsaver_0.3.0_amd64.deb
+sudo dpkg -i hyprsaver_0.4.2_amd64.deb
 ```
 
 ### Fedora / RHEL / openSUSE
 
 ```bash
 # Download the .rpm from the latest release
-sudo rpm -i hyprsaver-0.3.0-1.x86_64.rpm
+sudo rpm -i hyprsaver-0.4.2-1.x86_64.rpm
 ```
 
 ### Nix / NixOS
@@ -288,8 +288,8 @@ fps = 30
 fps = 30                          # render frame rate
 shader = "cycle"                  # a shader name, "random", or "cycle" (default)
 palette = "cycle"                 # a palette name, "random", or "cycle" (default)
-shader_cycle_interval = 300       # seconds per shader when shader = "cycle"
-palette_cycle_interval = 60       # seconds per palette when palette = "cycle"
+shader_cycle_interval = 120       # seconds per shader when shader = "cycle"
+palette_cycle_interval = 20       # seconds per palette when palette = "cycle"
 cycle_order = "random"            # "random" (default) or "sequential"
 synced = true                     # sync monitors in cycle mode (default: true)
 shader_playlist = "default"       # playlist name for shader cycling
@@ -367,7 +367,7 @@ shaders = ["plasma", "marble", "bezier", "lissajous", "planet"]
 palettes = ["vaporwave", "frost", "ocean", "aurora"]
 
 [playlists.intense]
-shaders = ["mandelbrot", "julia", "tesla", "kaleidoscope", "fire"]
+shaders = ["mandelbrot", "julia", "tesla", "kaleidoscope", "flames"]
 palettes = ["rainbow", "ember", "groovy"]
 ```
 
@@ -676,20 +676,13 @@ graph TD
 
 ## Roadmap
 
-### Shipped in v0.3.0
+### Shipped in v0.4.2
 
-- 6 new built-in shaders: geometry, hypercube, network, matrix, fire, caustics
-- Cycle mode for shaders and palettes with configurable intervals (`shader_cycle_interval`, `palette_cycle_interval`)
-- Named playlists for shader and palette cycling (`[shader_playlists.*]`, `[palette_playlists.*]`)
-- CLI flags: `--shader-cycle-interval`, `--palette-cycle-interval`, `--list-shader-playlists`, `--list-palette-playlists`
-- Shader descriptions in `--list-shaders` output
-- Cycle mode starts at a random position; both monitors stay in sync during transitions
-
-### v0.4.0
-- Per-monitor shader/palette assignment
-- ~~Screencopy texture pipeline (sample the desktop as a shader input)~~
-- ~~Rain-on-glass shader with real blurred desktop background~~
-- Palette crossfade transitions on cycle
+- New shaders: Aurora (domain-warped FBM rewrite), Flames (fBm + domain warping)
+- Removed shaders: Fire (superseded), Vortex (experimental), Wormhole (deferred to v0.5.0)
+- Preview UI: scroll wheel fix, dropdown layout improvements, palette gradient previews
+- Shader fixes: Oscilloscope float precision, Tesla orbit clipping
+- Config: default playlists (Elements, Math, Nature, Psychedelic, Tech), updated timing defaults
 
 ### v0.5.0
 - Screencopy pipeline
