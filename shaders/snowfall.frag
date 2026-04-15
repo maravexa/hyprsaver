@@ -14,7 +14,7 @@ precision highp float;
 // Layer parameters (i = 0 nearest … 4 furthest):
 //   speed   = float[](0.144, 0.126, 0.108, 0.090, 0.072) + jitter
 //   size_px = float[](9.0, 5.5, 3.0, 1.6, 0.7)  (exponential depth falloff)
-//   density = 20 dots per layer      (100 total / 5 layers)
+//   density = int[](20, 20, 15, 12, 8)  (75 total across 5 layers)
 // ---------------------------------------------------------------------------
 
 uniform float u_time;
@@ -44,10 +44,16 @@ vec3 snowLayer(vec2 uv, float fi, float aspect) {
     float speed_base[5] = float[](0.144, 0.126, 0.108, 0.090, 0.072);
     // Exponential size falloff for strong depth illusion; layer 4 sub-pixel → soft haze.
     float size_px[5]    = float[](9.0, 5.5, 3.0, 1.6, 0.7);
+    // Far layers have sub-pixel dots; high dot counts add no visible detail.
+    int dot_count[5]    = int[](20, 20, 15, 12, 8);
 
     int li      = int(fi);
     float base  = speed_base[li];
     float dot_r = size_px[li] / min(u_resolution.x, u_resolution.y);
+
+    // Layer-constant values hoisted out of the dot loop.
+    float inner = dot_r * (fi / 4.0) * 0.65;
+    float r2    = dot_r * dot_r;
 
     // Per-layer hash seed so dot positions are independent across layers.
     float seed = fi * 137.531;
@@ -57,7 +63,7 @@ vec3 snowLayer(vec2 uv, float fi, float aspect) {
 
     vec3 col = vec3(0.0);
 
-    for (int j = 0; j < 20; j++) {
+    for (int j = 0; j < dot_count[li]; j++) {
         float fj = float(j);
 
         // Independent position hashes for each dot.
@@ -75,18 +81,24 @@ vec3 snowLayer(vec2 uv, float fi, float aspect) {
         //    fract(hy + speed*t) grows over time → mapped to decreasing UV y.
         float dot_y = 0.5 - fract(hy + effective_speed * u_time * u_speed_scale);
 
-        // Distance from current pixel to dot centre.
-        float dist = length(uv - vec2(dot_x, dot_y));
+        // Early bail: skip all glow math when pixel is outside the dot radius.
+        // Uses squared distance to avoid sqrt on the skip path.
+        vec2  delta = uv - vec2(dot_x, dot_y);
+        float dist2 = dot(delta, delta);
+        if (dist2 > r2) continue;
+        float dist = sqrt(dist2);
 
-        // Smoothstep glow. Inner edge is tighter for distant (small) dots,
-        // giving them a crisper point-like appearance; near dots get a wide halo.
-        float inner = dot_r * (fi / 4.0) * 0.65;
-        float glow  = smoothstep(dot_r, inner, dist);
+        // Smoothstep glow. inner is hoisted above the loop.
+        float glow = smoothstep(dot_r, inner, dist);
         glow *= glow;   // sharpen the falloff
 
-        // Subtle per-dot brightness pulse (hash-driven phase, slow oscillation).
-        float phase = hash11(seed + fj * 91.73 + 3.33) * 6.28318;
-        float pulse = 0.75 + 0.25 * sin(u_time * u_speed_scale * 0.8 + phase);
+        // Pulse: far layers (li >= 3) use constant 1.0 — sub-pixel dots where
+        // the sin oscillation is imperceptible, so skip the sin/hash cost.
+        float pulse = 1.0;
+        if (li < 3) {
+            float phase = hash11(seed + fj * 91.73 + 3.33) * 6.28318;
+            pulse = 0.75 + 0.25 * sin(u_time * u_speed_scale * 0.8 + phase);
+        }
 
         col += dot_col * glow * pulse;
     }
