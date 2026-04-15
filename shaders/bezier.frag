@@ -9,18 +9,20 @@ precision highp float;
 // independent frequencies in the 0.1 – 0.3 Hz range, producing organic,
 // flowing motion. Control points stay within [-1.2, 1.2] normalized space.
 //
-// Per-pixel minimum distance is computed by sampling 128 parametric points
-// along t ∈ [0, 1] for each curve. Hard-edged smoothstep lines replace the
-// original Gaussian glow, and a per-curve AABB test skips most curves for
-// most pixels.
+// Per-pixel minimum distance is computed via a two-pass coarse+fine search:
+// coarse pass (24 uniform samples) finds the closest region; fine pass
+// (8 samples over one coarse interval around best_t) refines it. Total: 32
+// evaluations per curve vs the previous 128-sample brute-force (−75%).
+// Hard-edged smoothstep lines replace the original Gaussian glow, and a
+// per-curve AABB test skips most curves for most pixels.
 //
 // Optimisations vs v0.3.0:
 //   • smoothstep hard edges instead of exp(-d²×400) Gaussian glow
 //   • Secondary bloom pass removed entirely
 //   • Per-curve AABB early rejection — skips most curves for most pixels
 //   • Curve count reduced 8 → 6 (25% fewer distance loop iterations)
-//   • Sample count reduced 256 → 128 (50% fewer samples per curve)
-//   • Net: 6×128 = 768 checks vs previous 8×256 = 2048 (−63%)
+//   • Two-pass coarse+fine distance search: 32 samples vs 256 (−87.5%)
+//   • Net: 6×32 = 192 checks vs original 8×256 = 2048 (−90.6%)
 //
 // Curve hue cycles slowly using palette(curve_index/6.0 + time×0.03) so
 // any palette produces a distinct multi-colour result. Background is (0.02).
@@ -44,15 +46,37 @@ vec2 cubic_bezier(vec2 p0, vec2 p1, vec2 p2, vec2 p3, float t) {
          + t*t*t * p3;
 }
 
-// Minimum distance from uv to the curve via 128-sample brute-force search.
+// Minimum distance from uv to the curve via two-pass coarse+fine search.
+// Coarse pass: 24 uniform samples locate the nearest region (best_t).
+// Fine pass: 8 samples within one coarse interval around best_t refine it.
+// Total: 32 evaluations per curve (vs previous 128-sample brute force, −75%).
 float bezier_dist(vec2 p0, vec2 p1, vec2 p2, vec2 p3, vec2 uv) {
     float min_d2 = 1.0e9;
-    for (int i = 0; i < 128; i++) {
-        float t  = float(i) / 127.0;
+    float best_t = 0.0;
+
+    // Coarse pass: 24 uniform samples
+    for (int i = 0; i < 24; i++) {
+        float t  = float(i) / 23.0;
+        vec2  pt = cubic_bezier(p0, p1, p2, p3, t);
+        vec2  dv = uv - pt;
+        float d2 = dot(dv, dv);
+        if (d2 < min_d2) {
+            min_d2 = d2;
+            best_t = t;
+        }
+    }
+
+    // Fine pass: 8 samples around best_t
+    float step = 1.0 / 23.0;  // one coarse interval
+    float t_lo = max(best_t - step, 0.0);
+    float t_hi = min(best_t + step, 1.0);
+    for (int i = 0; i < 8; i++) {
+        float t  = t_lo + float(i) / 7.0 * (t_hi - t_lo);
         vec2  pt = cubic_bezier(p0, p1, p2, p3, t);
         vec2  dv = uv - pt;
         min_d2 = min(min_d2, dot(dv, dv));
     }
+
     return sqrt(min_d2);
 }
 
