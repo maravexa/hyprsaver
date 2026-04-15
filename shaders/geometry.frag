@@ -22,7 +22,7 @@ precision highp float;
 //   7  Dodecahedron       — 20 vertices, 30 edges
 //
 // All vertex arrays are padded to 20 entries (cycling shorter lists).
-// All edge arrays are padded to 30 entries (ivec2(-1,-1) = sentinel, skipped).
+// All edge arrays are padded to 30 entries; EDGE_COUNT[shape] bounds the loop.
 //
 // u_speed_scale — animation speed multiplier (injected by prepare_shader)
 // u_zoom_scale  — apparent size multiplier   (injected by prepare_shader)
@@ -105,346 +105,253 @@ int selectShape(int seed) {
 }
 
 // ---------------------------------------------------------------------------
-// Shape vertex positions
+// Flat vertex table — 8 shapes × 20 vertices = 160 entries
 // ---------------------------------------------------------------------------
-// Returns the i-th (0..19) vertex of the given shape on the unit sphere.
-// Shapes with fewer than 20 unique vertices cycle their vertex list so the
-// array is always length 20.
+// Index as ALL_VERTS[shape * 20 + i].
+// Shapes with fewer than 20 unique vertices have their list cycled to fill 20.
+// Coordinates copied exactly from the per-shape arrays they replace.
 
-vec3 shapeVert(int shape, int i) {
+const vec3 ALL_VERTS[160] = vec3[160](
+    // ── shape 0: Cube — 8 unique, cycled to 20 ──────────────────────────────
+    vec3(-S, -S, -S), vec3( S, -S, -S), vec3( S,  S, -S), vec3(-S,  S, -S),
+    vec3(-S, -S,  S), vec3( S, -S,  S), vec3( S,  S,  S), vec3(-S,  S,  S),
+    vec3(-S, -S, -S), vec3( S, -S, -S), vec3( S,  S, -S), vec3(-S,  S, -S),
+    vec3(-S, -S,  S), vec3( S, -S,  S), vec3( S,  S,  S), vec3(-S,  S,  S),
+    vec3(-S, -S, -S), vec3( S, -S, -S), vec3( S,  S, -S), vec3(-S,  S, -S),
 
-    if (shape == 0) {
-        // ── Cube — 8 unique vertices, cycled to fill 20 ─────────────────
-        const vec3 v[20] = vec3[20](
-            vec3(-S, -S, -S), vec3( S, -S, -S), vec3( S,  S, -S), vec3(-S,  S, -S),
-            vec3(-S, -S,  S), vec3( S, -S,  S), vec3( S,  S,  S), vec3(-S,  S,  S),
-            vec3(-S, -S, -S), vec3( S, -S, -S), vec3( S,  S, -S), vec3(-S,  S, -S),
-            vec3(-S, -S,  S), vec3( S, -S,  S), vec3( S,  S,  S), vec3(-S,  S,  S),
-            vec3(-S, -S, -S), vec3( S, -S, -S), vec3( S,  S, -S), vec3(-S,  S, -S)
-        );
-        return v[i];
-    }
+    // ── shape 1: Octahedron — 6 axial vertices, cycled to 20 ────────────────
+    vec3( 1.0, 0.0, 0.0), vec3(-1.0, 0.0, 0.0),
+    vec3( 0.0, 1.0, 0.0), vec3( 0.0,-1.0, 0.0),
+    vec3( 0.0, 0.0, 1.0), vec3( 0.0, 0.0,-1.0),
+    vec3( 1.0, 0.0, 0.0), vec3(-1.0, 0.0, 0.0),
+    vec3( 0.0, 1.0, 0.0), vec3( 0.0,-1.0, 0.0),
+    vec3( 0.0, 0.0, 1.0), vec3( 0.0, 0.0,-1.0),
+    vec3( 1.0, 0.0, 0.0), vec3(-1.0, 0.0, 0.0),
+    vec3( 0.0, 1.0, 0.0), vec3( 0.0,-1.0, 0.0),
+    vec3( 0.0, 0.0, 1.0), vec3( 0.0, 0.0,-1.0),
+    vec3( 1.0, 0.0, 0.0), vec3(-1.0, 0.0, 0.0),
 
-    if (shape == 1) {
-        // ── Octahedron — 6 axial vertices, cycled to fill 20 ────────────
-        const vec3 v[20] = vec3[20](
-            vec3( 1.0, 0.0, 0.0), vec3(-1.0, 0.0, 0.0),
-            vec3( 0.0, 1.0, 0.0), vec3( 0.0,-1.0, 0.0),
-            vec3( 0.0, 0.0, 1.0), vec3( 0.0, 0.0,-1.0),
-            vec3( 1.0, 0.0, 0.0), vec3(-1.0, 0.0, 0.0),
-            vec3( 0.0, 1.0, 0.0), vec3( 0.0,-1.0, 0.0),
-            vec3( 0.0, 0.0, 1.0), vec3( 0.0, 0.0,-1.0),
-            vec3( 1.0, 0.0, 0.0), vec3(-1.0, 0.0, 0.0),
-            vec3( 0.0, 1.0, 0.0), vec3( 0.0,-1.0, 0.0),
-            vec3( 0.0, 0.0, 1.0), vec3( 0.0, 0.0,-1.0),
-            vec3( 1.0, 0.0, 0.0), vec3(-1.0, 0.0, 0.0)
-        );
-        return v[i];
-    }
+    // ── shape 2: Pentagonal pyramid — apex + 5-vertex base, cycled to 20 ────
+    // v0=apex=(0,0,1), v1-v5=base at z=-0.5, r=R5
+    // angles 0,72,144,216,288 deg; cycle twice + 2 extras
+    vec3( 0.00000,  0.00000,  1.0),
+    vec3( R5,       0.00000, -0.5),
+    vec3( 0.26762,  0.82362, -0.5),
+    vec3(-0.70063,  0.50904, -0.5),
+    vec3(-0.70063, -0.50904, -0.5),
+    vec3( 0.26762, -0.82362, -0.5),
+    vec3( 0.00000,  0.00000,  1.0),
+    vec3( R5,       0.00000, -0.5),
+    vec3( 0.26762,  0.82362, -0.5),
+    vec3(-0.70063,  0.50904, -0.5),
+    vec3(-0.70063, -0.50904, -0.5),
+    vec3( 0.26762, -0.82362, -0.5),
+    vec3( 0.00000,  0.00000,  1.0),
+    vec3( R5,       0.00000, -0.5),
+    vec3( 0.26762,  0.82362, -0.5),
+    vec3(-0.70063,  0.50904, -0.5),
+    vec3(-0.70063, -0.50904, -0.5),
+    vec3( 0.26762, -0.82362, -0.5),
+    vec3( 0.00000,  0.00000,  1.0),
+    vec3( R5,       0.00000, -0.5),
 
-    if (shape == 2) {
-        // ── Pentagonal pyramid — apex at north pole, 5-vertex base ───────
-        // apex = v0 = (0,0,1).  Base at z=-0.5, r=R5 (unit sphere).
-        // Angles: 0, 72, 144, 216, 288 degrees.
-        // v1-v5; padded by cycling to v0-v4 twice more (indices 6-19).
-        const vec3 v[20] = vec3[20](
-            vec3( 0.00000,  0.00000,  1.0),                     // v0 apex
-            vec3( R5,       0.00000, -0.5),                     // v1
-            vec3( 0.26762,  0.82362, -0.5),                     // v2
-            vec3(-0.70063,  0.50904, -0.5),                     // v3
-            vec3(-0.70063, -0.50904, -0.5),                     // v4
-            vec3( 0.26762, -0.82362, -0.5),                     // v5
-            // cycle 0-5:
-            vec3( 0.00000,  0.00000,  1.0),
-            vec3( R5,       0.00000, -0.5),
-            vec3( 0.26762,  0.82362, -0.5),
-            vec3(-0.70063,  0.50904, -0.5),
-            vec3(-0.70063, -0.50904, -0.5),
-            vec3( 0.26762, -0.82362, -0.5),
-            // cycle 0-5 again:
-            vec3( 0.00000,  0.00000,  1.0),
-            vec3( R5,       0.00000, -0.5),
-            vec3( 0.26762,  0.82362, -0.5),
-            vec3(-0.70063,  0.50904, -0.5),
-            vec3(-0.70063, -0.50904, -0.5),
-            vec3( 0.26762, -0.82362, -0.5),
-            // final two:
-            vec3( 0.00000,  0.00000,  1.0),
-            vec3( R5,       0.00000, -0.5)
-        );
-        return v[i];
-    }
+    // ── shape 3: Hexagonal prism — top+bottom rings, padded to 20 ───────────
+    // top v0-v5 at z=+0.5, bottom v6-v11 at z=-0.5, r=R5
+    vec3( R5,      0.0,     0.5),
+    vec3( 0.43301, 0.75,    0.5),
+    vec3(-0.43301, 0.75,    0.5),
+    vec3(-R5,      0.0,     0.5),
+    vec3(-0.43301,-0.75,    0.5),
+    vec3( 0.43301,-0.75,    0.5),
+    vec3( R5,      0.0,    -0.5),
+    vec3( 0.43301, 0.75,   -0.5),
+    vec3(-0.43301, 0.75,   -0.5),
+    vec3(-R5,      0.0,    -0.5),
+    vec3(-0.43301,-0.75,   -0.5),
+    vec3( 0.43301,-0.75,   -0.5),
+    // cycle v0-v7 as padding:
+    vec3( R5,      0.0,     0.5),
+    vec3( 0.43301, 0.75,    0.5),
+    vec3(-0.43301, 0.75,    0.5),
+    vec3(-R5,      0.0,     0.5),
+    vec3(-0.43301,-0.75,    0.5),
+    vec3( 0.43301,-0.75,    0.5),
+    vec3( R5,      0.0,    -0.5),
+    vec3( 0.43301, 0.75,   -0.5),
 
-    if (shape == 3) {
-        // ── Hexagonal prism — top hex at z=+0.5, bottom at z=-0.5 ───────
-        // r = R5 so all 12 vertices lie on the unit sphere.
-        // Top v0-v5 at angles 0,60,120,180,240,300 deg.
-        // Bottom v6-v11 same angles.  Padded to 20 (cycle v0-v7).
-        const vec3 v[20] = vec3[20](
-            // top ring
-            vec3( R5,      0.0,     0.5),  // v0
-            vec3( 0.43301, 0.75,    0.5),  // v1
-            vec3(-0.43301, 0.75,    0.5),  // v2
-            vec3(-R5,      0.0,     0.5),  // v3
-            vec3(-0.43301,-0.75,    0.5),  // v4
-            vec3( 0.43301,-0.75,    0.5),  // v5
-            // bottom ring
-            vec3( R5,      0.0,    -0.5),  // v6
-            vec3( 0.43301, 0.75,   -0.5),  // v7
-            vec3(-0.43301, 0.75,   -0.5),  // v8
-            vec3(-R5,      0.0,    -0.5),  // v9
-            vec3(-0.43301,-0.75,   -0.5),  // v10
-            vec3( 0.43301,-0.75,   -0.5),  // v11
-            // cycle v0-v7 as padding:
-            vec3( R5,      0.0,     0.5),
-            vec3( 0.43301, 0.75,    0.5),
-            vec3(-0.43301, 0.75,    0.5),
-            vec3(-R5,      0.0,     0.5),
-            vec3(-0.43301,-0.75,    0.5),
-            vec3( 0.43301,-0.75,    0.5),
-            vec3( R5,      0.0,    -0.5),
-            vec3( 0.43301, 0.75,   -0.5)
-        );
-        return v[i];
-    }
+    // ── shape 4: Octagonal prism — top+bottom rings, padded to 20 ───────────
+    // R8 = R5 * cos(45°) = 0.61237; top v0-v7 at z=+0.5, bottom v8-v15 at z=-0.5
+    vec3( R5,      0.0,      0.5),
+    vec3( 0.61237, 0.61237,  0.5),
+    vec3( 0.0,     R5,       0.5),
+    vec3(-0.61237, 0.61237,  0.5),
+    vec3(-R5,      0.0,      0.5),
+    vec3(-0.61237,-0.61237,  0.5),
+    vec3( 0.0,    -R5,       0.5),
+    vec3( 0.61237,-0.61237,  0.5),
+    vec3( R5,      0.0,     -0.5),
+    vec3( 0.61237, 0.61237, -0.5),
+    vec3( 0.0,     R5,      -0.5),
+    vec3(-0.61237, 0.61237, -0.5),
+    vec3(-R5,      0.0,     -0.5),
+    vec3(-0.61237,-0.61237, -0.5),
+    vec3( 0.0,    -R5,      -0.5),
+    vec3( 0.61237,-0.61237, -0.5),
+    // cycle v0-v3 as padding:
+    vec3( R5,      0.0,      0.5),
+    vec3( 0.61237, 0.61237,  0.5),
+    vec3( 0.0,     R5,       0.5),
+    vec3(-0.61237, 0.61237,  0.5),
 
-    if (shape == 4) {
-        // ── Octagonal prism — top oct at z=+0.5, bottom at z=-0.5 ───────
-        // r = R5.  Angles: 0,45,90,135,180,225,270,315 deg.
-        // v0-v7 top, v8-v15 bottom.  Padded to 20 (cycle v0-v3).
-        const float R8 = 0.61237; // R5 * cos(45 deg) = R5 * sqrt(2)/2
-        const vec3 v[20] = vec3[20](
-            // top ring
-            vec3( R5,  0.0,  0.5),   // v0
-            vec3( R8,  R8,   0.5),   // v1
-            vec3( 0.0, R5,   0.5),   // v2
-            vec3(-R8,  R8,   0.5),   // v3
-            vec3(-R5,  0.0,  0.5),   // v4
-            vec3(-R8, -R8,   0.5),   // v5
-            vec3( 0.0,-R5,   0.5),   // v6
-            vec3( R8, -R8,   0.5),   // v7
-            // bottom ring
-            vec3( R5,  0.0, -0.5),   // v8
-            vec3( R8,  R8,  -0.5),   // v9
-            vec3( 0.0, R5,  -0.5),   // v10
-            vec3(-R8,  R8,  -0.5),   // v11
-            vec3(-R5,  0.0, -0.5),   // v12
-            vec3(-R8, -R8,  -0.5),   // v13
-            vec3( 0.0,-R5,  -0.5),   // v14
-            vec3( R8, -R8,  -0.5),   // v15
-            // cycle v0-v3 as padding:
-            vec3( R5,  0.0,  0.5),
-            vec3( R8,  R8,   0.5),
-            vec3( 0.0, R5,   0.5),
-            vec3(-R8,  R8,   0.5)
-        );
-        return v[i];
-    }
+    // ── shape 5: Pentagonal antiprism — two pentagons 36° apart, cycled ─────
+    // top v0-v4 at z=+0.5 (0,72,144,216,288°), bottom v5-v9 at z=-0.5 (36,108,...)
+    vec3( R5,       0.00000,  0.5),
+    vec3( 0.26762,  0.82362,  0.5),
+    vec3(-0.70063,  0.50904,  0.5),
+    vec3(-0.70063, -0.50904,  0.5),
+    vec3( 0.26762, -0.82362,  0.5),
+    vec3( 0.70063,  0.50904, -0.5),
+    vec3(-0.26762,  0.82362, -0.5),
+    vec3(-R5,       0.00000, -0.5),
+    vec3(-0.26762, -0.82362, -0.5),
+    vec3( 0.70063, -0.50904, -0.5),
+    // cycle v0-v9:
+    vec3( R5,       0.00000,  0.5),
+    vec3( 0.26762,  0.82362,  0.5),
+    vec3(-0.70063,  0.50904,  0.5),
+    vec3(-0.70063, -0.50904,  0.5),
+    vec3( 0.26762, -0.82362,  0.5),
+    vec3( 0.70063,  0.50904, -0.5),
+    vec3(-0.26762,  0.82362, -0.5),
+    vec3(-R5,       0.00000, -0.5),
+    vec3(-0.26762, -0.82362, -0.5),
+    vec3( 0.70063, -0.50904, -0.5),
 
-    if (shape == 5) {
-        // ── Pentagonal antiprism — two pentagons rotated 36 deg apart ────
-        // Top at z=+0.5 angles 0,72,144,216,288 deg (v0-v4).
-        // Bottom at z=-0.5 angles 36,108,180,252,324 deg (v5-v9).
-        // Padded to 20 (cycle v0-v9).
-        const vec3 v[20] = vec3[20](
-            // top pentagon
-            vec3( R5,       0.00000,  0.5),  // v0  0 deg
-            vec3( 0.26762,  0.82362,  0.5),  // v1  72 deg
-            vec3(-0.70063,  0.50904,  0.5),  // v2  144 deg
-            vec3(-0.70063, -0.50904,  0.5),  // v3  216 deg
-            vec3( 0.26762, -0.82362,  0.5),  // v4  288 deg
-            // bottom pentagon (rotated 36 deg)
-            vec3( 0.70063,  0.50904, -0.5),  // v5  36 deg
-            vec3(-0.26762,  0.82362, -0.5),  // v6  108 deg
-            vec3(-R5,       0.00000, -0.5),  // v7  180 deg
-            vec3(-0.26762, -0.82362, -0.5),  // v8  252 deg
-            vec3( 0.70063, -0.50904, -0.5),  // v9  324 deg
-            // cycle v0-v9:
-            vec3( R5,       0.00000,  0.5),
-            vec3( 0.26762,  0.82362,  0.5),
-            vec3(-0.70063,  0.50904,  0.5),
-            vec3(-0.70063, -0.50904,  0.5),
-            vec3( 0.26762, -0.82362,  0.5),
-            vec3( 0.70063,  0.50904, -0.5),
-            vec3(-0.26762,  0.82362, -0.5),
-            vec3(-R5,       0.00000, -0.5),
-            vec3(-0.26762, -0.82362, -0.5),
-            vec3( 0.70063, -0.50904, -0.5)
-        );
-        return v[i];
-    }
+    // ── shape 6: Icosahedron — 12 golden-ratio vertices, padded to 20 ────────
+    vec3( 0.0,  P,  Q), vec3( 0.0, -P,  Q),
+    vec3( 0.0,  P, -Q), vec3( 0.0, -P, -Q),
+    vec3(  P,   Q, 0.0), vec3( -P,  Q, 0.0),
+    vec3(  P,  -Q, 0.0), vec3( -P, -Q, 0.0),
+    vec3(  Q,  0.0,  P), vec3( -Q, 0.0,  P),
+    vec3(  Q,  0.0, -P), vec3( -Q, 0.0, -P),
+    // repeat 0-7 as padding:
+    vec3( 0.0,  P,  Q), vec3( 0.0, -P,  Q),
+    vec3( 0.0,  P, -Q), vec3( 0.0, -P, -Q),
+    vec3(  P,   Q, 0.0), vec3( -P,  Q, 0.0),
+    vec3(  P,  -Q, 0.0), vec3( -P, -Q, 0.0),
 
-    if (shape == 6) {
-        // ── Icosahedron — 12 golden-ratio vertices, padded to 20 ─────────
-        const vec3 v[20] = vec3[20](
-            vec3( 0.0,  P,  Q), vec3( 0.0, -P,  Q),
-            vec3( 0.0,  P, -Q), vec3( 0.0, -P, -Q),
-            vec3(  P,   Q, 0.0), vec3( -P,  Q, 0.0),
-            vec3(  P,  -Q, 0.0), vec3( -P, -Q, 0.0),
-            vec3(  Q,  0.0,  P), vec3( -Q, 0.0,  P),
-            vec3(  Q,  0.0, -P), vec3( -Q, 0.0, -P),
-            // repeat 0-7 as padding:
-            vec3( 0.0,  P,  Q), vec3( 0.0, -P,  Q),
-            vec3( 0.0,  P, -Q), vec3( 0.0, -P, -Q),
-            vec3(  P,   Q, 0.0), vec3( -P,  Q, 0.0),
-            vec3(  P,  -Q, 0.0), vec3( -P, -Q, 0.0)
-        );
-        return v[i];
-    }
-
-    // ── Dodecahedron — 20 vertices, no padding needed ────────────────────
-    const vec3 v[20] = vec3[20](
-        vec3(  S,  S,  S), vec3(  S,  S, -S), vec3(  S, -S,  S), vec3(  S, -S, -S),
-        vec3( -S,  S,  S), vec3( -S,  S, -S), vec3( -S, -S,  S), vec3( -S, -S, -S),
-        vec3( 0.0,  SD,  QD), vec3( 0.0, -SD,  QD),
-        vec3( 0.0,  SD, -QD), vec3( 0.0, -SD, -QD),
-        vec3(  SD,  QD, 0.0), vec3( -SD,  QD, 0.0),
-        vec3(  SD, -QD, 0.0), vec3( -SD, -QD, 0.0),
-        vec3(  QD, 0.0,  SD), vec3( -QD, 0.0,  SD),
-        vec3(  QD, 0.0, -SD), vec3( -QD, 0.0, -SD)
-    );
-    return v[i];
-}
+    // ── shape 7: Dodecahedron — 20 vertices, no padding needed ───────────────
+    vec3(  S,  S,  S), vec3(  S,  S, -S), vec3(  S, -S,  S), vec3(  S, -S, -S),
+    vec3( -S,  S,  S), vec3( -S,  S, -S), vec3( -S, -S,  S), vec3( -S, -S, -S),
+    vec3( 0.0,  SD,  QD), vec3( 0.0, -SD,  QD),
+    vec3( 0.0,  SD, -QD), vec3( 0.0, -SD, -QD),
+    vec3(  SD,  QD, 0.0), vec3( -SD,  QD, 0.0),
+    vec3(  SD, -QD, 0.0), vec3( -SD, -QD, 0.0),
+    vec3(  QD, 0.0,  SD), vec3( -QD, 0.0,  SD),
+    vec3(  QD, 0.0, -SD), vec3( -QD, 0.0, -SD)
+);
 
 // ---------------------------------------------------------------------------
-// Edge connectivity
+// Flat edge table — 8 shapes × 30 edges = 240 entries
 // ---------------------------------------------------------------------------
-// Returns the e-th (0..29) edge of the given shape as a pair of vertex indices.
-// Shapes with fewer than 30 edges pad with ivec2(-1,-1) (skipped in the loop).
+// Index as ALL_EDGES[shape * 30 + e].
+// Shapes with fewer than 30 edges are padded with ivec2(-1,-1) (never reached
+// because the loop breaks at EDGE_COUNT[shape]).
 
-ivec2 shapeEdge(int shape, int e) {
+const ivec2 ALL_EDGES[240] = ivec2[240](
+    // ── shape 0: Cube — 12 real edges + 18 sentinels ─────────────────────────
+    ivec2(0,1), ivec2(1,2), ivec2(2,3), ivec2(3,0),
+    ivec2(4,5), ivec2(5,6), ivec2(6,7), ivec2(7,4),
+    ivec2(0,4), ivec2(1,5), ivec2(2,6), ivec2(3,7),
+    ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1),
+    ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1),
+    ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1),
+    ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1),
+    ivec2(-1,-1), ivec2(-1,-1),
 
-    if (shape == 0) {
-        // ── Cube: 12 real edges + 18 sentinels ───────────────────────────
-        const ivec2 edges[30] = ivec2[30](
-            ivec2(0,1), ivec2(1,2), ivec2(2,3), ivec2(3,0),
-            ivec2(4,5), ivec2(5,6), ivec2(6,7), ivec2(7,4),
-            ivec2(0,4), ivec2(1,5), ivec2(2,6), ivec2(3,7),
-            ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1),
-            ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1),
-            ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1),
-            ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1),
-            ivec2(-1,-1), ivec2(-1,-1)
-        );
-        return edges[e];
-    }
+    // ── shape 1: Octahedron — 12 real edges + 18 sentinels ───────────────────
+    ivec2(4,0), ivec2(4,1), ivec2(4,2), ivec2(4,3),
+    ivec2(5,0), ivec2(5,1), ivec2(5,2), ivec2(5,3),
+    ivec2(0,2), ivec2(2,1), ivec2(1,3), ivec2(3,0),
+    ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1),
+    ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1),
+    ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1),
+    ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1),
+    ivec2(-1,-1), ivec2(-1,-1),
 
-    if (shape == 1) {
-        // ── Octahedron: 12 real edges + 18 sentinels ─────────────────────
-        const ivec2 edges[30] = ivec2[30](
-            ivec2(4,0), ivec2(4,1), ivec2(4,2), ivec2(4,3),
-            ivec2(5,0), ivec2(5,1), ivec2(5,2), ivec2(5,3),
-            ivec2(0,2), ivec2(2,1), ivec2(1,3), ivec2(3,0),
-            ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1),
-            ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1),
-            ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1),
-            ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1),
-            ivec2(-1,-1), ivec2(-1,-1)
-        );
-        return edges[e];
-    }
+    // ── shape 2: Pentagonal pyramid — 10 real edges + 20 sentinels ───────────
+    // v0=apex, v1-v5=base ring
+    // base ring: (1,2),(2,3),(3,4),(4,5),(5,1); lateral: (0,1)..(0,5)
+    ivec2(1,2), ivec2(2,3), ivec2(3,4), ivec2(4,5), ivec2(5,1),
+    ivec2(0,1), ivec2(0,2), ivec2(0,3), ivec2(0,4), ivec2(0,5),
+    ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1),
+    ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1),
+    ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1),
+    ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1),
 
-    if (shape == 2) {
-        // ── Pentagonal pyramid: 10 real edges + 20 sentinels ─────────────
-        // v0=apex, v1-v5=base ring
-        // Base ring: (1,2),(2,3),(3,4),(4,5),(5,1) — 5 edges
-        // Lateral:   (0,1),(0,2),(0,3),(0,4),(0,5) — 5 edges
-        const ivec2 edges[30] = ivec2[30](
-            ivec2(1,2), ivec2(2,3), ivec2(3,4), ivec2(4,5), ivec2(5,1),
-            ivec2(0,1), ivec2(0,2), ivec2(0,3), ivec2(0,4), ivec2(0,5),
-            ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1),
-            ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1),
-            ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1),
-            ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1)
-        );
-        return edges[e];
-    }
+    // ── shape 3: Hexagonal prism — 18 real edges + 12 sentinels ──────────────
+    // top ring v0-v5, bottom ring v6-v11, pillars
+    ivec2(0,1), ivec2(1,2), ivec2(2,3), ivec2(3,4), ivec2(4,5), ivec2(5,0),
+    ivec2(6,7), ivec2(7,8), ivec2(8,9), ivec2(9,10), ivec2(10,11), ivec2(11,6),
+    ivec2(0,6), ivec2(1,7), ivec2(2,8), ivec2(3,9), ivec2(4,10), ivec2(5,11),
+    ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1),
+    ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1),
+    ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1),
 
-    if (shape == 3) {
-        // ── Hexagonal prism: 18 real edges + 12 sentinels ────────────────
-        // Top ring v0-v5, bottom ring v6-v11
-        // Top: (0,1),(1,2),(2,3),(3,4),(4,5),(5,0) — 6
-        // Bot: (6,7),(7,8),(8,9),(9,10),(10,11),(11,6) — 6
-        // Pillars: (0,6),(1,7),(2,8),(3,9),(4,10),(5,11) — 6
-        const ivec2 edges[30] = ivec2[30](
-            ivec2(0,1), ivec2(1,2), ivec2(2,3), ivec2(3,4), ivec2(4,5), ivec2(5,0),
-            ivec2(6,7), ivec2(7,8), ivec2(8,9), ivec2(9,10), ivec2(10,11), ivec2(11,6),
-            ivec2(0,6), ivec2(1,7), ivec2(2,8), ivec2(3,9), ivec2(4,10), ivec2(5,11),
-            ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1),
-            ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1),
-            ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1)
-        );
-        return edges[e];
-    }
+    // ── shape 4: Octagonal prism — 24 real edges + 6 sentinels ───────────────
+    // top ring v0-v7, bottom ring v8-v15, pillars
+    ivec2(0,1), ivec2(1,2), ivec2(2,3), ivec2(3,4),
+    ivec2(4,5), ivec2(5,6), ivec2(6,7), ivec2(7,0),
+    ivec2(8,9), ivec2(9,10), ivec2(10,11), ivec2(11,12),
+    ivec2(12,13), ivec2(13,14), ivec2(14,15), ivec2(15,8),
+    ivec2(0,8), ivec2(1,9), ivec2(2,10), ivec2(3,11),
+    ivec2(4,12), ivec2(5,13), ivec2(6,14), ivec2(7,15),
+    ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1),
+    ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1),
 
-    if (shape == 4) {
-        // ── Octagonal prism: 24 real edges + 6 sentinels ─────────────────
-        // Top v0-v7, bottom v8-v15
-        // Top ring: 8 edges, bottom ring: 8 edges, pillars: 8 edges
-        const ivec2 edges[30] = ivec2[30](
-            ivec2(0,1), ivec2(1,2), ivec2(2,3), ivec2(3,4),
-            ivec2(4,5), ivec2(5,6), ivec2(6,7), ivec2(7,0),
-            ivec2(8,9), ivec2(9,10), ivec2(10,11), ivec2(11,12),
-            ivec2(12,13), ivec2(13,14), ivec2(14,15), ivec2(15,8),
-            ivec2(0,8), ivec2(1,9), ivec2(2,10), ivec2(3,11),
-            ivec2(4,12), ivec2(5,13), ivec2(6,14), ivec2(7,15),
-            ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1),
-            ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1)
-        );
-        return edges[e];
-    }
+    // ── shape 5: Pentagonal antiprism — 20 real edges + 10 sentinels ─────────
+    // top ring (0,1),(1,2),(2,3),(3,4),(4,0)
+    // bottom ring (5,6),(6,7),(7,8),(8,9),(9,5)
+    // lateral: each top vertex connects to 2 bottom vertices
+    ivec2(0,1), ivec2(1,2), ivec2(2,3), ivec2(3,4), ivec2(4,0),
+    ivec2(5,6), ivec2(6,7), ivec2(7,8), ivec2(8,9), ivec2(9,5),
+    ivec2(0,5), ivec2(0,9), ivec2(1,5), ivec2(1,6),
+    ivec2(2,6), ivec2(2,7), ivec2(3,7), ivec2(3,8),
+    ivec2(4,8), ivec2(4,9),
+    ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1),
+    ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1),
+    ivec2(-1,-1), ivec2(-1,-1),
 
-    if (shape == 5) {
-        // ── Pentagonal antiprism: 20 real edges + 10 sentinels ───────────
-        // Top v0-v4, bottom v5-v9
-        // Top ring: (0,1),(1,2),(2,3),(3,4),(4,0) — 5
-        // Bottom:   (5,6),(6,7),(7,8),(8,9),(9,5) — 5
-        // Lateral (each top vertex connects to 2 bottom):
-        //   (0,5),(0,9),(1,5),(1,6),(2,6),(2,7),(3,7),(3,8),(4,8),(4,9) — 10
-        const ivec2 edges[30] = ivec2[30](
-            ivec2(0,1), ivec2(1,2), ivec2(2,3), ivec2(3,4), ivec2(4,0),
-            ivec2(5,6), ivec2(6,7), ivec2(7,8), ivec2(8,9), ivec2(9,5),
-            ivec2(0,5), ivec2(0,9), ivec2(1,5), ivec2(1,6),
-            ivec2(2,6), ivec2(2,7), ivec2(3,7), ivec2(3,8),
-            ivec2(4,8), ivec2(4,9),
-            ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1),
-            ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1), ivec2(-1,-1),
-            ivec2(-1,-1), ivec2(-1,-1)
-        );
-        return edges[e];
-    }
+    // ── shape 6: Icosahedron — 30 real edges ─────────────────────────────────
+    ivec2(0,1), ivec2(0,4), ivec2(0,5), ivec2(0,8), ivec2(0,9),
+    ivec2(1,6), ivec2(1,7), ivec2(1,8), ivec2(1,9),
+    ivec2(2,3), ivec2(2,4), ivec2(2,5), ivec2(2,10), ivec2(2,11),
+    ivec2(3,6), ivec2(3,7), ivec2(3,10), ivec2(3,11),
+    ivec2(4,5), ivec2(4,8), ivec2(4,10),
+    ivec2(5,9), ivec2(5,11),
+    ivec2(6,7), ivec2(6,8), ivec2(6,10),
+    ivec2(7,9), ivec2(7,11),
+    ivec2(8,10), ivec2(9,11),
 
-    if (shape == 6) {
-        // ── Icosahedron: 30 real edges ────────────────────────────────────
-        const ivec2 edges[30] = ivec2[30](
-            ivec2(0,1), ivec2(0,4), ivec2(0,5), ivec2(0,8), ivec2(0,9),
-            ivec2(1,6), ivec2(1,7), ivec2(1,8), ivec2(1,9),
-            ivec2(2,3), ivec2(2,4), ivec2(2,5), ivec2(2,10), ivec2(2,11),
-            ivec2(3,6), ivec2(3,7), ivec2(3,10), ivec2(3,11),
-            ivec2(4,5), ivec2(4,8), ivec2(4,10),
-            ivec2(5,9), ivec2(5,11),
-            ivec2(6,7), ivec2(6,8), ivec2(6,10),
-            ivec2(7,9), ivec2(7,11),
-            ivec2(8,10), ivec2(9,11)
-        );
-        return edges[e];
-    }
+    // ── shape 7: Dodecahedron — 30 real edges ────────────────────────────────
+    ivec2(0, 8), ivec2(0,12), ivec2(0,16),
+    ivec2(1,10), ivec2(1,12), ivec2(1,18),
+    ivec2(2, 9), ivec2(2,14), ivec2(2,16),
+    ivec2(3,11), ivec2(3,14), ivec2(3,18),
+    ivec2(4, 8), ivec2(4,13), ivec2(4,17),
+    ivec2(5,10), ivec2(5,13), ivec2(5,19),
+    ivec2(6, 9), ivec2(6,15), ivec2(6,17),
+    ivec2(7,11), ivec2(7,15), ivec2(7,19),
+    ivec2( 8, 9), ivec2(10,11), ivec2(12,13),
+    ivec2(14,15), ivec2(16,18), ivec2(17,19)
+);
 
-    // ── Dodecahedron: 30 real edges ───────────────────────────────────────
-    const ivec2 edges[30] = ivec2[30](
-        ivec2(0, 8), ivec2(0,12), ivec2(0,16),
-        ivec2(1,10), ivec2(1,12), ivec2(1,18),
-        ivec2(2, 9), ivec2(2,14), ivec2(2,16),
-        ivec2(3,11), ivec2(3,14), ivec2(3,18),
-        ivec2(4, 8), ivec2(4,13), ivec2(4,17),
-        ivec2(5,10), ivec2(5,13), ivec2(5,19),
-        ivec2(6, 9), ivec2(6,15), ivec2(6,17),
-        ivec2(7,11), ivec2(7,15), ivec2(7,19),
-        ivec2( 8, 9), ivec2(10,11), ivec2(12,13),
-        ivec2(14,15), ivec2(16,18), ivec2(17,19)
-    );
-    return edges[e];
-}
+// ---------------------------------------------------------------------------
+// Per-shape counts
+// ---------------------------------------------------------------------------
+
+const int EDGE_COUNT[8] = int[8](12, 12, 10, 18, 24, 20, 30, 30);
+const int VERT_COUNT[8] = int[8]( 8,  6,  6, 12, 16, 10, 12, 20);
 
 // ---------------------------------------------------------------------------
 // Main
@@ -477,10 +384,14 @@ void main() {
     mat3 rot = rotY(t * 0.23) * rotX(t * 0.17);
 
     // ── Project lerped vertex positions to 2-D ─────────────────────────────
+    // Loop always runs to 20: morphing interpolates between shapes with
+    // different vertex counts; padding/cycling ensures valid data at all 20.
+    int base_a = shape_a * 20;
+    int base_b = shape_b * 20;
     vec2 pts[20];
     for (int i = 0; i < 20; i++) {
-        vec3 va = shapeVert(shape_a, i);
-        vec3 vb = shapeVert(shape_b, i);
+        vec3 va = ALL_VERTS[base_a + i];
+        vec3 vb = ALL_VERTS[base_b + i];
         vec3 v  = rot * mix(va, vb, morph_t);
         pts[i]  = project(v);
     }
@@ -488,29 +399,46 @@ void main() {
     // ── Accumulate edge intensity ──────────────────────────────────────────
     // Each edge contributes a hard line with smoothstep anti-aliasing.
     // Shape-A edges fade out as shape-B edges fade in via morph_t.
+    //
+    // Optimization: alpha_a / alpha_b guards are uniform branches (morph_t is
+    // identical for every pixel in the frame), so the GPU skips entire loops
+    // at no per-pixel cost during the 70% hold phase when morph_t == 0.0.
+    // The inner break on EDGE_COUNT is also uniform, capping iterations to the
+    // shape's actual edge count rather than always running 30.
 
     const float LINE_WIDTH = 0.009;
 
     vec3  col      = vec3(0.0);
     float base_hue = t * 0.06;   // full palette cycle ~16.7 s
 
-    for (int i = 0; i < 30; i++) {
-        float edge_hue = base_hue + float(i) * (1.0 / 30.0);
+    int edge_base_a  = shape_a * 30;
+    int edge_base_b  = shape_b * 30;
+    int edge_count_a = EDGE_COUNT[shape_a];
+    int edge_count_b = EDGE_COUNT[shape_b];
+    float alpha_a = 1.0 - morph_t;
+    float alpha_b = morph_t;
 
-        // Shape-A edge (fade out)
-        ivec2 ea = shapeEdge(shape_a, i);
-        if (ea.x >= 0) {
+    // Shape A edges (fade out)
+    if (alpha_a > 0.0) {
+        for (int i = 0; i < 30; i++) {
+            if (i >= edge_count_a) break;
+            float edge_hue = base_hue + float(i) * (1.0 / 30.0);
+            ivec2 ea = ALL_EDGES[edge_base_a + i];
             float d  = segDist(uv, pts[ea.x], pts[ea.y]);
             float ga = 1.0 - smoothstep(0.0, LINE_WIDTH, d);
-            col += palette(edge_hue) * ga * (1.0 - morph_t);
+            col += palette(edge_hue) * ga * alpha_a;
         }
+    }
 
-        // Shape-B edge (fade in)
-        ivec2 eb = shapeEdge(shape_b, i);
-        if (eb.x >= 0) {
+    // Shape B edges (fade in)
+    if (alpha_b > 0.0) {
+        for (int i = 0; i < 30; i++) {
+            if (i >= edge_count_b) break;
+            float edge_hue = base_hue + float(i) * (1.0 / 30.0);
+            ivec2 eb = ALL_EDGES[edge_base_b + i];
             float d  = segDist(uv, pts[eb.x], pts[eb.y]);
             float gb = 1.0 - smoothstep(0.0, LINE_WIDTH, d);
-            col += palette(edge_hue) * gb * morph_t;
+            col += palette(edge_hue) * gb * alpha_b;
         }
     }
 
