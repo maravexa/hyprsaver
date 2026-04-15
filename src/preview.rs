@@ -2151,14 +2151,7 @@ fn draw_preview_tab(
                                     ui.set_min_width(combo_w);
                                     for name in shader_list {
                                         ui.horizontal(|ui| {
-                                            // Show thumbnail if available
-                                            if let Some(tex) = thumbnail_textures.get(name.as_str())
-                                            {
-                                                ui.image(egui::load::SizedTexture::new(
-                                                    tex.id(),
-                                                    egui::Vec2::new(32.0, 32.0),
-                                                ));
-                                            }
+                                            // Text label — left aligned
                                             if ui
                                                 .selectable_label(
                                                     state.selected_shader == *name,
@@ -2167,6 +2160,19 @@ fn draw_preview_tab(
                                                 .clicked()
                                             {
                                                 state.selected_shader = name.clone();
+                                            }
+                                            // Thumbnail — pushed to right edge
+                                            if let Some(tex) = thumbnail_textures.get(name.as_str())
+                                            {
+                                                let remaining = ui.available_width();
+                                                let img_size = 32.0;
+                                                if remaining > img_size {
+                                                    ui.add_space(remaining - img_size);
+                                                }
+                                                ui.image(egui::load::SizedTexture::new(
+                                                    tex.id(),
+                                                    egui::Vec2::new(img_size, img_size),
+                                                ));
                                             }
                                         });
                                     }
@@ -2221,10 +2227,7 @@ fn draw_preview_tab(
                                     ui.set_min_width(combo_w);
                                     for name in palette_list {
                                         ui.horizontal(|ui| {
-                                            draw_palette_swatch(
-                                                ui,
-                                                palette_gradients.get(name.as_str()),
-                                            );
+                                            // Text label — left aligned
                                             if ui
                                                 .selectable_label(
                                                     state.selected_palette == *name,
@@ -2234,6 +2237,16 @@ fn draw_preview_tab(
                                             {
                                                 state.selected_palette = name.clone();
                                             }
+                                            // Gradient swatch — pushed to right edge
+                                            let swatch_w = 50.0;
+                                            let remaining = ui.available_width();
+                                            if remaining > swatch_w {
+                                                ui.add_space(remaining - swatch_w);
+                                            }
+                                            draw_palette_swatch(
+                                                ui,
+                                                palette_gradients.get(name.as_str()),
+                                            );
                                         });
                                     }
                                 });
@@ -2438,14 +2451,7 @@ fn draw_playlists_tab(
                                         ui.set_min_width(combo_w);
                                         for name in &available {
                                             ui.horizontal(|ui| {
-                                                if let Some(tex) =
-                                                    thumbnail_textures.get(name.as_str())
-                                                {
-                                                    ui.image(egui::load::SizedTexture::new(
-                                                        tex.id(),
-                                                        egui::Vec2::new(32.0, 32.0),
-                                                    ));
-                                                }
+                                                // Text label — left aligned
                                                 if ui
                                                     .selectable_label(
                                                         ed.add_shader_selected == *name,
@@ -2454,6 +2460,20 @@ fn draw_playlists_tab(
                                                     .clicked()
                                                 {
                                                     ed.add_shader_selected = name.clone();
+                                                }
+                                                // Thumbnail — pushed to right edge
+                                                if let Some(tex) =
+                                                    thumbnail_textures.get(name.as_str())
+                                                {
+                                                    let remaining = ui.available_width();
+                                                    let img_size = 32.0;
+                                                    if remaining > img_size {
+                                                        ui.add_space(remaining - img_size);
+                                                    }
+                                                    ui.image(egui::load::SizedTexture::new(
+                                                        tex.id(),
+                                                        egui::Vec2::new(img_size, img_size),
+                                                    ));
                                                 }
                                             });
                                         }
@@ -2475,20 +2495,8 @@ fn draw_playlists_tab(
 
                     ui.add_space(4.0);
 
-                    // d. Scrollable list of current playlist entries
-                    egui::ScrollArea::vertical()
-                        .id_salt("shader_list_scroll")
-                        .max_height(140.0)
-                        .show(ui, |ui| {
-                            draw_reorderable_list(
-                                ui,
-                                &mut ed.shader_items,
-                                &mut ed.selected_shader_idx,
-                                &mut ed.shader_drag_src,
-                                &mut ed.shader_drag_tgt,
-                            );
-                        });
-
+                    // d. Delete button — above list so its position stays fixed
+                    //    as items are removed (prevents the button jumping up).
                     if ui
                         .add_enabled(
                             ed.selected_shader_idx.is_some(),
@@ -2508,6 +2516,22 @@ fn draw_playlists_tab(
                             }
                         }
                     }
+
+                    ui.add_space(4.0);
+
+                    // e. Scrollable list of current playlist entries
+                    egui::ScrollArea::vertical()
+                        .id_salt("shader_list_scroll")
+                        .max_height(140.0)
+                        .show(ui, |ui| {
+                            draw_reorderable_list(
+                                ui,
+                                &mut ed.shader_items,
+                                &mut ed.selected_shader_idx,
+                                &mut ed.shader_drag_src,
+                                &mut ed.shader_drag_tgt,
+                            );
+                        });
                 }
 
                 // ── Palettes sub-tab ─────────────────────────────────
@@ -2546,10 +2570,7 @@ fn draw_playlists_tab(
                                         ui.set_min_width(combo_w);
                                         for name in &available {
                                             ui.horizontal(|ui| {
-                                                draw_palette_swatch(
-                                                    ui,
-                                                    palette_gradients.get(name.as_str()),
-                                                );
+                                                // Text label — left aligned
                                                 if ui
                                                     .selectable_label(
                                                         ed.add_palette_selected == *name,
@@ -2559,6 +2580,16 @@ fn draw_playlists_tab(
                                                 {
                                                     ed.add_palette_selected = name.clone();
                                                 }
+                                                // Gradient swatch — pushed to right edge
+                                                let swatch_w = 50.0;
+                                                let remaining = ui.available_width();
+                                                if remaining > swatch_w {
+                                                    ui.add_space(remaining - swatch_w);
+                                                }
+                                                draw_palette_swatch(
+                                                    ui,
+                                                    palette_gradients.get(name.as_str()),
+                                                );
                                             });
                                         }
                                     });
@@ -2579,20 +2610,8 @@ fn draw_playlists_tab(
 
                     ui.add_space(4.0);
 
-                    // d. Scrollable list of current playlist entries
-                    egui::ScrollArea::vertical()
-                        .id_salt("palette_list_scroll")
-                        .max_height(140.0)
-                        .show(ui, |ui| {
-                            draw_reorderable_list(
-                                ui,
-                                &mut ed.palette_items,
-                                &mut ed.selected_palette_idx,
-                                &mut ed.palette_drag_src,
-                                &mut ed.palette_drag_tgt,
-                            );
-                        });
-
+                    // d. Delete button — above list so its position stays fixed
+                    //    as items are removed (prevents the button jumping up).
                     if ui
                         .add_enabled(
                             ed.selected_palette_idx.is_some(),
@@ -2612,6 +2631,22 @@ fn draw_playlists_tab(
                             }
                         }
                     }
+
+                    ui.add_space(4.0);
+
+                    // e. Scrollable list of current playlist entries
+                    egui::ScrollArea::vertical()
+                        .id_salt("palette_list_scroll")
+                        .max_height(140.0)
+                        .show(ui, |ui| {
+                            draw_reorderable_list(
+                                ui,
+                                &mut ed.palette_items,
+                                &mut ed.selected_palette_idx,
+                                &mut ed.palette_drag_src,
+                                &mut ed.palette_drag_tgt,
+                            );
+                        });
                 }
             }
 
