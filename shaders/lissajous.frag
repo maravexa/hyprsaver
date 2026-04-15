@@ -6,7 +6,7 @@ precision highp float;
 //
 // Three overlapping Lissajous curves with frequency ratios 3:2, 5:4, 7:4.
 // For each fragment the minimum distance to each parametric curve is found
-// by sampling 192 points along t ∈ [0, 2π]. A smoothstep edge function
+// by sampling 96 points along t ∈ [0, 2π]. A smoothstep edge function
 // gives clean anti-aliased hard edges without expensive exp() glow, keeping
 // GPU load in the Medium tier. Curves are colored independently through the
 // palette, drifting slowly in hue over time. Phase shifts at different rates
@@ -27,18 +27,21 @@ vec2 lissajousPoint(float t, float fx, float fy, float phase) {
 }
 
 // ---------------------------------------------------------------------------
-// Minimum distance from p to one Lissajous curve sampled at N = 192 points
+// Minimum distance from p to one Lissajous curve sampled at N = 96 points.
+// Squared distance is accumulated inside the loop (avoids 95 redundant sqrts);
+// sqrt is taken once on the final minimum.
 // ---------------------------------------------------------------------------
 float distToLissajous(vec2 p, float fx, float fy, float phase) {
-    const int   N      = 192;
+    const int   N      = 96;
     const float TWO_PI = 6.28318530718;
-    float minDist = 1.0e6;
+    float minD2 = 1.0e9;
     for (int i = 0; i < N; i++) {
-        float t = float(i) / float(N) * TWO_PI;
-        vec2  q = lissajousPoint(t, fx, fy, phase);
-        minDist = min(minDist, length(p - q));
+        float t  = float(i) / float(N) * TWO_PI;
+        vec2  q  = lissajousPoint(t, fx, fy, phase);
+        vec2  dv = p - q;
+        minD2 = min(minD2, dot(dv, dv));
     }
-    return minDist;
+    return sqrt(minD2);
 }
 
 // ---------------------------------------------------------------------------
