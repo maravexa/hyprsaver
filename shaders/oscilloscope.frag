@@ -74,7 +74,10 @@ float wave3(float x, float t) {
 void main() {
     vec2  fc  = gl_FragCoord.xy;
     vec2  res = u_resolution.xy;
-    float t   = u_time * u_speed_scale;
+    // Wrap time to prevent float precision degradation over long runtimes.
+    // 600 s (10 min) keeps values well within float32 precision for sin/noise.
+    // The fract-based noise functions are periodic so the wrap is visually seamless.
+    float t   = mod(u_time * u_speed_scale, 600.0);
 
     // Normalised coords centred on the screen.
     // uv_c.x ∈ [-aspect, aspect], uv_c.y ∈ [-1, 1].
