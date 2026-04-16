@@ -55,9 +55,6 @@ void main() {
     float phase1 = u_time * u_speed_scale * 0.11;
     float phase2 = u_time * u_speed_scale * 0.07;
 
-    // Slowly cycling hue base for all three curves.
-    float hueBase = fract(u_time * u_speed_scale * 0.05);
-
     vec3 col = vec3(0.0);   // black background
 
     // Hard-edge line width in normalised coords (≈8 px at 1080p).
@@ -65,15 +62,18 @@ void main() {
 
     // Curve 0 — frequency ratio 3:2
     float d0 = distToLissajous(uv, 3.0, 2.0, phase0);
-    col += palette(0.0 / 3.0 + hueBase) * (1.0 - smoothstep(0.0, LINE_WIDTH, d0));
+    float hue0 = 0.5 + 0.5 * sin(u_time * u_speed_scale * 0.047);
+    col += palette(hue0) * (1.0 - smoothstep(0.0, LINE_WIDTH, d0));
 
     // Curve 1 — frequency ratio 5:4
     float d1 = distToLissajous(uv, 5.0, 4.0, phase1);
-    col += palette(1.0 / 3.0 + hueBase) * (1.0 - smoothstep(0.0, LINE_WIDTH, d1));
+    float hue1 = 0.5 + 0.5 * sin(u_time * u_speed_scale * 0.031);
+    col += palette(hue1) * (1.0 - smoothstep(0.0, LINE_WIDTH, d1));
 
     // Curve 2 — frequency ratio 7:4
     float d2 = distToLissajous(uv, 7.0, 4.0, phase2);
-    col += palette(2.0 / 3.0 + hueBase) * (1.0 - smoothstep(0.0, LINE_WIDTH, d2));
+    float hue2 = 0.5 + 0.5 * sin(u_time * u_speed_scale * 0.019);
+    col += palette(hue2) * (1.0 - smoothstep(0.0, LINE_WIDTH, d2));
 
     fragColor = vec4(col, 1.0);
 }
