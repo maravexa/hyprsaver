@@ -79,11 +79,12 @@ void main() {
             // Per-cycle angular perturbation: each pass through a sector looks different.
             star_angle += (h11(seed + cycle * 127.1 + 5.55) - 0.5) * sector_width * 0.15;
 
-            // d²-quadratic radial growth: d=0 born near centre, d→1 exits screen.
-            float star_radius = d * d * 1.2;
+            // Cubic radial growth: slow near center (linger ahead), accelerate to edges.
+            // d=0.3 → r≈0.077, d=0.6 → r≈0.374, d=0.9 → r≈1.144
+            float star_radius = d * d * d * 1.5 + 0.05;
 
-            // Dead zone: skip stars still too close to centre (unstable angular geometry).
-            if (star_radius < 0.04) continue;
+            // Dead zone: enlarged void at vanishing point — you're heading there but never arriving.
+            if (star_radius < 0.12) continue;
 
             // Core radius: pinpoint at birth (d≈0), swells as star flies outward (d→1).
             float core_r = (d * 0.014 + 0.001) * size_mult;
@@ -104,8 +105,8 @@ void main() {
 
             // Tail: extends inward from the star head along the radial axis.
             float tail_growth = smoothstep(0.0, 0.3, d);  // progressive growth as star ages
-            float tail_length = 0.18 * star_radius * 2.0 * tail_growth * tail_mult;
-            float tail_wid    = core_r * 1.4;
+            float tail_length = 0.18 * star_radius * star_radius * 4.0 * tail_growth * tail_mult;
+            float tail_wid    = core_r * 1.4 * (1.0 + star_radius * 0.5);
 
             // Is this pixel radially inward from the star head, within the tail?
             float radial_behind = star_radius - radius;  // positive when pixel is closer to centre
