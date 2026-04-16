@@ -15,6 +15,16 @@ Seven modules in `src/`:
 
 Entry point: `main.rs` — CLI (clap), signal handling (signal-hook), config load, then dispatches to `preview.rs` (windowed preview) or `wayland.rs` (layer-shell screensaver). Event loop is calloop.
 
+## Build Environment
+
+This environment does not have all system libraries installed (notably `xkbcommon`). `cargo build` will fail at the linker stage — this is expected and not a code error.
+
+After editing shader files (`.frag`, `.vert`) or Rust source:
+1. Run `touch src/shaders.rs` to invalidate the cargo cache for shader changes
+2. Do NOT run `cargo build` — it will fail on missing system deps
+3. Do NOT attempt to install system packages
+4. Commit changes and push to the current feature branch
+
 ## Build & Run
 ```sh
 cargo build --release
