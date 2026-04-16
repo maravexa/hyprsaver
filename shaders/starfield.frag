@@ -105,7 +105,7 @@ void main() {
 
             // Tail: extends inward from the star head along the radial axis.
             float tail_growth = smoothstep(0.0, 0.3, d);  // progressive growth as star ages
-            float tail_length = 0.18 * star_radius * star_radius * 4.0 * tail_growth * tail_mult;
+            float tail_length = min(0.18 * star_radius * star_radius * 4.0 * tail_growth * tail_mult, 0.25);
             float tail_wid    = core_r * 1.4 * (1.0 + star_radius * 0.5);
 
             // Is this pixel radially inward from the star head, within the tail?
