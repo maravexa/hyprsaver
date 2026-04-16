@@ -116,7 +116,7 @@ void main() {
         int   cols   = GRID_COLS[L];
         int   rows   = GRID_ROWS[L];
         int   offset = LAYER_OFFSET[L];
-        float speed  = 0.04 + fL * 0.02;   // back: slow drift, front: faster
+        float speed  = (0.04 + fL * 0.02) * 3.0;   // back: slow drift, front: faster
         float expand = 1.35;               // 35% overscan — nodes extend past all screen edges
         float grid_w = aspect * expand;
         float grid_h = 1.0   * expand;
