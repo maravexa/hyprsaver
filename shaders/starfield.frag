@@ -4,12 +4,17 @@ precision highp float;
 // ---------------------------------------------------------------------------
 // hyprsaver — starfield.frag
 //
-// Hyperspace zoom tunnel. 50 stars radiate outward from a central vanishing
+// Hyperspace zoom tunnel. 100 stars radiate outward from a central vanishing
 // point. Each star zooms from its seed position toward the screen edge.
 // Tails are radial line segments drawn from each star back toward screen
 // center — bright at the star head, fading to transparent at the tail end.
 // Stars further from center move faster and have longer dramatic streaks.
 // Fully stateless GLSL — no per-frame CPU work.
+//
+// Optimised tail math: radial cross/dot replaces generic point-to-segment
+// distance (2-3 sqrt removed). Core dot uses squared distance (1 more sqrt
+// removed). Total cost per star: 1 sqrt (dist_from_center, uniform across
+// all pixels for that star).
 // ---------------------------------------------------------------------------
 
 uniform float u_time;
@@ -18,7 +23,7 @@ uniform vec2  u_mouse;
 uniform int   u_frame;
 
 const float ZOOM = 0.4;   // zoom-cycle frequency (cycles / second)
-const int   N    = 50;    // total star count
+const int   N    = 100;   // total star count
 
 // ---------------------------------------------------------------------------
 // Hash — float → float in [0, 1)
@@ -69,41 +74,65 @@ void main() {
         // Cull stars that are too far off screen.
         if (abs(p.x) > 1.6 || abs(p.y) > 1.6) continue;
 
+        // Uniform per-star quantities (same value for every pixel in this iteration).
+        float dist_from_center = length(p);   // 1 sqrt — reused by tail math below
+
         // Core radius: pinpoint at birth (d≈0, r≈0.001), swells as star flies outward (d→1, r≈0.015).
         float core_r = d * 0.014 + 0.001;
 
         // Tail geometry (uniform: same for all pixels).
-        float dist_from_center = length(p);
         float base_tail_length = 0.18;
         float tail_length      = 0.0;
         float tail_wid         = core_r * 1.4;   // thin streak, slightly wider than the core
-        vec2  tail_end         = p;
 
         if (dist_from_center > 0.002 && tail_scale > 0.0) {
             tail_length = base_tail_length * dist_from_center * 2.0 * tail_scale;
-            tail_end    = p - (p / dist_from_center) * tail_length;
         }
 
         // Star color from palette.
-        vec3  star_color = palette(hc);
-        float core_dist  = length(uv - p);
-        float star_dot   = 1.0 - smoothstep(core_r * 0.7, core_r, core_dist);
+        vec3 star_color = palette(hc);
+
+        // Core dot — squared distance avoids a sqrt.
+        vec2  core_delta = uv - p;
+        float core_dist2 = dot(core_delta, core_delta);
+        float cr_inner   = core_r * 0.7;
+        float star_dot   = 1.0 - smoothstep(cr_inner * cr_inner, core_r * core_r, core_dist2);
 
         float tail_intensity = 0.0;
 
-        if (tail_length > 0.0) {
-            vec2  seg     = tail_end - p;
-            float seg_len = length(seg);
-            vec2  seg_dir = seg / max(seg_len, 0.001);
+        if (dist_from_center > 0.002 && tail_length > 0.0) {
+            // Lateral distance: perpendicular distance from pixel to the ray
+            // from origin through star position. Uses 2D cross product.
+            // No sqrt needed — dist_from_center is already computed.
+            float lateral_dist = abs(p.x * uv.y - p.y * uv.x) / dist_from_center;
 
-            vec2  to_pixel = uv - p;
-            float proj     = clamp(dot(to_pixel, seg_dir), 0.0, seg_len);
-            float dist     = length(to_pixel - seg_dir * proj);
+            // Longitudinal position: projection of pixel onto the radial ray.
+            float proj_along_ray = dot(uv, p) / dist_from_center;
 
-            float lateral = 1.0 - smoothstep(0.0, tail_wid, dist);
-            float fade    = 1.0 - (proj / max(seg_len, 0.001));
+            // The star head is at radial distance dist_from_center.
+            // The tail end is at dist_from_center - tail_length (toward center).
+            float tail_start = dist_from_center - tail_length;  // tail end (toward center)
+            float tail_end_r = dist_from_center;                 // star head
 
-            tail_intensity = lateral * fade * tail_scale;
+            // Clamp projection to the tail segment range.
+            float clamped_proj = clamp(proj_along_ray, tail_start, tail_end_r);
+
+            // Lateral falloff: thin streak perpendicular to tail axis.
+            float lateral = 1.0 - smoothstep(0.0, tail_wid, lateral_dist);
+
+            // Longitudinal fade: full brightness at star head, transparent at tail end.
+            float seg_length = tail_length;
+            float along_frac = (clamped_proj - tail_start) / max(seg_length, 0.001);
+            float fade = along_frac;  // 0 at tail end, 1 at star head
+
+            // Only contribute if pixel is within the tail segment range.
+            // (proj_along_ray outside [tail_start, tail_end_r] means pixel is beyond
+            // the tail — lateral check alone would incorrectly extend the tail
+            // infinitely along the ray.)
+            float in_range = step(tail_start, proj_along_ray) *
+                             step(proj_along_ray, tail_end_r + tail_wid);
+
+            tail_intensity = lateral * fade * tail_scale * in_range;
         }
 
         float final_intensity = max(star_dot, tail_intensity);
