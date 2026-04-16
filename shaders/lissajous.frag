@@ -56,7 +56,7 @@ void main() {
     float phase2 = u_time * u_speed_scale * 0.07;
 
     // Slowly cycling hue base for all three curves.
-    float hueBase = u_time * u_speed_scale * 0.05;
+    float hueBase = fract(u_time * u_speed_scale * 0.05);
 
     vec3 col = vec3(0.0);   // black background
 
