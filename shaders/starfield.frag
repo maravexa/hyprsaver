@@ -50,8 +50,8 @@ vec3 starLayer(vec2 uv, float zoom, float layer_seed) {
             vec2 star_uv       = (neighbor + 0.5 + star_offset) / grid_scale * zoom;
             float dist_from_center = length(star_uv);
 
-            float streak_amount = dist_from_center * zoom * 3.0;
-            streak_amount = min(streak_amount, 8.0);
+            float streak_amount = dist_from_center * 4.0;
+            streak_amount = min(streak_amount, 6.0);
 
             vec2 radial_dir = (dist_from_center > 0.001)
                 ? star_uv / dist_from_center
@@ -82,7 +82,7 @@ void main() {
     vec2 uv  = (gl_FragCoord.xy - 0.5 * u_resolution.xy) / u_resolution.y;
     vec3 col = vec3(0.0);
 
-    float speeds[4]  = float[](0.06, 0.08, 0.10, 0.07);
+    float speeds[4]  = float[](0.18, 0.24, 0.30, 0.21);
     float offsets[4] = float[](0.0, 0.37, 0.71, 0.19);
 
     for (int i = 0; i < 4; i++) {
