@@ -21,7 +21,7 @@ uniform int   u_frame;
 
 const float NUM_LAYERS = 20.0;
 const float GRID_DENSITY = 8.0;   // cells per unit — controls star count per layer
-const float SPEED = 0.12;         // base warp speed
+const float SPEED = 0.36;         // base warp speed
 
 // ---------------------------------------------------------------------------
 // Hash functions
@@ -64,7 +64,7 @@ vec3 StarLayer(vec2 uv, float trans, float cycle_id, float layer_idx) {
     // trans=0: UV scaled to zero (everything at center, invisible).
     // trans=1: UV at full scale (stars at their widest spread).
     // Using trans*trans for acceleration (slow birth, fast exit).
-    float scale_now = mix(20.0, 0.5, trans);
+    float scale_now = mix(20.0, 0.15, trans);
 
     // Per-layer rotation breaks grid alignment between layers.
     // Golden angle (137.508°) ensures no two layers share grid axes.
@@ -104,11 +104,11 @@ vec3 StarLayer(vec2 uv, float trans, float cycle_id, float layer_idx) {
             float dt = 0.018;
             float trail_fade = smoothstep(0.0, 0.08, trans); // suppress on newborn stars
 
-            float S_prev1 = mix(20.0, 0.5, max(trans - dt, 0.0));
+            float S_prev1 = mix(20.0, 0.15, max(trans - dt, 0.0));
             vec2 trail_delta1 = delta + uv_rot * (S_prev1 - scale_now);
             float trail_att1 = (1.0 - smoothstep(star_size * 0.85, star_size, sqrt(dot(trail_delta1, trail_delta1)))) * trail_fade;
 
-            float S_prev2 = mix(20.0, 0.5, max(trans - dt * 2.0, 0.0));
+            float S_prev2 = mix(20.0, 0.15, max(trans - dt * 2.0, 0.0));
             vec2 trail_delta2 = delta + uv_rot * (S_prev2 - scale_now);
             float trail_att2 = (1.0 - smoothstep(star_size * 0.85, star_size, sqrt(dot(trail_delta2, trail_delta2)))) * trail_fade;
 
@@ -144,7 +144,7 @@ void main() {
         // smoothstep(1, 0.85, trans): fade out over last 15% (stars dissolve at edges)
         // With 20 layers, these brief transitions overlap so smoothly that
         // no pop is visible.
-        float fade = smoothstep(0.0, 0.1, trans) * smoothstep(1.0, 0.85, trans);
+        float fade = smoothstep(0.0, 0.1, trans) * smoothstep(1.0, 0.92, trans);
 
         // Depth-based brightness: layers at mid-depth are brightest
         float brightness = trans * fade;
