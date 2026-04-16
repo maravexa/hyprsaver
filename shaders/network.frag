@@ -7,7 +7,7 @@ precision highp float;
 // Neural network node graph with glowing connections.  Three parallax layers
 // of nodes placed on regular grids (4×3 back, 3×2 mid, 2×2 front) with small
 // hash-based offsets for organic feel and slow sinusoidal drift.  Fixed
-// grid-neighbour topology (right / below / diagonal) replaces the former
+// grid-neighbour topology (right / below) replaces the former
 // random-position + O(n²) distance-threshold approach, giving even screen
 // coverage with a bounded, predictable edge set.
 //
@@ -155,8 +155,8 @@ void main() {
 
     // ---- Render connection lines (behind nodes) ----
     //
-    // Fixed grid topology: each node connects to its right, below, and
-    // diagonal (right+below) neighbour.  No distance threshold needed.
+    // Fixed grid topology: each node connects to its right and below
+    // neighbour.  No distance threshold needed.
 
     for (int L = 0; L < LAYERS; L++) {
         float fL     = float(L);
@@ -184,13 +184,6 @@ void main() {
                 // Vertical edge: node → below neighbour
                 if (r + 1 < rows) {
                     int b = (r + 1) * cols + c;
-                    drawEdge(uv, pA, np[offset + b],
-                             offset + a, offset + b, lineW, baseA, t, col);
-                }
-
-                // Diagonal edge: node → right-below neighbour
-                if (c + 1 < cols && r + 1 < rows) {
-                    int b = (r + 1) * cols + (c + 1);
                     drawEdge(uv, pA, np[offset + b],
                              offset + a, offset + b, lineW, baseA, t, col);
                 }
