@@ -4,7 +4,7 @@ precision highp float;
 // ---------------------------------------------------------------------------
 // hyprsaver — starfield.frag
 //
-// Hyperspace zoom tunnel. 80 stars radiate outward from a central vanishing
+// Hyperspace zoom tunnel. 50 stars radiate outward from a central vanishing
 // point. Each star zooms from its seed position toward the screen edge.
 // Tails are radial line segments drawn from each star back toward screen
 // center — bright at the star head, fading to transparent at the tail end.
@@ -18,7 +18,7 @@ uniform vec2  u_mouse;
 uniform int   u_frame;
 
 const float ZOOM = 0.4;   // zoom-cycle frequency (cycles / second)
-const int   N    = 80;    // total star count
+const int   N    = 50;    // total star count
 
 // ---------------------------------------------------------------------------
 // Hash — float → float in [0, 1)
@@ -72,8 +72,7 @@ void main() {
         // Core radius: pinpoint at birth (d≈0, r≈0.001), swells as star flies outward (d→1, r≈0.015).
         float core_r = d * 0.014 + 0.001;
 
-        // Tail geometry (uniform: same for all pixels). Compute BEFORE the per-pixel
-        // AABB cull so we can form a tight bounding box around head + tail.
+        // Tail geometry (uniform: same for all pixels).
         float dist_from_center = length(p);
         float base_tail_length = 0.18;
         float tail_length      = 0.0;
@@ -84,15 +83,6 @@ void main() {
             tail_length = base_tail_length * dist_from_center * 2.0 * tail_scale;
             tail_end    = p - (p / dist_from_center) * tail_length;
         }
-
-        // Per-pixel AABB cull: skip expensive distance math when this pixel is
-        // clearly outside the head+tail bounding box. Within a GPU wavefront,
-        // adjacent pixels will agree on skipping far-away stars.
-        float margin = max(core_r, tail_wid);
-        vec2  bb_min = min(p, tail_end) - vec2(margin);
-        vec2  bb_max = max(p, tail_end) + vec2(margin);
-        if (uv.x < bb_min.x || uv.x > bb_max.x ||
-            uv.y < bb_min.y || uv.y > bb_max.y) continue;
 
         // Star color from palette.
         vec3  star_color = palette(hc);
