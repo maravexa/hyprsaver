@@ -10,11 +10,10 @@ precision highp float;
 // each fades in/out over 1.5 s on its own independent timer so at most ~3
 // change simultaneously — no jarring pop.  Back layers (0) are small, dim, slow;
 // front layers (2) are large, bright, and faster.
-// 21 nodes total (3 layers × 7), additive compositing over black.
+// 15 nodes total (3 layers × 5), additive compositing over black.
 // Nodes rendered as single smoothstep circles (no layered glow) for GPU efficiency.
 // Same-layer connections capped at 3 per node; cross-layer at 2 per node.
-// Lines routed as 2-segment polylines through a hash-offset midpoint — doubles
-// visual line count at 2× segment checks per connection (no extra O(n²) cost).
+// Direct single-segment lines — no midpoint routing.
 // Connection thresholds raised 40 % so more node-pairs connect (free — distance
 // is already computed, we just accept more results).
 // Fully stateless GLSL — no per-frame CPU work.
@@ -26,7 +25,7 @@ uniform vec2  u_mouse;
 uniform int   u_frame;
 
 const int   LAYERS          = 3;
-const int   NODES_PER_LAYER = 7;
+const int   NODES_PER_LAYER = 5;
 const float CONN_THRESH     = 0.63;   // +40 % from 0.45 — more pairs connect, free
 const float CROSS_THRESH    = 0.56;   // +40 % from 0.40 — free
 const float CONN_THRESH2    = CONN_THRESH * CONN_THRESH;    // 0.3969 — avoid sqrt
@@ -51,15 +50,6 @@ float segDist(vec2 p, vec2 a, vec2 b) {
     vec2 pa = p - a, ba = b - a;
     float h = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0);
     return length(pa - ba * h);
-}
-
-// Squared-distance variant — skip the sqrt so callers can bail on d² > w²
-// before paying the sqrt cost.
-float segDist2(vec2 p, vec2 a, vec2 b) {
-    vec2 pa = p - a, ba = b - a;
-    float h = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0);
-    vec2 dv = pa - ba * h;
-    return dot(dv, dv);
 }
 
 // ---------------------------------------------------------------------------
@@ -95,7 +85,7 @@ void main() {
 
     // ---- Pre-compute all node positions ----
 
-    vec2 np[21];   // LAYERS * NODES_PER_LAYER
+    vec2 np[15];   // LAYERS * NODES_PER_LAYER
 
     for (int L = 0; L < LAYERS; L++) {
         float fL    = float(L);
@@ -129,12 +119,9 @@ void main() {
         int   base = L * NODES_PER_LAYER;
 
         float lineW    = 0.009 + fL * 0.003;   // tripled from 0.003+L*0.001
-        float lw2      = lineW * lineW;        // squared width — bail before sqrt
         float baseAlph = 0.12 + fL * 0.03;
 
         // Same-layer connections — cap at 3 per node to bound O(n²) evaluations.
-        // Each connection is routed as a 2-segment polyline through a hash-offset
-        // midpoint — doubles visual density at 2× segment checks, no new node pairs.
         for (int a = 0; a < NODES_PER_LAYER; a++) {
             vec2 pA    = np[base + a];
             int  conns = 0;
@@ -146,33 +133,21 @@ void main() {
                 if (dot(ab, ab) > CONN_THRESH2) continue;   // squared — no sqrt
                 conns++;
 
-                float connId0  = hash11(float(base + a) * 13.37 + float(base + b) * 7.13);
-                vec2 midOff    = vec2(hash11(connId0 * 8.11) - 0.5,
-                                     hash11(connId0 * 8.99) - 0.5) * 0.03;
-                vec2 mid       = (pA + pB) * 0.5 + midOff;
+                float connId = hash11(float(base + a) * 13.37 + float(base + b) * 7.13);
 
-                // AABB cull — pixels outside the connection's bounding box skip
-                // the segDist/smoothstep/pulse work entirely.
-                vec2 bb_lo = min(min(pA, pB), mid) - vec2(lineW);
-                vec2 bb_hi = max(max(pA, pB), mid) + vec2(lineW);
-                if (uv.x < bb_lo.x || uv.x > bb_hi.x ||
-                    uv.y < bb_lo.y || uv.y > bb_hi.y) continue;
-
-                float ld2 = min(segDist2(uv, pA, mid), segDist2(uv, mid, pB));
-                if (ld2 > lw2) continue;            // bail before sqrt
-                float ld = sqrt(ld2);
+                float ld = segDist(uv, pA, pB);
                 float lg = 1.0 - smoothstep(0.0, lineW, ld);
-                if (lg < 0.001) continue;   // skip heavy work for off-line pixels
+                if (lg < 0.001) continue;
 
                 float tA = hash11(float(base + a) * 7.77 + 0.5);
                 float tB = hash11(float(base + b) * 7.77 + 0.5);
                 float ct = (tA + tB) * 0.5;
 
-                float pulseSpd = 0.3 + hash11(connId0 * 1.23) * 1.2;
-                float pulsePh  = hash11(connId0 * 4.56) * 6.28318;
+                float pulseSpd = 0.3 + hash11(connId * 1.23) * 1.2;
+                float pulsePh  = hash11(connId * 4.56) * 6.28318;
                 float pulse    = sin(t * pulseSpd + pulsePh) * 0.5 + 0.5;
 
-                float connAlpha = connectionAlpha(connId0, t);
+                float connAlpha = connectionAlpha(connId, t);
 
                 float lineAlph = baseAlph + connAlpha * (0.50 - baseAlph) * pulse;
                 vec3  lineCol  = mix(palette(ct), vec3(1.0), 0.2 * pulse * connAlpha);
@@ -181,14 +156,13 @@ void main() {
         }
 
         // Cross-layer connections (L -> L+1) — cap at 2 per node.
-        // Also routed as 2-segment polylines for visual density.
         if (L < LAYERS - 1) {
-            int   baseN        = (L + 1) * NODES_PER_LAYER;
-            float crossA       = baseAlph * 0.55;
+            int   baseN         = (L + 1) * NODES_PER_LAYER;
+            float crossA        = baseAlph * 0.55;
             // Depth taper: narrower toward back layer, wider toward front.
-            float crossW_back  = (0.009 + fL * 0.003) * 0.70;          // layer L width
-            float crossW_front = (0.009 + (fL + 1.0) * 0.003) * 0.70;  // layer L+1 width
-            float cw2_max      = crossW_front * crossW_front;          // wider of the two
+            float crossW_back   = (0.009 + fL * 0.003) * 0.70;          // layer L width
+            float crossW_front  = (0.009 + (fL + 1.0) * 0.003) * 0.70;  // layer L+1 width
+            float crossW_interp = mix(crossW_back, crossW_front, 0.5);
 
             for (int a = 0; a < NODES_PER_LAYER; a++) {
                 vec2 pA         = np[base + a];
@@ -201,24 +175,10 @@ void main() {
                     if (dot(ab, ab) > CROSS_THRESH2) continue;   // squared — no sqrt
                     crossConns++;
 
-                    float connId    = hash11(float(base + a) * 23.37 + float(baseN + b) * 5.13);
-                    vec2 midOff     = vec2(hash11(connId * 8.11) - 0.5,
-                                          hash11(connId * 8.99) - 0.5) * 0.03;
-                    vec2 mid        = (pA + pB) * 0.5 + midOff;
+                    float connId = hash11(float(base + a) * 23.37 + float(baseN + b) * 5.13);
 
-                    // AABB cull with the wider (front) margin to avoid clipping
-                    // visible pixels on the front half of the polyline.
-                    vec2 bb_lo = min(min(pA, pB), mid) - vec2(crossW_front);
-                    vec2 bb_hi = max(max(pA, pB), mid) + vec2(crossW_front);
-                    if (uv.x < bb_lo.x || uv.x > bb_hi.x ||
-                        uv.y < bb_lo.y || uv.y > bb_hi.y) continue;
-
-                    float d2_back  = segDist2(uv, pA, mid);   // pA on layer L (back)
-                    float d2_front = segDist2(uv, mid, pB);   // pB on layer L+1 (front)
-                    if (min(d2_back, d2_front) > cw2_max) continue;  // bail before sqrt
-                    float g_back  = 1.0 - smoothstep(0.0, crossW_back,  sqrt(d2_back));
-                    float g_front = 1.0 - smoothstep(0.0, crossW_front, sqrt(d2_front));
-                    float lg = max(g_back, g_front);
+                    float ld = segDist(uv, pA, pB);
+                    float lg = 1.0 - smoothstep(0.0, crossW_interp, ld);
                     if (lg < 0.001) continue;
 
                     float tA = hash11(float(base + a) * 7.77 + 0.5);
