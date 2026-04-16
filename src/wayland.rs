@@ -1570,29 +1570,27 @@ impl PointerHandler for WaylandState {
     ) {
         for event in events {
             match event.kind {
-                PointerEventKind::Motion { .. } => {
+                PointerEventKind::Motion { .. }
                     if self
                         .config
                         .behavior
                         .dismiss_on
-                        .contains(&DismissEvent::MouseMove)
-                    {
-                        log::info!("Mouse motion detected; dismissing screensaver");
-                        self.dismiss();
-                        return;
-                    }
+                        .contains(&DismissEvent::MouseMove) =>
+                {
+                    log::info!("Mouse motion detected; dismissing screensaver");
+                    self.dismiss();
+                    return;
                 }
-                PointerEventKind::Press { .. } => {
+                PointerEventKind::Press { .. }
                     if self
                         .config
                         .behavior
                         .dismiss_on
-                        .contains(&DismissEvent::MouseClick)
-                    {
-                        log::info!("Mouse button press detected; dismissing screensaver");
-                        self.dismiss();
-                        return;
-                    }
+                        .contains(&DismissEvent::MouseClick) =>
+                {
+                    log::info!("Mouse button press detected; dismissing screensaver");
+                    self.dismiss();
+                    return;
                 }
                 _ => {}
             }

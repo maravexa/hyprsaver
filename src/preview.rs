@@ -1932,28 +1932,28 @@ impl PointerHandler for PreviewState {
                         self.egui_events.push(egui::Event::PointerGone);
                     }
                 }
-                PointerEventKind::Press { button, .. } => {
-                    if self.cursor_pos.0 >= panel_left {
-                        if let Some(btn) = linux_btn_to_egui(button) {
-                            self.egui_events.push(egui::Event::PointerButton {
-                                pos: egui::Pos2::new(self.cursor_pos.0, self.cursor_pos.1),
-                                button: btn,
-                                pressed: true,
-                                modifiers: egui::Modifiers::default(),
-                            });
-                        }
+                PointerEventKind::Press { button, .. }
+                    if self.cursor_pos.0 >= panel_left =>
+                {
+                    if let Some(btn) = linux_btn_to_egui(button) {
+                        self.egui_events.push(egui::Event::PointerButton {
+                            pos: egui::Pos2::new(self.cursor_pos.0, self.cursor_pos.1),
+                            button: btn,
+                            pressed: true,
+                            modifiers: egui::Modifiers::default(),
+                        });
                     }
                 }
-                PointerEventKind::Release { button, .. } => {
-                    if self.cursor_pos.0 >= panel_left {
-                        if let Some(btn) = linux_btn_to_egui(button) {
-                            self.egui_events.push(egui::Event::PointerButton {
-                                pos: egui::Pos2::new(self.cursor_pos.0, self.cursor_pos.1),
-                                button: btn,
-                                pressed: false,
-                                modifiers: egui::Modifiers::default(),
-                            });
-                        }
+                PointerEventKind::Release { button, .. }
+                    if self.cursor_pos.0 >= panel_left =>
+                {
+                    if let Some(btn) = linux_btn_to_egui(button) {
+                        self.egui_events.push(egui::Event::PointerButton {
+                            pos: egui::Pos2::new(self.cursor_pos.0, self.cursor_pos.1),
+                            button: btn,
+                            pressed: false,
+                            modifiers: egui::Modifiers::default(),
+                        });
                     }
                 }
                 PointerEventKind::Leave { .. } => {
