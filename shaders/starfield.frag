@@ -4,26 +4,22 @@ precision highp float;
 // ---------------------------------------------------------------------------
 // hyprsaver — starfield.frag
 //
-// Hyperspace zoom tunnel. 100 stars radiate outward from a central vanishing
-// point. Each star zooms from its seed position toward the screen edge.
-// Tails are radial line segments drawn from each star back toward screen
-// center — bright at the star head, fading to transparent at the tail end.
-// Stars further from center move faster and have longer dramatic streaks.
-// Fully stateless GLSL — no per-frame CPU work.
+// Polar sector lookup architecture — O(1)-per-pixel star rendering.
+// Three parallax layers (far / mid / near) divide 2π into angular sectors
+// (60 / 35 / 18). Each pixel converts to polar coordinates once, identifies
+// its sector, and checks only 3 neighbouring sectors per layer — 9 total
+// star evaluations regardless of total star count.
 //
-// Optimised tail math: radial cross/dot replaces generic point-to-segment
-// distance (2-3 sqrt removed). Core dot uses squared distance (1 more sqrt
-// removed). Total cost per star: 1 sqrt (dist_from_center, uniform across
-// all pixels for that star).
+// Stars are born near screen centre and accelerate outward with d²-quadratic
+// radial growth. Tails extend inward along the radial axis using a simple
+// range test (no segment-distance computation needed).
+// Per-cycle angular re-randomisation prevents visible pattern repetition.
 // ---------------------------------------------------------------------------
 
 uniform float u_time;
 uniform vec2  u_resolution;
 uniform vec2  u_mouse;
 uniform int   u_frame;
-
-const float ZOOM = 0.4;   // zoom-cycle frequency (cycles / second)
-const int   N    = 100;   // total star count
 
 // ---------------------------------------------------------------------------
 // Hash — float → float in [0, 1)
@@ -36,107 +32,95 @@ float h11(float p) {
 // ---------------------------------------------------------------------------
 
 void main() {
-    float aspect = u_resolution.x / u_resolution.y;
-    vec2  uv     = (gl_FragCoord.xy - 0.5 * u_resolution.xy) / u_resolution.y;
-    vec3  col    = vec3(0.0);   // black void
+    const float PI     = 3.14159265359;
+    const float TWO_PI = 6.28318530718;
 
-    float zoom_speed = ZOOM * u_speed_scale * u_zoom_scale;
+    vec2  uv      = (gl_FragCoord.xy - 0.5 * u_resolution.xy) / u_resolution.y;
+    float radius  = length(uv);
+    float angle   = atan(uv.y, uv.x);          // [-PI, PI]
+    float angle_pos = mod(angle + PI, TWO_PI);  // [0, TWO_PI)
 
-    for (int i = 0; i < N; i++) {
-        float fi = float(i);
+    vec3 col = vec3(0.0);  // black void
 
-        float hash_d = h11(fi * 91.73 + 3.0);   // per-star depth phase
-        float hc     = h11(fi * 37.11 + 4.0);   // color selector
+    // Three parallax layers — rendered back-to-front so near stars composite on top.
+    // Layer 0 (far):  dense pinpoint background — 60 sectors, slow, short tails
+    // Layer 1 (mid):  mid-depth fill            — 35 sectors, medium speed/tails
+    // Layer 2 (near): dramatic foreground        — 18 sectors, fast, long tails
+    for (int layer = 0; layer < 3; layer++) {
+        float num_sec, radial_speed, size_mult, tail_mult;
 
-        // d: zoom phase in [0,1). d≈0 = born near center; d→1 = exits screen.
-        float phase = hash_d + u_time * zoom_speed;
-        float d     = fract(phase);
-        float cycle = floor(phase);   // increments each time this star resets
-
-        // Seed position is re-randomized each cycle so no two passes look identical.
-        vec2 seed_xy = vec2((h11(fi * 17.37 + cycle * 127.1 + 1.0) - 0.5) * aspect,
-                             h11(fi * 53.19 + cycle * 311.7 + 2.0) - 0.5);
-
-        // Dead zone: skip stars seeded within 5% of screen height from center.
-        // Stars this close to origin have a near-zero radial vector; normalizing it
-        // produces an unstable tail direction that flickers or points the wrong way.
-        if (dot(seed_xy, seed_xy) < 0.0025) continue;
-
-        // Progressive tail growth: d is the star's age (0.0 at spawn, ~1.0 at exit).
-        // Tails grow from zero to full length over the first 30% of the star's
-        // lifetime, then stay at max for the remaining 70%.
-        float star_age   = d;
-        float tail_scale = smoothstep(0.0, 0.3, star_age);
-
-        float depth = 1.0 - d;
-        vec2  p     = seed_xy / max(depth, 0.001);   // project outward from center
-
-        // Cull stars that are too far off screen.
-        if (abs(p.x) > 1.6 || abs(p.y) > 1.6) continue;
-
-        // Uniform per-star quantities (same value for every pixel in this iteration).
-        float dist_from_center = length(p);   // 1 sqrt — reused by tail math below
-
-        // Core radius: pinpoint at birth (d≈0, r≈0.001), swells as star flies outward (d→1, r≈0.015).
-        float core_r = d * 0.014 + 0.001;
-
-        // Tail geometry (uniform: same for all pixels).
-        float base_tail_length = 0.18;
-        float tail_length      = 0.0;
-        float tail_wid         = core_r * 1.4;   // thin streak, slightly wider than the core
-
-        if (dist_from_center > 0.002 && tail_scale > 0.0) {
-            tail_length = base_tail_length * dist_from_center * 2.0 * tail_scale;
+        if (layer == 0) {
+            num_sec = 60.0;  radial_speed = 0.06;  size_mult = 0.5;  tail_mult = 0.5;
+        } else if (layer == 1) {
+            num_sec = 35.0;  radial_speed = 0.12;  size_mult = 1.0;  tail_mult = 1.0;
+        } else {
+            num_sec = 18.0;  radial_speed = 0.22;  size_mult = 2.0;  tail_mult = 2.0;
         }
 
-        // Star color from palette.
-        vec3 star_color = palette(hc);
+        float sector_width = TWO_PI / num_sec;
+        float sector_id    = floor(angle_pos / sector_width);
 
-        // Core dot — squared distance avoids a sqrt.
-        vec2  core_delta = uv - p;
-        float core_dist2 = dot(core_delta, core_delta);
-        float cr_inner   = core_r * 0.7;
-        float star_dot   = 1.0 - smoothstep(cr_inner * cr_inner, core_r * core_r, core_dist2);
+        // Check this sector and its two angular neighbours (handles 2π wraparound).
+        for (int nb = -1; nb <= 1; nb++) {
+            float check_id = mod(sector_id + float(nb), num_sec);
 
-        float tail_intensity = 0.0;
+            float seed = float(layer) * 137.531 + check_id * 17.37;
 
-        if (dist_from_center > 0.002 && tail_length > 0.0) {
-            // Lateral distance: perpendicular distance from pixel to the ray
-            // from origin through star position. Uses 2D cross product.
-            // No sqrt needed — dist_from_center is already computed.
-            float lateral_dist = abs(p.x * uv.y - p.y * uv.x) / dist_from_center;
+            // Angular position: sector centre + per-star random offset within sector.
+            float star_angle  = (check_id + 0.5) * sector_width - PI;
+            star_angle += (h11(seed + 1.11) - 0.5) * sector_width * 0.7;
 
-            // Longitudinal position: projection of pixel onto the radial ray.
-            float proj_along_ray = dot(uv, p) / dist_from_center;
+            // Each star has a random phase so they don't all reset simultaneously.
+            float radial_phase = h11(seed + 2.22);
+            float t     = radial_phase + u_time * u_speed_scale * u_zoom_scale * radial_speed;
+            float d     = fract(t);
+            float cycle = floor(t);
 
-            // The star head is at radial distance dist_from_center.
-            // The tail end is at dist_from_center - tail_length (toward center).
-            float tail_start = dist_from_center - tail_length;  // tail end (toward center)
-            float tail_end_r = dist_from_center;                 // star head
+            // Per-cycle angular perturbation: each pass through a sector looks different.
+            star_angle += (h11(seed + cycle * 127.1 + 5.55) - 0.5) * sector_width * 0.15;
 
-            // Clamp projection to the tail segment range.
-            float clamped_proj = clamp(proj_along_ray, tail_start, tail_end_r);
+            // d²-quadratic radial growth: d=0 born near centre, d→1 exits screen.
+            float star_radius = d * d * 1.2;
 
-            // Lateral falloff: thin streak perpendicular to tail axis.
-            float lateral = 1.0 - smoothstep(0.0, tail_wid, lateral_dist);
+            // Dead zone: skip stars still too close to centre (unstable angular geometry).
+            if (star_radius < 0.04) continue;
 
-            // Longitudinal fade: full brightness at star head, transparent at tail end.
-            float seg_length = tail_length;
-            float along_frac = (clamped_proj - tail_start) / max(seg_length, 0.001);
-            float fade = along_frac;  // 0 at tail end, 1 at star head
+            // Core radius: pinpoint at birth (d≈0), swells as star flies outward (d→1).
+            float core_r = (d * 0.014 + 0.001) * size_mult;
 
-            // Only contribute if pixel is within the tail segment range.
-            // (proj_along_ray outside [tail_start, tail_end_r] means pixel is beyond
-            // the tail — lateral check alone would incorrectly extend the tail
-            // infinitely along the ray.)
-            float in_range = step(tail_start, proj_along_ray) *
-                             step(proj_along_ray, tail_end_r + tail_wid);
+            // Angular distance from pixel to star — wrapped to shortest path [0, PI].
+            float star_angle_pos = mod(star_angle + PI, TWO_PI);
+            float delta_angle    = abs(mod(angle_pos - star_angle_pos + PI, TWO_PI) - PI);
 
-            tail_intensity = lateral * fade * tail_scale * in_range;
+            // Convert angular separation to approximate screen-space lateral distance.
+            float lateral_dist = delta_angle * radius;
+
+            // Radial distance from pixel to star head.
+            float radial_dist = abs(radius - star_radius);
+
+            // Core dot: elliptical distance metric (tight radially, wider laterally).
+            float dot_dist = sqrt(lateral_dist * lateral_dist + radial_dist * radial_dist);
+            float star_dot = 1.0 - smoothstep(core_r * 0.7, core_r, dot_dist);
+
+            // Tail: extends inward from the star head along the radial axis.
+            float tail_growth = smoothstep(0.0, 0.3, d);  // progressive growth as star ages
+            float tail_length = 0.18 * star_radius * 2.0 * tail_growth * tail_mult;
+            float tail_wid    = core_r * 1.4;
+
+            // Is this pixel radially inward from the star head, within the tail?
+            float radial_behind = star_radius - radius;  // positive when pixel is closer to centre
+            float tail_intensity = 0.0;
+
+            if (tail_length > 0.0 && radial_behind > 0.0 && radial_behind < tail_length) {
+                float lateral_falloff   = 1.0 - smoothstep(0.0, tail_wid, lateral_dist);
+                float longitudinal_fade = 1.0 - (radial_behind / tail_length);
+                tail_intensity = lateral_falloff * longitudinal_fade * tail_growth;
+            }
+
+            float final_intensity = max(star_dot, tail_intensity);
+            vec3  star_color      = palette(h11(seed + 3.33));
+            col += star_color * final_intensity;
         }
-
-        float final_intensity = max(star_dot, tail_intensity);
-        col += star_color * final_intensity;
     }
 
     fragColor = vec4(col, 1.0);
