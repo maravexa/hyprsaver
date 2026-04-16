@@ -93,8 +93,8 @@ void main() {
     // Near-black background so glow lines read clearly.
     vec3 col = vec3(0.03);
 
-    const int   STEPS = 6;
-    const float DT    = 0.12;
+    const int   STEPS = 4;
+    const float DT    = 0.18;
 
     for (int i = 0; i < STEPS; i++) {
         float t = float(i) / float(STEPS);
