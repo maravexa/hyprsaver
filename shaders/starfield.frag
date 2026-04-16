@@ -1,7 +1,7 @@
 #version 320 es
 precision highp float;
 
-// hyprsaver — starfield.frag  (zoom-layer sparse grid, v3)
+// hyprsaver — starfield.frag  (zoom-layer sparse grid, v4)
 
 uniform float u_time;
 uniform vec2  u_resolution;
@@ -65,7 +65,7 @@ vec3 starLayer(vec2 uv, float zoom, float layer_seed) {
             ));
 
             float size_hash = h21(neighbor + layer_seed + 3.33);
-            float base_size = 0.002 + size_hash * 0.004;
+            float base_size = (0.002 + size_hash * 0.004) * zoom;
 
             float glow = 1.0 - smoothstep(0.0, base_size, aniso_dist);
             glow *= glow;
@@ -82,15 +82,16 @@ void main() {
     vec2 uv  = (gl_FragCoord.xy - 0.5 * u_resolution.xy) / u_resolution.y;
     vec3 col = vec3(0.0);
 
-    float speed = 0.08 * u_speed_scale;
+    float speeds[4]  = float[](0.06, 0.08, 0.10, 0.07);
+    float offsets[4] = float[](0.0, 0.37, 0.71, 0.19);
 
     for (int i = 0; i < 4; i++) {
-        float fi    = float(i);
-        float phase = fract(u_time * speed + fi * 0.25);
-        float zoom  = mix(0.3, 2.5 * u_zoom_scale, phase);
-        float fade  = smoothstep(0.0, 0.15, phase) * (1.0 - smoothstep(0.7, 1.0, phase));
+        float phase = fract(u_time * u_speed_scale * speeds[i] + offsets[i]);
+        if (phase > 0.92) continue;
+        float zoom = mix(0.2, 4.0, phase);
+        float fade = smoothstep(0.0, 0.25, phase);
 
-        float layer_seed = fi * 137.531 + 42.0;
+        float layer_seed = float(i) * 137.531 + 42.0;
         col += starLayer(uv, zoom, layer_seed) * fade;
     }
 
