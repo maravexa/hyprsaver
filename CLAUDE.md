@@ -55,7 +55,7 @@ cargo build --release
 - Built-in shaders: compiled into binary via `include_str!()`
 - Logs: stderr (journalctl if launched by hypridle)
 
-## Built-in Shaders (v0.4.2 — 24 total)
+## Built-in Shaders (v0.4.3 — 24 total)
 
 | Name          | Description                                              |
 |---------------|----------------------------------------------------------|
@@ -143,7 +143,24 @@ Two additional uniforms are injected by `prepare_shader()` in `shaders.rs` for e
 - v0.4.0: `cycle.rs` extracted, `preview.rs` separated, config path migration to `~/.config/hypr/`. ✓ shipped
 - v0.4.1: 2 new shaders (oscilloscope, clouds), doc path updates, patch fixes. ✓ shipped
 - v0.4.2: Aurora rewrite, Flames shader, preview UI fixes, shader precision fixes, default playlists. ✓ shipped
+- v0.4.3: GPU optimization audit — all 7 Heavy-tier shaders optimized to Medium tier. ✓ shipped
 - v1.0.0: Stable config format, AUR/Nix packages, full Shadertoy uniform support, wgpu/Vulkan backend.
+
+## v0.4.3 Status
+
+All features through v0.4.3 implemented:
+
+**v0.4.3 (GPU optimization audit):**
+- All 7 Heavy-tier shaders optimized to Medium tier: Snowfall, Geometry, Bezier, Lissajous, Marble, Network, Starfield.
+- Snowfall: complete rewrite using grid-cell spatial lookup (3 layers, 27 checks/pixel); 57% → 32%.
+- Geometry: flat indexed arrays, bounded edge loops; 70% → 35–55%.
+- Bezier: two-pass coarse+fine distance estimation; 70% → 48%.
+- Lissajous: deferred sqrt, reduced sample count, independent per-curve hue rates; 70% → 49%.
+- Marble: merged curl noise samples, reduced tracing steps; 70% → 43%.
+- Network: grid topology for even screen coverage, removed O(n²) pair evaluation; 70% → 43%.
+- Starfield: complete rewrite using Art-of-Code 20-layer zoom with golden-angle rotation and dashed trails; 70% → 43%.
+- New benchmarks documented: Aurora (50%), Flames (24%), Oscilloscope (18%).
+- Benchmark doc: `docs/BENCHMARK_0.4.3.md`.
 
 ## v0.4.2 Status
 

@@ -119,6 +119,20 @@ cargo install hyprsaver
 
 ---
 
+## GPU Performance
+
+### GPU Performance (v0.4.3)
+
+Benchmarked on AMD HawkPoint1 (GMKtec Nucbox K12) with dual 1920×1200 monitors.
+
+- **Lightweight (<25% GPU):** Caustics, Flames, Matrix, Oscilloscope, Planet, Plasma, Tunnel
+- **Medium (25–50% GPU):** Aurora, Bezier, Donut, Geometry, Hypercube, Julia, Kaleidoscope, Lissajous, Mandelbrot, Marble, Network, Snowfall, Starfield, Tesla, Voronoi
+- **Heavy (51–75% GPU):** None at steady state (Geometry spikes to 55% during shape transitions only)
+
+All shaders previously in the Heavy tier (Bezier, Geometry, Lissajous, Marble, Network, Snowfall, Starfield) were optimized in v0.4.3. See `docs/BENCHMARK_0.4.3.md` for full results.
+
+---
+
 ## Installation
 
 ### Build from Source
@@ -160,14 +174,14 @@ yay -S hyprsaver
 
 ```bash
 # Download the .deb from the latest release
-sudo dpkg -i hyprsaver_0.4.2_amd64.deb
+sudo dpkg -i hyprsaver_0.4.3_amd64.deb
 ```
 
 ### Fedora / RHEL / openSUSE
 
 ```bash
 # Download the .rpm from the latest release
-sudo rpm -i hyprsaver-0.4.2-1.x86_64.rpm
+sudo rpm -i hyprsaver-0.4.3-1.x86_64.rpm
 ```
 
 ### Nix / NixOS
@@ -675,6 +689,23 @@ graph TD
 ---
 
 ## Roadmap
+
+### Shipped in v0.4.3
+
+- **GPU audit:** All 7 Heavy-tier shaders optimized to Medium tier
+  - Snowfall: 57% → 32% (grid-based spatial lookup)
+  - Geometry: 70% → 35–55% (flat indexed arrays, bounded edge loops)
+  - Bezier: 70% → 48% (two-pass coarse+fine distance estimation)
+  - Lissajous: 70% → 49% (deferred sqrt, sample count reduction)
+  - Marble: 70% → 43% (merged curl noise samples, reduced steps)
+  - Network: 70% → 43% (grid topology, removed O(n²) pair evaluation)
+  - Starfield: 70% → 43% (Art-of-Code 20-layer zoom architecture)
+- **Lissajous:** Fixed color cycling stall — independent per-curve hue rates
+- **Network:** Grid topology for even screen coverage, 35% overscan, depth-tapered cross-layer lines
+- **Snowfall:** Complete rewrite using grid-cell spatial lookup (3 layers, 27 checks/pixel)
+- **Starfield:** Complete rewrite using multi-layer zoom with golden-angle rotation and dashed trails
+- **New benchmarks:** Aurora (50%), Flames (24%), Oscilloscope (18%)
+- **Benchmark doc:** Added `docs/BENCHMARK_0.4.3.md`
 
 ### Shipped in v0.4.2
 
