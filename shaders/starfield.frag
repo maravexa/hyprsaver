@@ -77,36 +77,23 @@ vec3 StarLayer(vec2 uv, float trans, float cycle_id, float layer_idx) {
     vec2 cell_id = floor(scaled);
     vec2 gv = fract(scaled) - 0.5;
 
-    // Check 3×3 neighborhood so stars near cell edges aren't clipped
-    for (int y = -1; y <= 1; y++) {
-        for (int x = -1; x <= 1; x++) {
-            vec2 offset = vec2(float(x), float(y));
-            vec2 this_cell = cell_id + offset;
+    // Single cell check — stars are offset max ±0.35 and sized max 0.033,
+    // so they never reach the cell boundary at ±0.5; neighbor check is unnecessary.
+    {
+        vec2 this_cell = cell_id;
 
-            // Hash per cell, incorporating cycle_id for re-randomization
-            float n = Hash21(this_cell + cycle_id * 127.1);
+        float n = Hash21(this_cell + cycle_id * 127.1);
 
-            // Sparsity: only ~40% of cells have a star
-            if (n > 0.40) continue;
-
-            // Random star position within cell
+        if (n <= 0.40) {
             vec2 star_pos = (Hash22(this_cell + cycle_id * 311.7) - 0.5) * 0.7;
-
-            // Vector from pixel to star (in grid space)
-            vec2 delta = gv - offset - star_pos;
-
-            // Distance to star
+            vec2 delta = gv - star_pos;
             float d2 = dot(delta, delta);
 
-            // --- Y2K pixel dot: hard threshold ---
-            // Star size varies by hash
             float size_hash = fract(n * 345.67);
-            float star_size = 0.013 + size_hash * 0.02;  // 0.013 – 0.033 in grid units
+            float star_size = 0.013 + size_hash * 0.02;
 
-            // Hard dot with minimal anti-alias
             float att = 1.0 - smoothstep(star_size * 0.85, star_size, sqrt(d2));
 
-            // Per-star color from palette
             float hue = fract(n * 789.01);
             col += palette(hue) * att;
         }
