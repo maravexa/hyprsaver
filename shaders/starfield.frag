@@ -24,9 +24,8 @@ const mat2 GOLDEN_ROT = mat2(
      0.67549030, -0.73736882
 );
 
-const int   LAYERS     = 6;
-const float BRIGHTNESS = 0.012;
-const float CELL_SIZE  = 2.0;     // mod period — each cell is 2.0 units wide
+const int   LAYERS    = 6;
+const float CELL_SIZE = 2.0;     // mod period — each cell is 2.0 units wide
 
 float h11(float p) {
     p = fract(p * 0.1031);
@@ -46,14 +45,14 @@ void main() {
     // Density scale controls how many stars per layer
     float density = 8.0 * u_zoom_scale;
 
-    // Accumulate rotated coordinates — rotation is cumulative across layers
-    vec2 rotated_uv = uv;
+    // Cumulative rotation matrix — identity before the loop
+    mat2 rot = mat2(1.0, 0.0, 0.0, 1.0);
 
     for (int i = 0; i < LAYERS; i++) {
         float fi = float(i);
 
-        // Rotate UV by golden angle — cumulative, so each layer has unique orientation
-        rotated_uv *= GOLDEN_ROT;
+        // Accumulate golden-angle rotation each layer
+        rot *= GOLDEN_ROT;
 
         // Zoom phase for this layer
         float phase = fract(u_time * u_speed_scale * speeds[i] + offsets[i]);
@@ -67,8 +66,8 @@ void main() {
         // Fade in at birth only — zoom handles exit naturally
         float fade = smoothstep(0.0, 0.2, phase);
 
-        // Scale UV by zoom — THIS is the warp effect
-        vec2 p = rotated_uv * density / zoom;
+        // Zoom FIRST (expansion always from screen center), THEN rotate
+        vec2 p = (uv / zoom) * rot * density;
 
         // Layer shift — prevents overlapping star positions between layers
         p += fi * 2.618;  // golden ratio shift
@@ -98,21 +97,17 @@ void main() {
         // Distance to cell center
         float len = length(cell_local);
 
-        // Point light attenuation: bright at center, zero at cell edge
-        // max(1-len, 0) ensures zero contribution outside radius 1.0
-        // Division by len creates sharp point-light falloff
-        float att = max(1.0 - len, 0.0) / (len + 0.001);  // +0.001 prevents div by zero
+        // Hard dot: binary on/off based on distance threshold
+        float att = step(len, 0.3);
 
-        // Scale brightness by zoom — near stars are brighter
-        att *= BRIGHTNESS * zoom;
+        att *= 0.35;
 
         // Color: each layer samples palette at a different point
         float hue = fract(fi * 0.1618 + u_time * u_speed_scale * 0.01);
         col += palette(hue) * att * fade;
     }
 
-    // Soft tone-map to prevent clipping at star centers
-    col = col / (col + 1.0);
+    col = min(col, 1.0);
 
     fragColor = vec4(col, 1.0);
 }
