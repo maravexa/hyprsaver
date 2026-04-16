@@ -1,7 +1,7 @@
 #version 320 es
 precision highp float;
 
-// hyprsaver — starfield.frag  (Cartesian grid + radial motion, v2)
+// hyprsaver — starfield.frag  (zoom-layer sparse grid, v3)
 
 uniform float u_time;
 uniform vec2  u_resolution;
@@ -12,92 +12,86 @@ float h11(float p) {
     p = fract(p * 0.1031); p *= p + 33.33; p *= p + p; return fract(p);
 }
 
-vec2 hash22(vec2 p) {
-    p = fract(p * vec2(0.1031, 0.1030));
-    p += dot(p, p.yx + 33.33);
-    return fract((p.xx + p.yx) * p.xy);
+float h21(vec2 p) {
+    vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+    p3 += dot(p3, p3.yzx + 33.33);
+    return fract((p3.x + p3.y) * p3.z);
 }
 
-void main() {
-    vec2  res = u_resolution;
-    vec2  uv  = (gl_FragCoord.xy - 0.5 * res) / res.y;
+vec2 h22(vec2 p) {
+    vec3 p3 = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973));
+    p3 += dot(p3, p3.yzx + 33.33);
+    return fract((p3.xx + p3.yz) * p3.zy);
+}
+
+vec3 starLayer(vec2 uv, float zoom, float layer_seed) {
+    vec2 scaled_uv = uv / zoom;
+
+    float grid_scale = 12.0;
+    vec2 grid_uv    = scaled_uv * grid_scale;
+    vec2 cell_id    = floor(grid_uv);
+    vec2 cell_local = fract(grid_uv) - 0.5;
 
     vec3 col = vec3(0.0);
 
-    // Back-to-front: far (0), mid (1), near (2)
-    for (int layer = 0; layer < 3; layer++) {
-        float grid_scale, layer_speed, min_size, max_size, max_tail;
-        if (layer == 0) {
-            grid_scale = 12.0; layer_speed = 0.5;  min_size = 0.5; max_size = 1.5; max_tail = 0.06;
-        } else if (layer == 1) {
-            grid_scale =  7.0; layer_speed = 1.0;  min_size = 1.5; max_size = 4.0; max_tail = 0.15;
-        } else {
-            grid_scale =  4.0; layer_speed = 1.8;  min_size = 3.0; max_size = 8.0; max_tail = 0.25;
+    for (int dx = -1; dx <= 1; dx++) {
+        for (int dy = -1; dy <= 1; dy++) {
+            vec2 neighbor = cell_id + vec2(float(dx), float(dy));
+
+            float exists = h21(neighbor + layer_seed);
+            if (exists < 0.95) continue;
+
+            vec2 star_offset = h22(neighbor + layer_seed + 7.77) - 0.5;
+            star_offset *= 0.7;
+
+            vec2 delta = cell_local - vec2(float(dx), float(dy)) - star_offset;
+            delta /= grid_scale;
+
+            vec2 star_uv       = (neighbor + 0.5 + star_offset) / grid_scale * zoom;
+            float dist_from_center = length(star_uv);
+
+            float streak_amount = dist_from_center * zoom * 3.0;
+            streak_amount = min(streak_amount, 8.0);
+
+            vec2 radial_dir = (dist_from_center > 0.001)
+                ? star_uv / dist_from_center
+                : vec2(0.0, 1.0);
+            float radial_comp  = dot(delta, radial_dir);
+            float tangent_comp = abs(delta.x * radial_dir.y - delta.y * radial_dir.x);
+
+            float aniso_dist = length(vec2(
+                radial_comp / max(1.0 + streak_amount, 1.0),
+                tangent_comp
+            ));
+
+            float size_hash = h21(neighbor + layer_seed + 3.33);
+            float base_size = 0.002 + size_hash * 0.004;
+
+            float glow = 1.0 - smoothstep(0.0, base_size, aniso_dist);
+            glow *= glow;
+
+            float hue = h21(neighbor + layer_seed + 5.55);
+            col += palette(hue) * glow;
         }
+    }
 
-        vec2 cell_id = floor(uv * grid_scale);
+    return col;
+}
 
-        for (int dx = -1; dx <= 1; dx++) {
-            for (int dy = -1; dy <= 1; dy++) {
-                vec2  nb   = cell_id + vec2(float(dx), float(dy));
-                float seed = float(layer) * 137.531 + nb.x * 17.37 + nb.y * 53.19;
+void main() {
+    vec2 uv  = (gl_FragCoord.xy - 0.5 * u_resolution.xy) / u_resolution.y;
+    vec3 col = vec3(0.0);
 
-                // Cell-centred base position with random jitter (±0.35 cell widths)
-                vec2 jitter  = (hash22(nb + float(layer) * vec2(37.1, 61.7)) - 0.5) * 0.7;
-                vec2 base_uv = (nb + 0.5 + jitter) / grid_scale;
+    float speed = 0.08 * u_speed_scale;
 
-                float dist_c = length(base_uv);
-                if (dist_c < 0.08) continue;    // dead zone — no stars near screen centre
+    for (int i = 0; i < 4; i++) {
+        float fi    = float(i);
+        float phase = fract(u_time * speed + fi * 0.25);
+        float zoom  = mix(0.3, 2.5 * u_zoom_scale, phase);
+        float fade  = smoothstep(0.0, 0.15, phase) * (1.0 - smoothstep(0.7, 1.0, phase));
 
-                vec2  rdir      = base_uv / dist_c;
-                float cyc_speed = layer_speed * (0.2 + dist_c * 1.5);
-                float t_raw     = h11(seed + 2.22) + u_time * u_speed_scale * cyc_speed;
-                float phase     = fract(t_raw);
-                float cycle_n   = floor(t_raw);
-
-                // Per-cycle base perturbation prevents visible pattern repetition
-                vec2 pjitter = (hash22(vec2(cycle_n, seed)) - 0.5) * 0.1;
-                base_uv     += pjitter / grid_scale;
-                dist_c       = length(base_uv);
-                if (dist_c < 0.001) continue;
-                rdir = base_uv / dist_c;
-
-                // u_zoom_scale controls warp-tunnel depth (max radial travel per cycle)
-                float max_disp = 0.5 / grid_scale * u_zoom_scale;
-                vec2  star_pos = base_uv + rdir * (phase * max_disp);
-
-                // Size ramps from pinpoint at phase=0, scales with perspective distance
-                float size_ramp = smoothstep(0.0, 0.25, phase);
-                float persp     = 0.5 + dist_c * 1.2;
-                float core_r    = (min_size + (max_size - min_size) * size_ramp * persp)
-                                  / min(res.x, res.y);
-
-                // Head dot
-                float head_dist = length(uv - star_pos);
-                float star_dot  = 1.0 - smoothstep(core_r * 0.7, core_r, head_dist);
-
-                // Tail — extends inward toward screen centre along radial ray
-                float tail_grow = smoothstep(0.0, 0.3, phase);
-                float tail_len  = min(max_tail * dist_c * 2.0 * tail_grow, max_tail);
-                float tail_wid  = core_r * 1.5;
-                float tail_in   = 0.0;
-
-                float sdist = length(star_pos);
-                if (tail_len > 0.001 && sdist > 0.001) {
-                    // Lateral distance from uv to radial ray through star_pos
-                    float lat    = abs(star_pos.x * uv.y - star_pos.y * uv.x) / sdist;
-                    // Projection of uv onto radial direction; behind=0 at star head
-                    float proj   = dot(uv, star_pos) / sdist;
-                    float behind = sdist - proj;
-                    float mask   = step(0.0, behind) * step(behind, tail_len);
-                    float lfal   = 1.0 - smoothstep(0.0, tail_wid, lat);
-                    float lfade  = 1.0 - behind / tail_len;
-                    tail_in = lfal * lfade * tail_grow * mask;
-                }
-
-                col += palette(h11(seed + 3.33)) * max(star_dot, tail_in);
-            }
-        }
+        float layer_seed = fi * 137.531 + 42.0;
+        col += starLayer(uv, zoom, layer_seed) * fade;
     }
 
     fragColor = vec4(col, 1.0);
