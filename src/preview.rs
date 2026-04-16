@@ -1932,9 +1932,7 @@ impl PointerHandler for PreviewState {
                         self.egui_events.push(egui::Event::PointerGone);
                     }
                 }
-                PointerEventKind::Press { button, .. }
-                    if self.cursor_pos.0 >= panel_left =>
-                {
+                PointerEventKind::Press { button, .. } if self.cursor_pos.0 >= panel_left => {
                     if let Some(btn) = linux_btn_to_egui(button) {
                         self.egui_events.push(egui::Event::PointerButton {
                             pos: egui::Pos2::new(self.cursor_pos.0, self.cursor_pos.1),
@@ -1944,9 +1942,7 @@ impl PointerHandler for PreviewState {
                         });
                     }
                 }
-                PointerEventKind::Release { button, .. }
-                    if self.cursor_pos.0 >= panel_left =>
-                {
+                PointerEventKind::Release { button, .. } if self.cursor_pos.0 >= panel_left => {
                     if let Some(btn) = linux_btn_to_egui(button) {
                         self.egui_events.push(egui::Event::PointerButton {
                             pos: egui::Pos2::new(self.cursor_pos.0, self.cursor_pos.1),
