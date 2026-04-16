@@ -88,9 +88,6 @@ vec3 StarLayer(vec2 uv, float trans, float cycle_id, float layer_idx) {
 
         if (n <= 0.40) {
             vec2 star_pos = (Hash22(this_cell + cycle_id * 311.7) - 0.5) * 0.7;
-            // Dead zone: skip stars near screen center — they appear to fly at the viewer
-            vec2 star_grid_abs = (cell_id + 0.5 + star_pos) / scale_now;
-            if (dot(star_grid_abs, star_grid_abs) < 0.02) return col;
             vec2 delta = gv - star_pos;
             float d2 = dot(delta, delta);
 
@@ -154,6 +151,11 @@ void main() {
 
         col += StarLayer(uv, trans, cycle_id, i * NUM_LAYERS) * brightness;
     }
+
+    // Vanishing point dead zone: fade to black near screen center.
+    // Stars near center barely move radially — they appear to hit the viewer.
+    float center_fade = smoothstep(0.0, 0.10, length(uv));
+    col *= center_fade;
 
     // Gentle tone-map to handle star overlaps
     col = col / (col + 0.8);
