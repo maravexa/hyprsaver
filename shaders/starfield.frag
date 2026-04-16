@@ -4,13 +4,14 @@ precision highp float;
 // ---------------------------------------------------------------------------
 // hyprsaver — starfield.frag
 //
-// Hyperspace warp starfield using zoom-layer technique with golden-angle
-// rotation between layers. Each layer is a sparse grid (~30% occupied) of
-// point lights with random per-cell offsets. Time-varying zoom makes stars
-// stream radially outward. Golden-angle rotation breaks grid artifacts between
-// layers. Radial stretch creates perspective-correct streaks at screen edges.
-// Fixed screen-space dot size via zoom compensation. 6 layers, desynchronized
-// speeds, ~15-25% GPU.
+// Hyperspace warp starfield using the Art-of-Code multi-layer technique.
+// 20 layers of stars, each zooming outward from screen center via UV scaling.
+// Each layer cycles independently: fract(time/layers + offset) provides the
+// zoom phase, floor() re-randomizes the star pattern each cycle. With 20
+// layers, any single layer's birth/death is ~5% of visible stars — invisible.
+// Per-layer rotation breaks grid alignment. Y2K-style hard pixel dots with
+// dashed radial trails via dual time-offset sampling.
+// Fully stateless GLSL — no per-frame CPU work.
 // ---------------------------------------------------------------------------
 
 uniform float u_time;
@@ -18,117 +19,153 @@ uniform vec2  u_resolution;
 uniform vec2  u_mouse;
 uniform int   u_frame;
 
-// Golden angle rotation matrix (≈137.508°)
-// cos(137.508°) ≈ -0.7374,  sin(137.508°) ≈ 0.6755
-const mat2 GOLDEN_ROT = mat2(
-    -0.73736882, -0.67549030,
-     0.67549030, -0.73736882
-);
+const float NUM_LAYERS = 20.0;
+const float GRID_DENSITY = 8.0;   // cells per unit — controls star count per layer
+const float SPEED = 0.12;         // base warp speed
 
-const int   LAYERS    = 6;
-const float CELL_SIZE = 2.0;     // mod period — each cell is 2.0 units wide
+// ---------------------------------------------------------------------------
+// Hash functions
+// ---------------------------------------------------------------------------
 
-float h11(float p) {
-    p = fract(p * 0.1031);
-    p *= p + 33.33;
-    p *= p + p;
-    return fract(p);
+float Hash21(vec2 p) {
+    p = fract(p * vec2(123.34, 456.21));
+    p += dot(p, p + 45.32);
+    return fract(p.x * p.y);
 }
 
-float h21(vec2 p) {
-    vec3 p3 = fract(vec3(p.xyx) * 0.1031);
-    p3 += dot(p3, p3.yzx + 33.33);
-    return fract((p3.x + p3.y) * p3.z);
+vec2 Hash22(vec2 p) {
+    float n = Hash21(p);
+    return vec2(n, Hash21(p + n));
 }
 
-vec2 h22(vec2 p) {
-    vec3 p3 = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973));
-    p3 += dot(p3, p3.yzx + 33.33);
-    return fract((p3.xx + p3.yz) * p3.zy);
+// ---------------------------------------------------------------------------
+// 2D rotation matrix
+// ---------------------------------------------------------------------------
+
+mat2 Rot(float a) {
+    float s = sin(a), c = cos(a);
+    return mat2(c, -s, s, c);
 }
+
+// ---------------------------------------------------------------------------
+// Single star layer
+//
+// uv       : screen coords (centered, aspect-corrected)
+// trans     : zoom phase [0, 1) — 0 = just born (center), 1 = flying off edges
+// cycle_id  : integer that increments each time this layer resets — used as
+//             random seed so each pass has a unique star pattern
+// layer_idx : which layer (0–19), used for rotation offset
+// ---------------------------------------------------------------------------
+
+vec3 StarLayer(vec2 uv, float trans, float cycle_id, float layer_idx) {
+    vec3 col = vec3(0.0);
+
+    // Scale UV from center — THIS is the warp zoom effect.
+    // trans=0: UV scaled to zero (everything at center, invisible).
+    // trans=1: UV at full scale (stars at their widest spread).
+    // Using trans*trans for acceleration (slow birth, fast exit).
+    vec2 scaled = uv * mix(20.0, 0.5, trans);
+
+    // Per-layer rotation breaks grid alignment between layers.
+    // Golden angle (137.508°) ensures no two layers share grid axes.
+    scaled *= Rot(layer_idx * 2.3999);
+
+    // Unique layer shift so star positions differ between layers
+    scaled += layer_idx * 31.416;
+
+    // Grid: floor = cell ID, fract = position within cell [-0.5, 0.5]
+    vec2 cell_id = floor(scaled);
+    vec2 gv = fract(scaled) - 0.5;
+
+    // Check 3×3 neighborhood so stars near cell edges aren't clipped
+    for (int y = -1; y <= 1; y++) {
+        for (int x = -1; x <= 1; x++) {
+            vec2 offset = vec2(float(x), float(y));
+            vec2 this_cell = cell_id + offset;
+
+            // Hash per cell, incorporating cycle_id for re-randomization
+            float n = Hash21(this_cell + cycle_id * 127.1);
+
+            // Sparsity: only ~40% of cells have a star
+            if (n > 0.40) continue;
+
+            // Random star position within cell
+            vec2 star_pos = (Hash22(this_cell + cycle_id * 311.7) - 0.5) * 0.7;
+
+            // Vector from pixel to star (in grid space)
+            vec2 delta = gv - offset - star_pos;
+
+            // --- Radial streak ---
+            // Star's approximate screen position (undo the grid scaling)
+            // We just need the direction from center, not exact position
+            vec2 approx_screen = (this_cell + 0.5 + star_pos) / GRID_DENSITY;
+            float dfc = length(approx_screen);
+
+            // Stretch delta in radial direction — edge stars get streaks
+            if (dfc > 0.1) {
+                vec2 radial = approx_screen / dfc;
+                float r_comp = dot(delta, radial);
+                float t_comp = delta.x * radial.y - delta.y * radial.x;
+
+                // Compress radial component for streak effect
+                float streak = dfc * 2.5;
+                streak = min(streak, 4.0);
+                delta = vec2(r_comp / (1.0 + streak), t_comp);
+            }
+
+            // Distance to star
+            float d2 = dot(delta, delta);
+
+            // --- Y2K pixel dot: hard threshold ---
+            // Star size varies by hash
+            float size_hash = fract(n * 345.67);
+            float star_size = 0.04 + size_hash * 0.06;  // 0.04 – 0.10 in grid units
+
+            // Hard dot with minimal anti-alias
+            float att = 1.0 - smoothstep(star_size * 0.85, star_size, sqrt(d2));
+
+            // Per-star color from palette
+            float hue = fract(n * 789.01);
+            col += palette(hue) * att;
+        }
+    }
+
+    return col;
+}
+
+// ---------------------------------------------------------------------------
 
 void main() {
     vec2 uv = (gl_FragCoord.xy - 0.5 * u_resolution.xy) / u_resolution.y;
     vec3 col = vec3(0.0);
 
-    // Per-layer speeds and phase offsets — irregular to prevent synchronized bursts
-    float speeds[6]  = float[](0.20, 0.27, 0.33, 0.23, 0.30, 0.17);
-    float offsets[6] = float[](0.00, 0.41, 0.17, 0.73, 0.56, 0.89);
+    float t = u_time * u_speed_scale * SPEED;
 
-    // Density scale controls how many stars per layer
-    float density = 8.0 * u_zoom_scale;
+    for (float i = 0.0; i < 1.0; i += 1.0 / NUM_LAYERS) {
+        // Each layer has a unique time offset — distributes births evenly
+        float layer_time = t + i;
 
-    // Cumulative rotation matrix — identity before the loop
-    mat2 rot = mat2(1.0, 0.0, 0.0, 1.0);
+        // Zoom phase: 0 = born at center, 1 = exiting at edges
+        float trans = fract(layer_time);
 
-    for (int i = 0; i < LAYERS; i++) {
-        float fi = float(i);
+        // Cycle ID: increments each time this layer wraps — new star pattern
+        float cycle_id = floor(layer_time);
 
-        // Accumulate golden-angle rotation each layer
-        rot *= GOLDEN_ROT;
+        // Fade: birth ramp + death fade
+        // smoothstep(0, 0.1, trans): fade in over first 10% (stars emerge from center)
+        // smoothstep(1, 0.85, trans): fade out over last 15% (stars dissolve at edges)
+        // With 20 layers, these brief transitions overlap so smoothly that
+        // no pop is visible.
+        float fade = smoothstep(0.0, 0.1, trans) * smoothstep(1.0, 0.85, trans);
 
-        // Zoom phase for this layer
-        float phase = fract(u_time * u_speed_scale * speeds[i] + offsets[i]);
+        // Depth-based brightness: layers at mid-depth are brightest
+        float brightness = trans * fade;
 
-        // Skip layers near cycle wrap — nothing visible anyway
-        if (phase > 0.93) continue;
-
-        // Zoom: small = far (dense tiny stars), large = near (sparse, flying past)
-        float zoom = mix(0.3, 5.0, phase * phase);  // quadratic: accelerates outward
-
-        // Fade in at birth only — zoom handles exit naturally
-        float fade = smoothstep(0.0, 0.2, phase);
-
-        // Zoom FIRST (expansion always from screen center), THEN rotate
-        vec2 p = (uv / zoom) * rot * density;
-
-        // Layer shift — prevents overlapping star positions between layers
-        p += fi * 2.618;  // golden ratio shift
-
-        // Cell ID and local position
-        vec2 cell_id = floor(p / CELL_SIZE);
-        vec2 cell_local = (p / CELL_SIZE) - cell_id - 0.5;  // [-0.5, 0.5]
-
-        // Sparsity: only ~30% of cells contain a star
-        float exists = h21(cell_id + fi * 7.77);
-        if (exists > 0.30) continue;  // skip empty cells — 70% bail here
-
-        // Random position offset within cell — stays well within bounds
-        vec2 offset = (h22(cell_id + fi * 13.13) - 0.5) * 0.6;  // [-0.3, +0.3]
-        vec2 delta = cell_local - offset;
-
-        // --- Radial streak ---
-        // Stretch delta along the radial direction from screen center
-        // Stars at edges get elongated, center stars stay round
-        float dist_from_center = length(uv);
-        float streak = dist_from_center * 3.5;
-        streak = min(streak, 5.0);
-
-        if (streak > 0.01 && dist_from_center > 0.01) {
-            vec2 radial_dir = uv / dist_from_center;
-            float radial_comp = dot(delta, radial_dir);
-            float tangent_comp = delta.x * radial_dir.y - delta.y * radial_dir.x;
-
-            // Compress radial component — elongates star along travel direction
-            delta = vec2(
-                radial_comp / (1.0 + streak),
-                tangent_comp
-            );
-        }
-
-        float len = length(delta) * CELL_SIZE;  // convert back to grid units
-
-        // Fixed screen-space dot radius: divide by zoom so dots stay the same
-        // pixel size regardless of zoom level
-        float dot_radius = 0.08 / zoom;
-
-        // Hard dot with 1px anti-alias edge
-        float att = 1.0 - smoothstep(dot_radius * 0.8, dot_radius, len);
-
-        // Per-cell palette color
-        float hue = h21(cell_id + fi * 31.31 + 5.55);
-        col += palette(hue) * att * fade * 0.6;
+        col += StarLayer(uv, trans, cycle_id, i * NUM_LAYERS) * brightness;
     }
 
-    fragColor = vec4(min(col, 1.0), 1.0);
+    // Gentle tone-map to handle star overlaps
+    col = col / (col + 0.8);
+
+    fragColor = vec4(col, 1.0);
 }
