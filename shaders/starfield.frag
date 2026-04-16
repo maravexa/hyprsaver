@@ -95,31 +95,13 @@ vec3 StarLayer(vec2 uv, float trans, float cycle_id, float layer_idx) {
             // Vector from pixel to star (in grid space)
             vec2 delta = gv - offset - star_pos;
 
-            // --- Radial streak ---
-            // Star's approximate screen position (undo the grid scaling)
-            // We just need the direction from center, not exact position
-            vec2 approx_screen = (this_cell + 0.5 + star_pos) / GRID_DENSITY;
-            float dfc = length(approx_screen);
-
-            // Stretch delta in radial direction — edge stars get streaks
-            if (dfc > 0.1) {
-                vec2 radial = approx_screen / dfc;
-                float r_comp = dot(delta, radial);
-                float t_comp = delta.x * radial.y - delta.y * radial.x;
-
-                // Compress radial component for streak effect
-                float streak = dfc * 2.5;
-                streak = min(streak, 4.0);
-                delta = vec2(r_comp / (1.0 + streak), t_comp);
-            }
-
             // Distance to star
             float d2 = dot(delta, delta);
 
             // --- Y2K pixel dot: hard threshold ---
             // Star size varies by hash
             float size_hash = fract(n * 345.67);
-            float star_size = 0.04 + size_hash * 0.06;  // 0.04 – 0.10 in grid units
+            float star_size = 0.013 + size_hash * 0.02;  // 0.013 – 0.033 in grid units
 
             // Hard dot with minimal anti-alias
             float att = 1.0 - smoothstep(star_size * 0.85, star_size, sqrt(d2));
