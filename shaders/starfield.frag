@@ -84,10 +84,12 @@ void main() {
             float star_radius = d * d * d * 1.5 + 0.05;
 
             // Dead zone: enlarged void at vanishing point — you're heading there but never arriving.
-            if (star_radius < 0.12) continue;
+            float dead_zone = 0.12;
+            if (star_radius < dead_zone) continue;
 
-            // Core radius: pinpoint at birth (d≈0), swells as star flies outward (d→1).
-            float core_r = (d * 0.014 + 0.001) * size_mult;
+            // Core radius: smoothly ramps from pinpoint at the dead zone edge to full size.
+            float size_ramp = smoothstep(dead_zone, dead_zone + 0.25, star_radius);
+            float core_r = (size_ramp * 0.014 + 0.001) * size_mult;
 
             // Angular distance from pixel to star — wrapped to shortest path [0, PI].
             float star_angle_pos = mod(star_angle + PI, TWO_PI);
