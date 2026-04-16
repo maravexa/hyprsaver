@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.3] - 2026-04-16
+
+### Changed
+
+- **GPU audit:** All 7 Heavy-tier shaders optimized to Medium tier
+  - Snowfall: 57% → 32% (grid-based spatial lookup)
+  - Geometry: 70% → 35–55% (flat indexed arrays, bounded edge loops)
+  - Bezier: 70% → 48% (two-pass coarse+fine distance estimation)
+  - Lissajous: 70% → 49% (deferred sqrt, sample count reduction)
+  - Marble: 70% → 43% (merged curl noise samples, reduced steps)
+  - Network: 70% → 43% (grid topology, removed O(n²) pair evaluation)
+  - Starfield: 70% → 43% (Art-of-Code 20-layer zoom architecture)
+- **Lissajous:** Fixed color cycling stall — independent per-curve hue rates
+- **Network:** Grid topology for even screen coverage, 35% overscan, depth-tapered cross-layer lines
+- **Snowfall:** Complete rewrite using grid-cell spatial lookup (3 layers, 27 checks/pixel)
+- **Starfield:** Complete rewrite using multi-layer zoom with golden-angle rotation and dashed trails
+
+### Added
+
+- New benchmarks documented: Aurora (50%), Flames (24%), Oscilloscope (18%)
+- Benchmark doc: `docs/BENCHMARK_0.4.3.md`
+
 ## [0.4.2] - 2026-04-15
 
 ### Added
