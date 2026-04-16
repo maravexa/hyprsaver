@@ -117,8 +117,11 @@ void main() {
         int   rows   = GRID_ROWS[L];
         int   offset = LAYER_OFFSET[L];
         float speed  = 0.04 + fL * 0.02;   // back: slow drift, front: faster
-        float cell_w = aspect / float(cols);
-        float cell_h = 1.0 / float(rows);
+        float expand = 1.35;               // 35% overscan — nodes extend past all screen edges
+        float grid_w = aspect * expand;
+        float grid_h = 1.0   * expand;
+        float cell_w = grid_w / float(cols);
+        float cell_h = grid_h / float(rows);
 
         for (int r = 0; r < 3; r++) {      // max rows = 3
             if (r >= rows) break;
@@ -128,9 +131,9 @@ void main() {
                 int   ni   = r * cols + c;          // local index within layer
                 float seed = fL * 137.531 + float(ni) * 17.37;
 
-                // Regular grid position, centred on screen
-                float bx = (float(c) + 0.5) * cell_w - aspect * 0.5;
-                float by = (float(r) + 0.5) * cell_h - 0.5;
+                // Regular grid position, centred on expanded area
+                float bx = (float(c) + 0.5) * cell_w - grid_w * 0.5;
+                float by = (float(r) + 0.5) * cell_h - grid_h * 0.5;
 
                 // Small hash-based offset — keeps nodes near their cell centre
                 float ox = (hash11(seed + 1.11) - 0.5) * cell_w * 0.5;
