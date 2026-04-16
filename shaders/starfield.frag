@@ -152,13 +152,12 @@ void main() {
         col += StarLayer(uv, trans, cycle_id, i * NUM_LAYERS) * brightness;
     }
 
-    // Vanishing point dead zone: fade to black near screen center.
-    // Stars near center barely move radially — they appear to hit the viewer.
-    float center_fade = smoothstep(0.0, 0.10, length(uv));
-    col *= center_fade;
-
     // Gentle tone-map to handle star overlaps
     col = col / (col + 0.8);
+
+    // Vanishing point dead zone — MUST be last operation before fragColor
+    float center_fade = smoothstep(0.0, 0.10, length(uv));
+    col *= center_fade;
 
     fragColor = vec4(col, 1.0);
 }
