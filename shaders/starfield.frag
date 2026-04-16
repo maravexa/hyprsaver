@@ -1,99 +1,118 @@
 #version 320 es
 precision highp float;
 
-// hyprsaver — starfield.frag  (zoom-layer sparse grid, v4)
+// ---------------------------------------------------------------------------
+// hyprsaver — starfield.frag
+//
+// Hyperspace warp starfield using zoom-layer technique with golden-angle
+// rotation between layers. Each layer is a grid of point lights created
+// by mod() cell distance. Time-varying zoom makes stars stream radially
+// outward. Golden-angle rotation breaks grid artifacts between layers.
+// Radial stretch creates perspective-correct streaks at screen edges.
+// 6 layers, desynchronized speeds, ~15-25% GPU.
+// ---------------------------------------------------------------------------
 
 uniform float u_time;
 uniform vec2  u_resolution;
 uniform vec2  u_mouse;
 uniform int   u_frame;
 
+// Golden angle rotation matrix (≈137.508°)
+// cos(137.508°) ≈ -0.7374,  sin(137.508°) ≈ 0.6755
+const mat2 GOLDEN_ROT = mat2(
+    -0.73736882, -0.67549030,
+     0.67549030, -0.73736882
+);
+
+const int   LAYERS     = 6;
+const float BRIGHTNESS = 0.012;
+const float CELL_SIZE  = 2.0;     // mod period — each cell is 2.0 units wide
+
 float h11(float p) {
-    p = fract(p * 0.1031); p *= p + 33.33; p *= p + p; return fract(p);
-}
-
-float h21(vec2 p) {
-    vec3 p3 = fract(vec3(p.xyx) * 0.1031);
-    p3 += dot(p3, p3.yzx + 33.33);
-    return fract((p3.x + p3.y) * p3.z);
-}
-
-vec2 h22(vec2 p) {
-    vec3 p3 = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973));
-    p3 += dot(p3, p3.yzx + 33.33);
-    return fract((p3.xx + p3.yz) * p3.zy);
-}
-
-vec3 starLayer(vec2 uv, float zoom, float layer_seed) {
-    vec2 scaled_uv = uv / zoom;
-
-    float grid_scale = 12.0;
-    vec2 grid_uv    = scaled_uv * grid_scale;
-    vec2 cell_id    = floor(grid_uv);
-    vec2 cell_local = fract(grid_uv) - 0.5;
-
-    vec3 col = vec3(0.0);
-
-    for (int dx = -1; dx <= 1; dx++) {
-        for (int dy = -1; dy <= 1; dy++) {
-            vec2 neighbor = cell_id + vec2(float(dx), float(dy));
-
-            float exists = h21(neighbor + layer_seed);
-            if (exists < 0.95) continue;
-
-            vec2 star_offset = h22(neighbor + layer_seed + 7.77) - 0.5;
-            star_offset *= 0.7;
-
-            vec2 delta = cell_local - vec2(float(dx), float(dy)) - star_offset;
-            delta /= grid_scale;
-
-            vec2 star_uv       = (neighbor + 0.5 + star_offset) / grid_scale * zoom;
-            float dist_from_center = length(star_uv);
-
-            float streak_amount = dist_from_center * 4.0;
-            streak_amount = min(streak_amount, 6.0);
-
-            vec2 radial_dir = (dist_from_center > 0.001)
-                ? star_uv / dist_from_center
-                : vec2(0.0, 1.0);
-            float radial_comp  = dot(delta, radial_dir);
-            float tangent_comp = abs(delta.x * radial_dir.y - delta.y * radial_dir.x);
-
-            float aniso_dist = length(vec2(
-                radial_comp / max(1.0 + streak_amount, 1.0),
-                tangent_comp
-            ));
-
-            float size_hash = h21(neighbor + layer_seed + 3.33);
-            float base_size = (0.002 + size_hash * 0.004) * zoom;
-
-            float glow = 1.0 - smoothstep(0.0, base_size, aniso_dist);
-            glow *= glow;
-
-            float hue = h21(neighbor + layer_seed + 5.55);
-            col += palette(hue) * glow;
-        }
-    }
-
-    return col;
+    p = fract(p * 0.1031);
+    p *= p + 33.33;
+    p *= p + p;
+    return fract(p);
 }
 
 void main() {
-    vec2 uv  = (gl_FragCoord.xy - 0.5 * u_resolution.xy) / u_resolution.y;
+    vec2 uv = (gl_FragCoord.xy - 0.5 * u_resolution.xy) / u_resolution.y;
     vec3 col = vec3(0.0);
 
-    float speeds[4]  = float[](0.18, 0.24, 0.30, 0.21);
-    float offsets[4] = float[](0.0, 0.37, 0.71, 0.19);
+    // Per-layer speeds and phase offsets — irregular to prevent synchronized bursts
+    float speeds[6]  = float[](0.20, 0.27, 0.33, 0.23, 0.30, 0.17);
+    float offsets[6] = float[](0.00, 0.41, 0.17, 0.73, 0.56, 0.89);
 
-    for (int i = 0; i < 4; i++) {
+    // Density scale controls how many stars per layer
+    float density = 8.0 * u_zoom_scale;
+
+    // Accumulate rotated coordinates — rotation is cumulative across layers
+    vec2 rotated_uv = uv;
+
+    for (int i = 0; i < LAYERS; i++) {
+        float fi = float(i);
+
+        // Rotate UV by golden angle — cumulative, so each layer has unique orientation
+        rotated_uv *= GOLDEN_ROT;
+
+        // Zoom phase for this layer
         float phase = fract(u_time * u_speed_scale * speeds[i] + offsets[i]);
-        if (phase > 0.92) continue;
-        float zoom = mix(0.2, 4.0, phase);
-        float fade = smoothstep(0.0, 0.25, phase);
 
-        float layer_seed = float(i) * 137.531 + 42.0;
-        col += starLayer(uv, zoom, layer_seed) * fade;
+        // Skip layers near cycle wrap — nothing visible anyway
+        if (phase > 0.93) continue;
+
+        // Zoom: small = far (dense tiny stars), large = near (sparse, flying past)
+        float zoom = mix(0.3, 5.0, phase * phase);  // quadratic: accelerates outward
+
+        // Fade in at birth only — zoom handles exit naturally
+        float fade = smoothstep(0.0, 0.2, phase);
+
+        // Scale UV by zoom — THIS is the warp effect
+        vec2 p = rotated_uv * density / zoom;
+
+        // Layer shift — prevents overlapping star positions between layers
+        p += fi * 2.618;  // golden ratio shift
+
+        // Cell-local position: distance from nearest cell center
+        vec2 cell_local = mod(p, CELL_SIZE) - (CELL_SIZE * 0.5);
+
+        // --- Radial streak ---
+        // Stretch cell_local along the radial direction from screen center
+        // Stars at edges get elongated, center stars stay round
+        float dist_from_center = length(uv);
+        float streak = dist_from_center * 3.5;
+        streak = min(streak, 5.0);
+
+        if (streak > 0.01 && dist_from_center > 0.01) {
+            vec2 radial_dir = uv / dist_from_center;
+            float radial_comp = dot(cell_local, radial_dir);
+            float tangent_comp = cell_local.x * radial_dir.y - cell_local.y * radial_dir.x;
+
+            // Compress radial component — elongates star along travel direction
+            cell_local = vec2(
+                radial_comp / (1.0 + streak),
+                tangent_comp
+            );
+        }
+
+        // Distance to cell center
+        float len = length(cell_local);
+
+        // Point light attenuation: bright at center, zero at cell edge
+        // max(1-len, 0) ensures zero contribution outside radius 1.0
+        // Division by len creates sharp point-light falloff
+        float att = max(1.0 - len, 0.0) / (len + 0.001);  // +0.001 prevents div by zero
+
+        // Scale brightness by zoom — near stars are brighter
+        att *= BRIGHTNESS * zoom;
+
+        // Color: each layer samples palette at a different point
+        float hue = fract(fi * 0.1618 + u_time * u_speed_scale * 0.01);
+        col += palette(hue) * att * fade;
     }
+
+    // Soft tone-map to prevent clipping at star centers
+    col = col / (col + 1.0);
 
     fragColor = vec4(col, 1.0);
 }
