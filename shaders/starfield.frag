@@ -5,11 +5,12 @@ precision highp float;
 // hyprsaver — starfield.frag
 //
 // Hyperspace warp starfield using zoom-layer technique with golden-angle
-// rotation between layers. Each layer is a grid of point lights created
-// by mod() cell distance. Time-varying zoom makes stars stream radially
-// outward. Golden-angle rotation breaks grid artifacts between layers.
-// Radial stretch creates perspective-correct streaks at screen edges.
-// 6 layers, desynchronized speeds, ~15-25% GPU.
+// rotation between layers. Each layer is a sparse grid (~30% occupied) of
+// point lights with random per-cell offsets. Time-varying zoom makes stars
+// stream radially outward. Golden-angle rotation breaks grid artifacts between
+// layers. Radial stretch creates perspective-correct streaks at screen edges.
+// Fixed screen-space dot size via zoom compensation. 6 layers, desynchronized
+// speeds, ~15-25% GPU.
 // ---------------------------------------------------------------------------
 
 uniform float u_time;
@@ -32,6 +33,18 @@ float h11(float p) {
     p *= p + 33.33;
     p *= p + p;
     return fract(p);
+}
+
+float h21(vec2 p) {
+    vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+    p3 += dot(p3, p3.yzx + 33.33);
+    return fract((p3.x + p3.y) * p3.z);
+}
+
+vec2 h22(vec2 p) {
+    vec3 p3 = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973));
+    p3 += dot(p3, p3.yzx + 33.33);
+    return fract((p3.xx + p3.yz) * p3.zy);
 }
 
 void main() {
@@ -72,11 +85,20 @@ void main() {
         // Layer shift — prevents overlapping star positions between layers
         p += fi * 2.618;  // golden ratio shift
 
-        // Cell-local position: distance from nearest cell center
-        vec2 cell_local = mod(p, CELL_SIZE) - (CELL_SIZE * 0.5);
+        // Cell ID and local position
+        vec2 cell_id = floor(p / CELL_SIZE);
+        vec2 cell_local = (p / CELL_SIZE) - cell_id - 0.5;  // [-0.5, 0.5]
+
+        // Sparsity: only ~30% of cells contain a star
+        float exists = h21(cell_id + fi * 7.77);
+        if (exists > 0.30) continue;  // skip empty cells — 70% bail here
+
+        // Random position offset within cell — stays well within bounds
+        vec2 offset = (h22(cell_id + fi * 13.13) - 0.5) * 0.6;  // [-0.3, +0.3]
+        vec2 delta = cell_local - offset;
 
         // --- Radial streak ---
-        // Stretch cell_local along the radial direction from screen center
+        // Stretch delta along the radial direction from screen center
         // Stars at edges get elongated, center stars stay round
         float dist_from_center = length(uv);
         float streak = dist_from_center * 3.5;
@@ -84,30 +106,29 @@ void main() {
 
         if (streak > 0.01 && dist_from_center > 0.01) {
             vec2 radial_dir = uv / dist_from_center;
-            float radial_comp = dot(cell_local, radial_dir);
-            float tangent_comp = cell_local.x * radial_dir.y - cell_local.y * radial_dir.x;
+            float radial_comp = dot(delta, radial_dir);
+            float tangent_comp = delta.x * radial_dir.y - delta.y * radial_dir.x;
 
             // Compress radial component — elongates star along travel direction
-            cell_local = vec2(
+            delta = vec2(
                 radial_comp / (1.0 + streak),
                 tangent_comp
             );
         }
 
-        // Distance to cell center
-        float len = length(cell_local);
+        float len = length(delta) * CELL_SIZE;  // convert back to grid units
 
-        // Hard dot: binary on/off based on distance threshold
-        float att = step(len, 0.3);
+        // Fixed screen-space dot radius: divide by zoom so dots stay the same
+        // pixel size regardless of zoom level
+        float dot_radius = 0.08 / zoom;
 
-        att *= 0.35;
+        // Hard dot with 1px anti-alias edge
+        float att = 1.0 - smoothstep(dot_radius * 0.8, dot_radius, len);
 
-        // Color: each layer samples palette at a different point
-        float hue = fract(fi * 0.1618 + u_time * u_speed_scale * 0.01);
-        col += palette(hue) * att * fade;
+        // Per-cell palette color
+        float hue = h21(cell_id + fi * 31.31 + 5.55);
+        col += palette(hue) * att * fade * 0.6;
     }
 
-    col = min(col, 1.0);
-
-    fragColor = vec4(col, 1.0);
+    fragColor = vec4(min(col, 1.0), 1.0);
 }
