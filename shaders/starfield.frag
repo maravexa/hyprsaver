@@ -64,11 +64,13 @@ vec3 StarLayer(vec2 uv, float trans, float cycle_id, float layer_idx) {
     // trans=0: UV scaled to zero (everything at center, invisible).
     // trans=1: UV at full scale (stars at their widest spread).
     // Using trans*trans for acceleration (slow birth, fast exit).
-    vec2 scaled = uv * mix(20.0, 0.5, trans);
+    float scale_now = mix(20.0, 0.5, trans);
 
     // Per-layer rotation breaks grid alignment between layers.
     // Golden angle (137.508°) ensures no two layers share grid axes.
-    scaled *= Rot(layer_idx * 2.3999);
+    // uv_rot is the rotated-but-not-scaled UV, needed for trail offset direction.
+    vec2 uv_rot = uv * Rot(layer_idx * 2.3999);
+    vec2 scaled = uv_rot * scale_now;
 
     // Unique layer shift so star positions differ between layers
     scaled += layer_idx * 31.416;
@@ -95,7 +97,24 @@ vec3 StarLayer(vec2 uv, float trans, float cycle_id, float layer_idx) {
             float att = 1.0 - smoothstep(star_size * 0.85, star_size, sqrt(d2));
 
             float hue = fract(n * 789.01);
+
+            // Trail dots: shift delta analytically using zoom-phase difference.
+            // At an earlier zoom phase the pixel mapped to a slightly different
+            // grid position; the difference is uv_rot * (S_prev - scale_now).
+            float dt = 0.018;
+            float trail_fade = smoothstep(0.0, 0.08, trans); // suppress on newborn stars
+
+            float S_prev1 = mix(20.0, 0.5, max(trans - dt, 0.0));
+            vec2 trail_delta1 = delta + uv_rot * (S_prev1 - scale_now);
+            float trail_att1 = (1.0 - smoothstep(star_size * 0.85, star_size, sqrt(dot(trail_delta1, trail_delta1)))) * trail_fade;
+
+            float S_prev2 = mix(20.0, 0.5, max(trans - dt * 2.0, 0.0));
+            vec2 trail_delta2 = delta + uv_rot * (S_prev2 - scale_now);
+            float trail_att2 = (1.0 - smoothstep(star_size * 0.85, star_size, sqrt(dot(trail_delta2, trail_delta2)))) * trail_fade;
+
             col += palette(hue) * att;
+            col += palette(hue) * trail_att1 * 0.65;
+            col += palette(hue) * trail_att2 * 0.35;
         }
     }
 
