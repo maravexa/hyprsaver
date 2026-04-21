@@ -82,35 +82,43 @@ void main() {
     float wave_n  = total_wave / max(total_intensity, 0.15);
     float wave_01 = 0.5 + 0.5 * wave_n;  // remap to [0, 1]
 
-    // ===== RADIAL SWEEP =====
+    float wave_intensity = smoothstep(0.35, 0.90, wave_01);
+
+    // ===== SWEEP (visibility gate for everything colored) =====
     float sweep_angle = t * SWEEP_SPEED;
     float pixel_angle = atan(p.y, p.x);
-    // recency: 0 = just swept, → 1 = nearly full rotation since swept
-    float recency = mod((sweep_angle - pixel_angle) / TAU + 1.0, 1.0);
-    float sweep   = exp(-recency * 6.0);  // exponential trailing decay
 
-    // ===== EMITTER BLIPS =====
-    float blip_glow = 0.0;
+    // "behind" = radians since this pixel was last swept (0 = just swept, ~TAU = about to be swept)
+    float behind = mod(sweep_angle - pixel_angle, TAU);
+
+    // Leading beam — sharp bright line at the current sweep angle
+    float beam = exp(-behind * 40.0);
+
+    // Trail — softer fade behind the beam, for wave visibility
+    float trail = exp(-behind * 3.0);
+
+    // ===== EMITTER DOTS (white, sharp, no glow) =====
+    float dots = 0.0;
     for (int i = 0; i < NUM_EMITTERS; i++) {
         vec2  epos = emitter_pos(i, t);
         float d    = length(p - epos);
-        blip_glow += exp(-d * 35.0);  // tight bright point
+        dots += smoothstep(0.010, 0.006, d);
     }
+    dots = clamp(dots, 0.0, 1.0);
 
     // ===== COMPOSE =====
-    // Base: dim wave pattern always present
-    vec3 col_wave  = palette(fract(wave_01 * 0.7 + t * 0.02)) * 0.25;
+    vec3 color = vec3(0.0);
 
-    // Sweep-enhanced: waves much brighter where sweep is passing.
-    // Sweep multiplies the existing wave rather than painting its own color —
-    // contacts ARE the waves, the sweep just reveals them.
-    vec3 col_sweep = palette(fract(wave_01 * 0.7 + t * 0.02 + 0.3))
-                   * sweep * wave_01 * 1.3;
+    // Trail reveals colored wave interference. Outside trail, pure black.
+    vec3 col_wave = palette(fract(wave_01 * 0.7 + t * 0.06));
+    color += col_wave * wave_intensity * trail;
 
-    // Blips: bright palette-cycling points at emitter centres
-    vec3 col_blip  = palette(fract(t * 0.1)) * blip_glow * 1.8;
+    // Leading beam — bright palette-cycling arc.
+    vec3 col_beam = palette(fract(t * 0.1));
+    color += col_beam * beam * 0.9;
 
-    vec3 color = col_wave + col_sweep + col_blip;
+    // Emitter dots — pure white, sharp edges, always visible.
+    color += vec3(1.0) * dots;
 
     fragColor = vec4(clamp(color, 0.0, 1.0), 1.0);
 }
