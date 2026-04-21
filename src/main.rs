@@ -586,6 +586,10 @@ fn shader_descriptions() -> std::collections::HashMap<&'static str, &'static str
         ),
         ("tunnel", "Infinite tunnel flythrough"),
         ("voronoi", "Animated Voronoi cells"),
+        (
+            "waves",
+            "Retro 2D waves with horizon perspective — triangle-wave field, hard-step isolines, posterized palette bands, CRT scanlines",
+        ),
     ]
     .into_iter()
     .collect()

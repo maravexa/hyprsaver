@@ -112,6 +112,11 @@ pub const BUILTIN_GRIDFLY: &str = include_str!("../shaders/gridfly.frag");
 /// Lightweight GPU tier.
 pub const BUILTIN_WORMHOLE: &str = include_str!("../shaders/wormhole.frag");
 
+/// Retro 2D waves with a horizon perspective — flat-plane perspective inverse,
+/// triangle-wave field, hard-step isolines, posterized palette bands, CRT scanlines.
+/// No raymarching, no normals. Lightweight GPU tier.
+pub const BUILTIN_WAVES: &str = include_str!("../shaders/waves.frag");
+
 // ---------------------------------------------------------------------------
 // Vertex shader for the fullscreen quad (triangle-strip, no VBO needed)
 // ---------------------------------------------------------------------------
@@ -289,6 +294,7 @@ impl ShaderManager {
             ("tesla", BUILTIN_TESLA),
             ("tunnel", BUILTIN_TUNNEL),
             ("voronoi", BUILTIN_VORONOI),
+            ("waves", BUILTIN_WAVES),
             ("wormhole", BUILTIN_WORMHOLE),
         ];
         for (name, raw_const) in builtins {
@@ -833,7 +839,7 @@ mod tests {
 
     #[test]
     fn test_builtin_shader_count() {
-        assert_eq!(manager().list().len(), 28);
+        assert_eq!(manager().list().len(), 29);
     }
 
     #[test]
@@ -868,6 +874,7 @@ mod tests {
             "tesla",
             "tunnel",
             "voronoi",
+            "waves",
             "wormhole",
         ] {
             assert!(
