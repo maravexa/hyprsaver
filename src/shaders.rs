@@ -92,10 +92,6 @@ pub const BUILTIN_CLOUDS: &str = include_str!("../shaders/clouds.frag");
 /// (sharp bright lower edge, long soft glow tail upward). Pure trig + exp, no fBm.
 pub const BUILTIN_AURORA: &str = include_str!("../shaders/aurora.frag");
 
-/// df32 precision nuclear test — three horizontal stripes exercising ds_set_from_pair,
-/// ds_add (TwoSum), and ds_mul (Dekker split). All stripes gray = df32 functional.
-pub const BUILTIN_DF32_NUCLEAR_TEST: &str = include_str!("../shaders/df32_nuclear_test.frag");
-
 /// Deep-zoom Mandelbrot — df32 coordinate arithmetic enables zoom depth ~1e11.
 /// CPU-side state machine drives focal-point selection, exponential zoom lifecycle,
 /// and iteration budget scaling. Palette-inherited background.
@@ -292,43 +288,6 @@ impl ShaderManager {
                     builtin: true,
                 },
             );
-        }
-
-        // df32_nuclear_test: validate precision constants before registering.
-        // These are derived from f64 arithmetic; if either lo part is exactly zero
-        // the host runtime cannot produce the sub-ULP residuals the test requires.
-        {
-            let pi_f64: f64 = std::f64::consts::PI;
-            let pi_hi: f32 = pi_f64 as f32;
-            let pi_lo: f32 = (pi_f64 - pi_hi as f64) as f32;
-            let pi_sq_f64: f64 = pi_f64 * pi_f64;
-            let pi_sq_hi: f32 = pi_sq_f64 as f32;
-            let pi_sq_lo: f32 = (pi_sq_f64 - pi_sq_hi as f64) as f32;
-            if pi_lo == 0.0 || pi_sq_lo == 0.0 {
-                log::error!(
-                    "df32_nuclear_test: f64→f32 residuals are zero \
-                     (pi_lo={pi_lo}, pi_sq_lo={pi_sq_lo}); shader not registered"
-                );
-                eprintln!(
-                    "ERROR: df32_nuclear_test: f64→f32 residuals are zero \
-                     (pi_lo={pi_lo}, pi_sq_lo={pi_sq_lo}); shader not registered"
-                );
-            } else {
-                let raw = BUILTIN_DF32_NUCLEAR_TEST
-                    .strip_prefix('\u{FEFF}')
-                    .unwrap_or(BUILTIN_DF32_NUCLEAR_TEST)
-                    .to_string();
-                let compiled = prepare_shader(&raw);
-                shaders.insert(
-                    "df32_nuclear_test".to_string(),
-                    ShaderSource {
-                        name: "df32_nuclear_test".to_string(),
-                        raw,
-                        compiled,
-                        builtin: true,
-                    },
-                );
-            }
         }
 
         // Scan user shader directory if it exists.
@@ -856,7 +815,7 @@ mod tests {
 
     #[test]
     fn test_builtin_shader_count() {
-        assert_eq!(manager().list().len(), 26);
+        assert_eq!(manager().list().len(), 25);
     }
 
     #[test]
@@ -868,7 +827,6 @@ mod tests {
             "bezier",
             "caustics",
             "clouds",
-            "df32_nuclear_test",
             "donut",
             "flames",
             "geometry",
