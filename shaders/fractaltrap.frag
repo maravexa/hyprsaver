@@ -4,20 +4,18 @@ precision highp float;
 // ---------------------------------------------------------------------------
 // hyprsaver — fractaltrap.frag
 //
-// Classic Julia iteration (z² + c) with orbit-trap coloring. Instead of
+// Cubic Julia iteration (z³ + c) with orbit-trap coloring. Instead of
 // counting iterations to escape, we track the minimum distance from the
 // orbit to three rotating point traps arranged at 120° phase offsets.
 // The color comes entirely from that minimum distance — both escaping and
 // non-escaping (interior) pixels use the trap signal, so there is no
 // solid-color interior region.
 //
-// This produces a stained-glass / cellular aesthetic that is visually
-// distinct from every other shader in the roster despite using the same
-// underlying iteration as julia.frag.
+// z³ + c gives inherent 3-fold rotational symmetry, aligning with the
+// three trap points for a clean triangular visual structure.
 //
-// c orbits at the classic r=0.7885 radius, which sits on the boundary of
-// the Mandelbrot main cardioid for all angles — every moment of the
-// animation produces a connected, structured Julia set.
+// c orbits at r=0.6, comfortably inside the cubic multibrot's connected
+// region — every angle produces a connected, structured Julia set.
 // ---------------------------------------------------------------------------
 
 uniform float u_time;
@@ -30,10 +28,10 @@ void main() {
     vec2 p = (gl_FragCoord.xy - 0.5 * u_resolution.xy) / u_resolution.y;
     vec2 z = p * 1.8;
 
-    // c traces the r=0.7885 circle — every angle produces a structured Julia.
+    // c traces the r=0.6 circle — stays inside cubic multibrot connected region.
     // Full cycle ≈ 52 s at default speed.
     float angle = u_time * u_speed_scale * 0.12;
-    vec2 c = vec2(0.7885 * cos(angle), 0.7885 * sin(angle));
+    vec2 c = 0.6 * vec2(cos(angle), sin(angle));
 
     // Three trap points at 120° phase offsets, rotating with time.
     const float TRAP_ORBIT_RADIUS = 0.6;
@@ -49,7 +47,11 @@ void main() {
     float escape_iter = float(MAX_ITER);
 
     for (int i = 0; i < MAX_ITER; i++) {
-        z = vec2(z.x * z.x - z.y * z.y, 2.0 * z.x * z.y) + c;
+        float xsq = z.x * z.x;
+        float ysq = z.y * z.y;
+        float new_x = z.x * (xsq - 3.0 * ysq);
+        float new_y = z.y * (3.0 * xsq - ysq);
+        z = vec2(new_x, new_y) + c;
 
         // Minimum squared distance to any of the three trap points.
         vec2 d1 = z - trap_p1;
