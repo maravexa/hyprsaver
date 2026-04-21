@@ -14,7 +14,6 @@ use std::sync::Arc;
 
 mod config;
 mod cycle;
-mod mandelbrot_deep;
 mod palette;
 mod preview;
 mod renderer;
@@ -546,7 +545,6 @@ fn shader_descriptions() -> std::collections::HashMap<&'static str, &'static str
         ("julia", "Julia set with animated constant"),
         ("kaleidoscope", "6-fold kaleidoscope with domain-warped FBM"),
         ("lissajous", "Three overlapping Lissajous curves with glow"),
-        ("mandelbrot", "Mandelbrot set zoom"),
         (
             "matrix",
             "Digital rain — falling characters in the style of The Matrix",

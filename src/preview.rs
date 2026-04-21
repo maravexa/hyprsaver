@@ -241,7 +241,6 @@ struct PreviewPanelState {
     selected_shader: String,
     selected_palette: String,
     speed: f32,
-    zoom: f32,
     status_message: String,
     /// Set to true by the ▶ Preview button; cleared after applying changes.
     preview_requested: bool,
@@ -345,9 +344,6 @@ struct PreviewState {
     fps_frame_count: u32,
     fps_last_sample: Instant,
     fps_display: f32,
-
-    /// State machine for `mandelbrot_deep` zoom lifecycle in preview mode.
-    mandelbrot_deep_state: Option<crate::mandelbrot_deep::MandelbrotDeepState>,
 
     /// Cached 64×64 shader thumbnails keyed by shader name. Regenerated when
     /// palette changes. Values are RGBA8 pixel data (64*64*4 bytes).
@@ -466,7 +462,6 @@ impl PreviewState {
                         selected_shader: self.active_shader.clone(),
                         selected_palette: self.active_palette.clone(),
                         speed: 1.0,
-                        zoom: 1.0,
                         status_message: String::new(),
                         preview_requested: false,
                         active_tab: PreviewTab::Preview,
@@ -600,20 +595,6 @@ impl PreviewState {
             0
         };
         let shader_w_phys = phys_w.saturating_sub(panel_w_phys).max(1);
-
-        // Tick mandelbrot_deep state machine and push per-frame uniforms if active.
-        if self.active_shader == "mandelbrot_deep" {
-            if self.mandelbrot_deep_state.is_none() {
-                self.mandelbrot_deep_state =
-                    Some(crate::mandelbrot_deep::MandelbrotDeepState::new());
-            }
-            if let Some(ref mut deep_state) = self.mandelbrot_deep_state {
-                let uniforms = deep_state.update(now);
-                if let Some(r) = self.renderer.as_mut() {
-                    r.set_mandelbrot_deep_uniforms(&uniforms);
-                }
-            }
-        }
 
         // Render shader in the left portion (or full window when panel hidden).
         self.renderer
@@ -788,7 +769,6 @@ impl PreviewState {
             let sel_shader = bundle.state.selected_shader.clone();
             let sel_palette = bundle.state.selected_palette.clone();
             let speed = bundle.state.speed;
-            let zoom = bundle.state.zoom;
 
             if let Some(src) = self.shader_manager.get_compiled(&sel_shader) {
                 let src = src.to_string();
@@ -816,7 +796,6 @@ impl PreviewState {
 
             if let Some(r) = self.renderer.as_mut() {
                 r.set_speed_scale(speed);
-                r.set_zoom_scale(zoom);
             }
 
             if let Some(win) = &self.window {
@@ -1020,7 +999,6 @@ impl PreviewState {
                 &self.active_shader,
                 &self.active_palette,
                 bundle.state.speed,
-                bundle.state.zoom,
                 &ed.shader_playlist_name,
                 &ed.palette_playlist_name,
                 &ed.shader_items,
@@ -1386,11 +1364,6 @@ pub fn run(
         thumbnail_pixels: std::collections::HashMap::new(),
         thumbnail_textures: std::collections::HashMap::new(),
         thumbnails_palette: active_palette,
-        mandelbrot_deep_state: if active_shader == "mandelbrot_deep" {
-            Some(crate::mandelbrot_deep::MandelbrotDeepState::new())
-        } else {
-            None
-        },
     };
 
     // Calloop event loop.
@@ -1711,7 +1684,7 @@ impl WindowHandler for PreviewState {
                 let shader_compiled = self
                     .shader_manager
                     .get_compiled(&self.active_shader)
-                    .unwrap_or(crate::shaders::BUILTIN_MANDELBROT)
+                    .unwrap_or(crate::shaders::BUILTIN_JULIA)
                     .to_string();
 
                 use wayland_client::Proxy as _;
@@ -2416,23 +2389,6 @@ fn draw_preview_tab(
             egui::CollapsingHeader::new(egui::RichText::new("Display").strong())
                 .default_open(true)
                 .show(ui, |ui| {
-                    ui.label(format!("Zoom  {:.2}×", state.zoom));
-                    ui.horizontal(|ui| {
-                        ui.add(
-                            egui::Slider::new(&mut state.zoom, 0.1_f32..=3.0)
-                                .step_by(0.05f64)
-                                .show_value(false),
-                        );
-                        if ui
-                            .add(egui::Button::new("↺").min_size(egui::Vec2::new(24.0, 0.0)))
-                            .on_hover_text("Reset to default")
-                            .clicked()
-                        {
-                            state.zoom = 1.0;
-                        }
-                    });
-
-                    ui.add_space(4.0);
                     ui.checkbox(&mut state.show_fps, "Show FPS counter");
                 });
 
@@ -2472,7 +2428,7 @@ fn draw_preview_tab(
                     .fill(save_accent)
                     .min_size(egui::Vec2::new(avail_w - 8.0, 28.0)),
                 )
-                .on_hover_text("Write current shader/palette/speed/zoom to hyprsaver.toml")
+                .on_hover_text("Write current shader/palette/speed to hyprsaver.toml")
                 .clicked()
             {
                 state.save_config_requested = true;
@@ -3524,8 +3480,8 @@ fn save_palette_config(name: &str, palette: &Palette) -> Result<String, String> 
 
 /// Merge the full preview state into the on-disk config and write it back.
 ///
-/// Sets `[general].shader`, `[general].palette`, `[general].speed_scale`,
-/// `[general].zoom_scale`. If `shader_items` or `palette_items` are
+/// Sets `[general].shader`, `[general].palette`, `[general].speed_scale`.
+/// If `shader_items` or `palette_items` are
 /// non-empty, also writes `[shader_playlists.custom]` /
 /// `[palette_playlists.custom]` plus the matching cycle-interval and
 /// order keys (same logic as [`save_playlist_config`]). For every
@@ -3545,7 +3501,6 @@ fn save_preview_config(
     shader: &str,
     palette: &str,
     speed: f32,
-    zoom: f32,
     shader_playlist_name: &str,
     palette_playlist_name: &str,
     shader_items: &[String],
@@ -3608,7 +3563,6 @@ fn save_preview_config(
             toml::Value::String(palette.to_string()),
         );
         general.insert("speed_scale".to_string(), toml::Value::Float(speed as f64));
-        general.insert("zoom_scale".to_string(), toml::Value::Float(zoom as f64));
 
         // Only push playlist-related keys when the user actually has items
         // in either list — otherwise Save Config should not mutate cycle
