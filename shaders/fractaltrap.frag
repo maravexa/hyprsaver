@@ -45,6 +45,8 @@ void main() {
     const int MAX_ITER = 80;
     // Accumulate squared distances; take sqrt once after the loop (v0.4.3 pattern).
     float min_trap_dist_sq = 1.0e10;
+    bool escaped = false;
+    float escape_iter = float(MAX_ITER);
 
     for (int i = 0; i < MAX_ITER; i++) {
         z = vec2(z.x * z.x - z.y * z.y, 2.0 * z.x * z.y) + c;
@@ -56,13 +58,42 @@ void main() {
         float dsq = min(min(dot(d1,d1), dot(d2,d2)), dot(d3,d3));
         min_trap_dist_sq = min(min_trap_dist_sq, dsq);
 
-        if (dot(z, z) > 4.0) {
+        float zmod2 = dot(z, z);
+        if (zmod2 > 4.0) {
+            escape_iter = float(i) + 1.0;
+            escaped = true;
             break;
         }
     }
 
-    // Deferred sqrt; invert so close-to-trap orbits are bright, far are dark.
     float min_trap_dist = sqrt(min_trap_dist_sq);
-    float t = 1.0 - sqrt(clamp(min_trap_dist, 0.0, 1.0));
-    fragColor = vec4(palette(t), 1.0);
+
+    // Brightness gate: far-from-all-traps pixels naturally fall to black
+    // exp falloff gives smooth transition, not a hard cutoff
+    float trap_glow = exp(-min_trap_dist * 3.0);
+
+    // Primary layer: palette cycles with trap distance, animated over time
+    // The *2.0 multiplier produces two full palette cycles across the trap range
+    float t_trap = clamp(min_trap_dist, 0.0, 1.0);
+    vec3 col_primary = palette(fract(t_trap * 2.0 + u_time * 0.05));
+
+    // Secondary layer: palette cycles with escape iteration, offset in palette space
+    float t_iter = escape_iter / float(MAX_ITER);
+    vec3 col_secondary = palette(fract(t_iter * 3.0 + u_time * 0.07 + 0.3));
+
+    // Blend the two layers — primary dominant, secondary adds detail variation
+    vec3 col = mix(col_primary, col_secondary, 0.4);
+
+    // Interior pixels dim slightly so trap pattern still reads inside the set
+    if (!escaped) {
+        col *= 0.6;
+    }
+
+    // Apply trap-proximity brightness gate — this is what produces black background
+    col *= trap_glow;
+
+    // Edge smoothstep: below a small threshold, blend cleanly to pure black
+    col *= smoothstep(0.0, 0.05, trap_glow);
+
+    fragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
 }
