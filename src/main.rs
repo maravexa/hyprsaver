@@ -542,6 +542,10 @@ fn shader_descriptions() -> std::collections::HashMap<&'static str, &'static str
             "hypercube",
             "4D tesseract rotating in two planes, projected to 2D with neon glow",
         ),
+        (
+            "fractaltrap",
+            "Julia set with orbit-trap coloring — tracks minimum distance to a circle trap, producing stained-glass / cellular patterns",
+        ),
         ("julia", "Julia set with animated constant"),
         ("kaleidoscope", "6-fold kaleidoscope with domain-warped FBM"),
         ("lissajous", "Three overlapping Lissajous curves with glow"),
@@ -558,6 +562,10 @@ fn shader_descriptions() -> std::collections::HashMap<&'static str, &'static str
             "Realistic CRT oscilloscope — three animated waveform traces over a phosphor measurement grid with scanlines and vignette",
         ),
         ("plasma", "Classic plasma effect"),
+        (
+            "shipburn",
+            "Burning Ship Julia — absolute-value folding before squaring produces angular, mirror-symmetric ship-silhouette shapes",
+        ),
         ("donut", "Raymarched torus with Phong lighting"),
         ("snowfall", "Five-layer parallax snowfall"),
         (

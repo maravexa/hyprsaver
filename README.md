@@ -82,12 +82,13 @@ cargo install hyprsaver
 - **Shadertoy-compatible** shader format -- paste Shadertoy code with minimal edits, it just works
 - **Hot-reload** shaders from `~/.config/hypr/hyprsaver/shaders/` -- edit, save, see the change instantly
 - **Cycle mode** for shaders and palettes -- rotate through all or a named playlist on a configurable interval
-- **Built-in shader collection** (24 shaders):
+- **Built-in shader collection** (25 shaders):
 
   | Name            | Description                                          |
   |-----------------|------------------------------------------------------|
-  | `mandelbrot`    | Mandelbrot set with animated zoom                    |
   | `julia`         | Julia set with animated parameter                    |
+  | `shipburn`      | Burning Ship Julia — absolute-value folding produces angular, mirror-symmetric ship silhouettes |
+  | `fractaltrap`   | Julia with orbit-trap coloring — stained-glass / cellular aesthetic, no solid interior |
   | `plasma`        | Classic plasma effect                                |
   | `tunnel`        | Infinite tunnel flythrough                           |
   | `voronoi`       | Animated Voronoi cells                               |
@@ -121,15 +122,15 @@ cargo install hyprsaver
 
 ## GPU Performance
 
-### GPU Performance (v0.4.3)
+### GPU Performance (v0.4.4)
 
 Benchmarked on AMD HawkPoint1 (GMKtec Nucbox K12) with dual 1920×1200 monitors.
 
 - **Lightweight (<25% GPU):** Caustics, Flames, Matrix, Oscilloscope, Planet, Plasma, Tunnel
-- **Medium (25–50% GPU):** Aurora, Bezier, Donut, Geometry, Hypercube, Julia, Kaleidoscope, Lissajous, Mandelbrot, Marble, Network, Snowfall, Starfield, Tesla, Voronoi
+- **Medium (25–50% GPU):** Aurora, Bezier, Donut, Fractaltrap, Geometry, Hypercube, Julia, Kaleidoscope, Lissajous, Marble, Network, Shipburn, Snowfall, Starfield, Tesla, Voronoi
 - **Heavy (51–75% GPU):** None at steady state (Geometry spikes to 55% during shape transitions only)
 
-All shaders previously in the Heavy tier (Bezier, Geometry, Lissajous, Marble, Network, Snowfall, Starfield) were optimized in v0.4.3. See `docs/BENCHMARK_0.4.3.md` for full results.
+All shaders previously in the Heavy tier (Bezier, Geometry, Lissajous, Marble, Network, Snowfall, Starfield) were optimized in v0.4.3. See `docs/BENCHMARK_0.4.3.md` for full results. New shaders in v0.4.4: see `docs/benchmark-v0.4.4.md`.
 
 ---
 
@@ -381,7 +382,7 @@ shaders = ["plasma", "marble", "bezier", "lissajous", "planet"]
 palettes = ["vaporwave", "frost", "ocean", "aurora"]
 
 [playlists.intense]
-shaders = ["mandelbrot", "julia", "tesla", "kaleidoscope", "flames"]
+shaders = ["shipburn", "fractaltrap", "julia", "tesla", "kaleidoscope", "flames"]
 palettes = ["rainbow", "ember", "groovy"]
 ```
 
@@ -754,7 +755,7 @@ MIT -- see [LICENSE](LICENSE).
 
 ## Acknowledgments
 
-- **[Inigo Quilez](https://iquilezles.org/)** -- for the cosine gradient palette technique and for [Shadertoy](https://www.shadertoy.com), the best shader playground in existence. The smooth iteration coloring in `mandelbrot.frag` is also his technique.
+- **[Inigo Quilez](https://iquilezles.org/)** -- for the cosine gradient palette technique, the smooth iteration coloring technique used in the Julia family shaders, and for [Shadertoy](https://www.shadertoy.com), the best shader playground in existence.
 - **[Hyprland](https://hyprland.org)** and the [hyprwm](https://github.com/hyprwm) ecosystem (hyprlock, hypridle) -- for building a compositor worth building screensavers for.
 - **[wlr-protocols](https://gitlab.freedesktop.org/wlroots/wlr-protocols)** -- for `zwlr_layer_shell_v1`, which makes proper Wayland screensavers possible.
 - **[smithay](https://github.com/Smithay/smithay)** -- for smithay-client-toolkit, the best Rust Wayland client toolkit.
