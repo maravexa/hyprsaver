@@ -41,6 +41,8 @@ const float TAU          = 6.28318530;
 const float RING_DENSITY = 5.0;    // backdrop concentric rings per unit distance
 const float BLIP_SIZE    = 0.025;  // blip radius in screen units
 const float BLIP_DECAY   = 3.0;    // seconds for blip to fully fade
+const float GRID_LINE_WIDTH = 0.004;  // outer fade edge (d-space units)
+const float GRID_LINE_CORE  = 0.001;  // inner fully-bright edge
 
 // ---------------------------------------------------------------------------
 // Emitter paths — slow Lissajous drift, bounded to [-0.6, 0.6]
@@ -67,23 +69,32 @@ void main() {
     // ===== STATIC BACKDROP =====
     // Crosshair along x=0 and y=0 axes
     float cross = max(
-        smoothstep(0.004, 0.001, abs(p.x)),
-        smoothstep(0.004, 0.001, abs(p.y))
+        smoothstep(GRID_LINE_WIDTH, GRID_LINE_CORE, abs(p.x)),
+        smoothstep(GRID_LINE_WIDTH, GRID_LINE_CORE, abs(p.y))
     );
 
     // Concentric rings — thin bright lines at regular radii
     float ring_phase = fract(d * RING_DENSITY);
-    float sonar_rings = smoothstep(0.08, 0.02,
-        min(ring_phase, 1.0 - ring_phase));
+    // Convert phase-distance to d-space distance by dividing by RING_DENSITY
+    float d_to_ring = min(ring_phase, 1.0 - ring_phase) / RING_DENSITY;
+    float sonar_rings = smoothstep(GRID_LINE_WIDTH, GRID_LINE_CORE, d_to_ring);
 
     // Fade backdrop away from center (gives "scope viewport" feel)
     float backdrop_falloff = smoothstep(1.2, 0.3, d);
     float backdrop = max(cross, sonar_rings) * backdrop_falloff;
 
     // ===== ROTATING SWEEP =====
+    // Angular distance (for trail effect on backdrop)
     float behind = mod(sweep_angle - pixel_angle, TAU);
-    float beam   = exp(-behind * 40.0);   // sharp leading edge
-    float trail  = exp(-behind * 3.0);    // softer fade behind
+    float trail  = exp(-behind * 3.0);
+
+    // Beam as a constant-width line from origin along sweep direction
+    vec2  sweep_dir  = vec2(cos(sweep_angle), sin(sweep_angle));
+    float perp_dist  = abs(p.x * sweep_dir.y - p.y * sweep_dir.x);  // perpendicular to beam line
+    float forward    = smoothstep(-0.01, 0.01, dot(p, sweep_dir));  // 0 behind origin, 1 forward
+    float beam       = smoothstep(GRID_LINE_WIDTH, GRID_LINE_CORE, perp_dist)
+                     * forward
+                     * backdrop_falloff;  // fade at scope edge, same as backdrop
 
     // ===== BLIPS (emitter nodes, ping-triggered) =====
     float total_blip = 0.0;
@@ -108,19 +119,23 @@ void main() {
     // ===== COMPOSE =====
     vec3 color = vec3(0.0);
 
-    // Dim always-visible backdrop in palette color
-    vec3 backdrop_col = palette(fract(t * 0.03));
-    color += backdrop_col * backdrop * 0.20;
+    // Grid elements all share one palette position
+    vec3 grid_col = palette(fract(t * 0.03));
 
-    // Sweep trail brightens backdrop pattern as it passes (classic radar look)
-    color += backdrop_col * backdrop * trail * 0.8;
+    // Nodes use the opposite position on the palette — guaranteed distinct hue
+    vec3 node_col = palette(fract(t * 0.03 + 0.5));
 
-    // Bright palette-colored leading beam
-    vec3 beam_col = palette(fract(t * 0.08));
-    color += beam_col * beam * 0.9;
+    // Dim always-visible backdrop
+    color += grid_col * backdrop * 0.20;
 
-    // White blips — only visible where emitters have been recently pinged
-    color += vec3(1.0) * total_blip;
+    // Sweep trail brightens backdrop pattern as it passes
+    color += grid_col * backdrop * trail * 0.8;
+
+    // Constant-width beam (clock hand)
+    color += grid_col * beam * 0.9;
+
+    // Ping-gated blips in the alt palette color
+    color += node_col * total_blip;
 
     fragColor = vec4(clamp(color, 0.0, 1.0), 1.0);
 }
