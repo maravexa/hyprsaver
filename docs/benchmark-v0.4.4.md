@@ -19,7 +19,7 @@ Results ranked by maximum GPU utilization (%). Tier thresholds: Lightweight <25%
 | Max % | Min % | Shader | Notes |
 |---|---|---|---|
 | ~45 | ~40 | Shipburn | Burning Ship Julia — MAX_ITER 150, abs() fold adds negligible cost vs. standard Julia. Estimate pending HawkPoint1 verification. |
-| ~43 | ~38 | Fractaltrap | Julia with orbit trap — MAX_ITER 100 (lower than julia.frag's 200), one extra length()+min()+abs() per step. Net cost lower than Julia. Estimate pending HawkPoint1 verification. |
+| ~30 | ~25 | Fractaltrap | Cubic Julia (z³+c) with orbit trap — MAX_ITER 80, cubic step ~3× quadratic ALU cost but most pixels escape early. Orbit trap adds length()+min() per step. Net estimate: Lightweight tier. Pending HawkPoint1 verification. |
 
 ## Shaders Removed in v0.4.4
 
@@ -34,6 +34,6 @@ See `docs/BENCHMARK_0.4.3.md` for the full v0.4.3 baseline. All 23 shaders that 
 ## Notes
 
 - **Shipburn estimate basis:** Burning Ship Julia iteration body is structurally identical to classic Julia plus two `abs()` calls per step. `abs()` is a single instruction on HawkPoint1 (RDNA compute). Expected overhead is <5% versus Julia (43% max). Estimated 45% max.
-- **Fractaltrap estimate basis:** Circle-trap tracking adds `length()` + `abs()` + `min()` per iteration — roughly 3 extra ALU ops. However, MAX_ITER is 100 vs. Julia's 200, cutting total iteration work roughly in half. Net estimate: slightly below Julia at ~43% max.
+- **Fractaltrap estimate basis (updated — cubic formula):** Iteration changed from z²+c to z³+c — Cartesian form uses 4 muls + 2 muls/adds vs. 2 muls + 1 mul for quadratic, roughly 3× per-step ALU cost. However, cubic Julias escape faster on average and MAX_ITER is 80 (lower than prior estimate's 100). Orbit trap adds length()+min() but no texture reads. Net estimate: 25–30% max, Lightweight tier.
 - Both shaders are single-pass, no texture reads in the iteration loop, no divergent branches inside the loop body. Expected to behave well on RDNA wavefront execution.
 - Update this file with actual radeontop measurements after v0.4.4 ships and verifies on HawkPoint1.
