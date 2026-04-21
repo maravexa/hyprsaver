@@ -709,14 +709,14 @@ pub struct Renderer {
     // mandelbrot_deep per-frame uniform values
     // Uploaded each frame only when the active shader declares these uniforms.
     // ------------------------------------------------------------------
-    md_focal_real_hi:  f32,
-    md_focal_real_lo:  f32,
-    md_focal_imag_hi:  f32,
-    md_focal_imag_lo:  f32,
-    md_zoom_t:         f32,
+    md_focal_real_hi: f32,
+    md_focal_real_lo: f32,
+    md_focal_imag_hi: f32,
+    md_focal_imag_lo: f32,
+    md_zoom_t: f32,
     md_initial_extent: f32,
-    md_max_iter:       i32,
-    md_fade:           f32,
+    md_max_iter: i32,
+    md_fade: f32,
 }
 
 /// Hardcoded GLSL ES 3.20 vertex shader source. Passes UV coordinates (0..1) to the fragment
@@ -809,14 +809,14 @@ impl Renderer {
             outgoing_uniforms: UniformLocations::default(),
             shader_start_elapsed: 0.0,
             outgoing_start_elapsed: 0.0,
-            md_focal_real_hi:  0.0,
-            md_focal_real_lo:  0.0,
-            md_focal_imag_hi:  0.0,
-            md_focal_imag_lo:  0.0,
-            md_zoom_t:         1.0,
+            md_focal_real_hi: 0.0,
+            md_focal_real_lo: 0.0,
+            md_focal_imag_hi: 0.0,
+            md_focal_imag_lo: 0.0,
+            md_zoom_t: 1.0,
             md_initial_extent: 4.0,
-            md_max_iter:       100,
-            md_fade:           0.0,
+            md_max_iter: 100,
+            md_fade: 0.0,
         })
     }
 
@@ -1036,15 +1036,18 @@ impl Renderer {
 
     /// Push per-frame uniform values for `mandelbrot_deep.frag`.
     /// Values are cached in the Renderer and uploaded in the next `draw_program_with` call.
-    pub fn set_mandelbrot_deep_uniforms(&mut self, u: &crate::mandelbrot_deep::MandelbrotDeepUniforms) {
-        self.md_focal_real_hi  = u.focal_real_hi;
-        self.md_focal_real_lo  = u.focal_real_lo;
-        self.md_focal_imag_hi  = u.focal_imag_hi;
-        self.md_focal_imag_lo  = u.focal_imag_lo;
-        self.md_zoom_t         = u.zoom_t;
+    pub fn set_mandelbrot_deep_uniforms(
+        &mut self,
+        u: &crate::mandelbrot_deep::MandelbrotDeepUniforms,
+    ) {
+        self.md_focal_real_hi = u.focal_real_hi;
+        self.md_focal_real_lo = u.focal_real_lo;
+        self.md_focal_imag_hi = u.focal_imag_hi;
+        self.md_focal_imag_lo = u.focal_imag_lo;
+        self.md_zoom_t = u.zoom_t;
         self.md_initial_extent = u.initial_extent;
-        self.md_max_iter       = u.max_iter;
-        self.md_fade           = u.fade;
+        self.md_max_iter = u.max_iter;
+        self.md_fade = u.fade;
     }
 
     /// Render one frame. Uploads all uniforms and calls `glDrawArrays`.

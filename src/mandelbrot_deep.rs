@@ -23,21 +23,21 @@ use std::time::Instant;
 /// visible pixelation before cycle end, boring boundary structure) should be
 /// replaced or adjusted.
 pub const FOCAL_POINTS: &[(f64, f64, &str)] = &[
-    (-0.7436438870,  0.1318259042,  "Seahorse Valley"),
-    (-0.74364990,    0.13188204,    "Seahorse Deep"),
-    ( 0.2550,        0.0055,        "Elephant Valley"),
-    (-0.088,         0.654,         "Triple Spiral"),
-    (-1.108180578,   0.230179813,   "Scepter Valley"),
-    (-0.77568377,    0.13646737,    "Feather"),
-    (-1.25066,       0.02012,       "Mini-Mandel West"),
-    (-0.101096,      0.956286,      "Misiurewicz Spiral"),
-    (-0.74529,       0.11307,       "Double Spiral"),
-    (-1.768778833,   0.001738996,   "Julia Island"),
-    (-0.743644786,   0.131826789,   "Wada Basin"),
-    ( 0.285,         0.01,          "Cardioid Cusp"),
-    (-0.16,          1.0405,        "Tendril Near-i"),
-    (-0.77,          0.1,           "Seahorse West"),
-    (-1.4011551,     0.0,           "Period-3 Bulb"),
+    (-0.7436438870, 0.1318259042, "Seahorse Valley"),
+    (-0.74364990, 0.13188204, "Seahorse Deep"),
+    (0.2550, 0.0055, "Elephant Valley"),
+    (-0.088, 0.654, "Triple Spiral"),
+    (-1.108180578, 0.230179813, "Scepter Valley"),
+    (-0.77568377, 0.13646737, "Feather"),
+    (-1.25066, 0.02012, "Mini-Mandel West"),
+    (-0.101096, 0.956286, "Misiurewicz Spiral"),
+    (-0.74529, 0.11307, "Double Spiral"),
+    (-1.768778833, 0.001738996, "Julia Island"),
+    (-0.743644786, 0.131826789, "Wada Basin"),
+    (0.285, 0.01, "Cardioid Cusp"),
+    (-0.16, 1.0405, "Tendril Near-i"),
+    (-0.77, 0.1, "Seahorse West"),
+    (-1.4011551, 0.0, "Period-3 Bulb"),
 ];
 
 // ---------------------------------------------------------------------------
@@ -79,21 +79,21 @@ pub enum CyclePhase {
 /// Per-frame uniform values to upload for `mandelbrot_deep.frag`.
 #[derive(Debug, Clone, Copy)]
 pub struct MandelbrotDeepUniforms {
-    pub focal_real_hi:  f32,
-    pub focal_real_lo:  f32,
-    pub focal_imag_hi:  f32,
-    pub focal_imag_lo:  f32,
-    pub zoom_t:         f32,
+    pub focal_real_hi: f32,
+    pub focal_real_lo: f32,
+    pub focal_imag_hi: f32,
+    pub focal_imag_lo: f32,
+    pub zoom_t: f32,
     pub initial_extent: f32,
-    pub max_iter:       i32,
-    pub fade:           f32,
+    pub max_iter: i32,
+    pub fade: f32,
 }
 
 /// Per-session state for the deep-zoom Mandelbrot cycle.
 pub struct MandelbrotDeepState {
-    cycle_start:  Instant,
-    focal_index:  usize,
-    phase:        CyclePhase,
+    cycle_start: Instant,
+    focal_index: usize,
+    phase: CyclePhase,
 }
 
 impl MandelbrotDeepState {
@@ -164,10 +164,10 @@ impl MandelbrotDeepState {
         let (fi_hi, fi_lo) = split_f64_to_df32(fi);
 
         MandelbrotDeepUniforms {
-            focal_real_hi:  fr_hi,
-            focal_real_lo:  fr_lo,
-            focal_imag_hi:  fi_hi,
-            focal_imag_lo:  fi_lo,
+            focal_real_hi: fr_hi,
+            focal_real_lo: fr_lo,
+            focal_imag_hi: fi_hi,
+            focal_imag_lo: fi_lo,
             zoom_t,
             initial_extent: 4.0,
             max_iter,
@@ -242,7 +242,10 @@ mod tests {
             let (_, lo_i) = split_f64_to_df32(*fi);
             lo_r != 0.0 || lo_i != 0.0
         });
-        assert!(has_nonzero_lo, "all focal lo-words are zero — split_f64_to_df32 may be broken");
+        assert!(
+            has_nonzero_lo,
+            "all focal lo-words are zero — split_f64_to_df32 may be broken"
+        );
     }
 
     #[test]

@@ -1388,8 +1388,7 @@ impl OutputHandler for WaylandState {
         surface.cycle_manager = cycle_manager;
         // Initialize deep-zoom state machine if this surface will show mandelbrot_deep.
         if surface.shader_name == "mandelbrot_deep" && self.mandelbrot_deep_state.is_none() {
-            self.mandelbrot_deep_state =
-                Some(crate::mandelbrot_deep::MandelbrotDeepState::new());
+            self.mandelbrot_deep_state = Some(crate::mandelbrot_deep::MandelbrotDeepState::new());
         }
         self.surfaces.insert(output, surface);
     }
