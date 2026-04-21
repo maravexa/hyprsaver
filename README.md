@@ -102,7 +102,8 @@ cargo install hyprsaver
   | `lissajous`     | Three overlapping Lissajous curves with glow         |
   | `geometry`      | Wireframe polyhedron morphing (cube→icosahedron→...) |
   | `hypercube`     | Rotating 4D tesseract projected to 2D, neon glow     |
-  | `network`       | Neural network node graph with glowing connections   |
+  | `circuit`       | Brick-offset grid with hash-gated traces and gradient pulses — PCB / circuit network |
+  | `sonar`         | Multi-source wavefront interference with rotating radial sweep — sonar scope |
   | `matrix`        | Classic Matrix digital rain with procedural glyphs   |
   | `caustics`      | Underwater caustic light patterns                    |
   | `clouds`        | Slowly drifting procedural clouds (plain 5-octave fBm) |

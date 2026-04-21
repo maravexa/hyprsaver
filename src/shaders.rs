@@ -46,8 +46,11 @@ pub const BUILTIN_DONUT: &str = include_str!("../shaders/donut.frag");
 /// Three overlapping Lissajous curves with smooth glow and drifting hue.
 pub const BUILTIN_LISSAJOUS: &str = include_str!("../shaders/lissajous.frag");
 
-/// Neural network node graph with parallax depth, glowing connections, and data packets.
-pub const BUILTIN_NETWORK: &str = include_str!("../shaders/network.frag");
+/// Brick-offset grid with hash-gated traces and gradient pulses — PCB / circuit network aesthetic.
+pub const BUILTIN_CIRCUIT: &str = include_str!("../shaders/circuit.frag");
+
+/// Multi-source wavefront interference with rotating radial sweep — sonar scope aesthetic.
+pub const BUILTIN_SONAR: &str = include_str!("../shaders/sonar.frag");
 
 /// Rotating 4D hypercube (tesseract) projected to 2D with neon glow wireframe.
 pub const BUILTIN_HYPERCUBE: &str = include_str!("../shaders/hypercube.frag");
@@ -262,9 +265,10 @@ impl ShaderManager {
             ("julia", BUILTIN_JULIA),
             ("kaleidoscope", BUILTIN_KALEIDOSCOPE),
             ("lissajous", BUILTIN_LISSAJOUS),
+            ("circuit", BUILTIN_CIRCUIT),
             ("matrix", BUILTIN_MATRIX),
-            ("network", BUILTIN_NETWORK),
             ("oscilloscope", BUILTIN_OSCILLOSCOPE),
+            ("sonar", BUILTIN_SONAR),
             ("plasma", BUILTIN_PLASMA),
             ("donut", BUILTIN_DONUT),
             ("shipburn", BUILTIN_SHIPBURN),
@@ -817,7 +821,7 @@ mod tests {
 
     #[test]
     fn test_builtin_shader_count() {
-        assert_eq!(manager().list().len(), 25);
+        assert_eq!(manager().list().len(), 26);
     }
 
     #[test]
@@ -828,6 +832,7 @@ mod tests {
             "aurora",
             "bezier",
             "caustics",
+            "circuit",
             "clouds",
             "donut",
             "flames",
@@ -839,12 +844,12 @@ mod tests {
             "lissajous",
             "marble",
             "matrix",
-            "network",
             "oscilloscope",
             "planet",
             "plasma",
             "shipburn",
             "snowfall",
+            "sonar",
             "starfield",
             "terminal",
             "tesla",

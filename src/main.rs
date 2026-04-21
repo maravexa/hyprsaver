@@ -554,14 +554,18 @@ fn shader_descriptions() -> std::collections::HashMap<&'static str, &'static str
             "Digital rain — falling characters in the style of The Matrix",
         ),
         (
-            "network",
-            "Neural network visualization with parallax nodes and pulsing connections",
+            "circuit",
+            "Brick-offset grid with hash-gated traces and gradient pulses — PCB / circuit network",
         ),
         (
             "oscilloscope",
             "Realistic CRT oscilloscope — three animated waveform traces over a phosphor measurement grid with scanlines and vignette",
         ),
         ("plasma", "Classic plasma effect"),
+        (
+            "sonar",
+            "Multi-source wavefront interference with rotating radial sweep — sonar scope",
+        ),
         (
             "shipburn",
             "Burning Ship Julia — absolute-value folding before squaring produces angular, mirror-symmetric ship-silhouette shapes",
