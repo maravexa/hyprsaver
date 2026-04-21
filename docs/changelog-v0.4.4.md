@@ -176,4 +176,4 @@ Multi-source wavefront interference with a rotating radial sweep. Six point emit
 
 ### Shader count after network → circuit + sonar pivot
 - Before: 25 built-ins (network present)
-- After: 25 built-ins (network removed, circuit + sonar added — net zero change)
+- After: 26 built-ins (network removed, circuit + sonar added — net +1)
