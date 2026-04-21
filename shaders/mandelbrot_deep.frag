@@ -12,8 +12,9 @@ precision highp int;
 //   u_max_iter       — iteration budget (scales with zoom depth, capped 100–2000)
 //   u_fade           — lifecycle fade factor (0.0 = normal, 1.0 = background)
 //
-// u_resolution, u_time, u_alpha, palette() / u_lut_a/b injected by shaders.rs.
+// u_time, u_alpha, palette() / u_lut_a/b injected by shaders.rs.
 
+uniform vec2  u_resolution;
 uniform float u_focal_real_hi;
 uniform float u_focal_real_lo;
 uniform float u_focal_imag_hi;
@@ -26,7 +27,7 @@ uniform float u_fade;
 // ── df32 library ──────────────────────────────────────────────────────────────
 // Convention: vec2.x = hi (leading bits), vec2.y = lo (error term).
 //
-// Verbatim copy from df32_nuclear_test.frag — do NOT merge statements.
+// Do NOT merge statements into compound expressions.
 // Separate-statement discipline prevents the GLSL compiler from:
 //   1. FMA-fusing TwoProd error terms into zero
 //   2. Algebraically re-associating TwoSum (a+b)-b = a
