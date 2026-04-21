@@ -1684,7 +1684,7 @@ impl WindowHandler for PreviewState {
                 let shader_compiled = self
                     .shader_manager
                     .get_compiled(&self.active_shader)
-                    .unwrap_or(crate::shaders::BUILTIN_MANDELBROT)
+                    .unwrap_or(crate::shaders::BUILTIN_JULIA)
                     .to_string();
 
                 use wayland_client::Proxy as _;
