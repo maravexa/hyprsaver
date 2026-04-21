@@ -21,6 +21,20 @@ Results ranked by maximum GPU utilization (%). Tier thresholds: Lightweight <25%
 | ~45 | ~40 | Shipburn | Burning Ship Julia — MAX_ITER 150, abs() fold adds negligible cost vs. standard Julia. Estimate pending HawkPoint1 verification. |
 | ~30 | ~25 | Fractaltrap | Cubic Julia (z³+c) with orbit trap — MAX_ITER 80, cubic step ~3× quadratic ALU cost but most pixels escape early. Orbit trap adds length()+min() per step. Net estimate: Lightweight tier. Pending HawkPoint1 verification. |
 
+## Rewritten Shaders in v0.4.4
+
+### Network (rewrite — v0.4.3 → v0.4.4)
+
+| Max % | Min % | Shader | Notes |
+|---|---|---|---|
+| ~35–50 | ~30 | Network | Single-layer grid with hash-gated edges. Estimate pending HawkPoint1 verification. |
+
+**v0.4.4 architecture:** Single scrolling grid (8×5 nominal), 3×3 cell neighbourhood per pixel, 3 outgoing edges per cell (right, down, diagonal). Hash-driven edge existence (~60% density). Per-node size variance (0.6–1.4×) tapers edge widths and scales node brightness. Gradient pulse via `smoothstep` — no discrete dots. Additive composition over pure black.
+
+**Expected improvement basis:** v0.4.3 used 3 parallax layers, which triples the edge-check work versus a single layer. The new single-layer approach removes that multiplier entirely. Despite richer per-edge features (tapered width, two-layer palette, gradient pulse), overall cost should be at or below v0.4.3's 43% because the layer multiplier dominated. Estimate: 35–50% max.
+
+Update this entry with actual radeontop measurements after verification on HawkPoint1.
+
 ## Shaders Removed in v0.4.4
 
 | Shader | Former tier | Reason |
