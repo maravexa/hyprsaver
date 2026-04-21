@@ -1419,7 +1419,7 @@ impl LayerShellHandler for WaylandState {
                 let shader_compiled = self
                     .shader_manager
                     .get_compiled(&shader_name)
-                    .unwrap_or(crate::shaders::BUILTIN_MANDELBROT)
+                    .unwrap_or(crate::shaders::BUILTIN_JULIA)
                     .to_string();
 
                 if let Err(e) = surf.init_gl(unsafe { &*egl_ptr }, &shader_compiled, &palette) {
