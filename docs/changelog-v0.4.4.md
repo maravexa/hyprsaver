@@ -43,7 +43,58 @@ The fractal-aesthetic slot in the roster is instead filled by Julia variants (`s
 - Removed `mandelbrot_deep_state` field from `PreviewState` and all associated initialization and per-frame tick logic.
 - Removed `zoom` parameter from `save_preview_config()`; no longer writes `zoom_scale` to the config file.
 
-### Shader count
+### Shader count after Mandelbrot removal
 - Before: 26 built-ins (including mandelbrot, mandelbrot_deep, and the unreferenced df32_nuclear_test framework).
-- After: 23 built-ins.
-- Next: 25 built-ins once `shipburn` and `fractaltrap` are added.
+- After Mandelbrot removal: 23 built-ins.
+
+---
+
+## Julia Variants: shipburn & fractaltrap
+
+Two new fractal shaders filling the aesthetic slot left by the removed Mandelbrot.
+
+### shipburn
+
+Burning Ship Julia variant. Uses the same z² + c iteration structure as `julia.frag` but applies `abs()` to both components of z before squaring each step. The absolute-value folding breaks the smooth rotational symmetry of the standard Julia set and produces angular, mirror-symmetric "ship" silhouette shapes — a distinctly different aesthetic from anything else in the roster.
+
+#### Algorithm
+- Formula: `z = abs(z)`, then `z = z² + c` (the Burning Ship Julia iteration)
+- c orbits near (-1.75, -0.04) with radius 0.15, completing a full cycle in ~126 s at default speed
+- MAX_ITER: 150; smooth escape coloring (Inigo Quilez log2-log2 technique)
+- Interior pixels: palette(0.0); exterior: palette(clamp(escape_iter / MAX_ITER, 0.0, 1.0))
+
+#### Files
+- `shaders/shipburn.frag` — new file
+
+#### src/shaders.rs
+- Added `BUILTIN_SHIPBURN` constant (`include_str!("../shaders/shipburn.frag")`)
+- Registered `("shipburn", BUILTIN_SHIPBURN)` in the built-in shader roster
+
+#### src/main.rs
+- Added `"shipburn"` entry to `shader_descriptions()`
+
+### fractaltrap
+
+Julia set with orbit-trap coloring. Uses the same `z² + c` iteration as `julia.frag` but colors pixels by the minimum distance the orbit passes from a unit circle (the trap shape) rather than by escape iteration count. Both escaping and non-escaping (interior) pixels use the trap distance signal — there is no solid-color interior, which is the defining visual characteristic of orbit-trap coloring.
+
+The result is a stained-glass / cellular / circuit-board aesthetic immediately distinguishable from every other fractal shader in the roster.
+
+#### Algorithm
+- Formula: standard Julia z² + c
+- c at radius 0.7885 (main cardioid boundary), angular velocity 0.04 rad/s, full cycle ~157 s
+- MAX_ITER: 100 (lower than julia.frag; trap signal settles early)
+- Trap: circle of radius 1.0; minimum distance tracked over all iterations
+- Coloring: `palette(sqrt(clamp(min_trap_dist, 0.0, 1.0)))` for all pixels
+
+#### Files
+- `shaders/fractaltrap.frag` — new file
+
+#### src/shaders.rs
+- Added `BUILTIN_FRACTALTRAP` constant (`include_str!("../shaders/fractaltrap.frag")`)
+- Registered `("fractaltrap", BUILTIN_FRACTALTRAP)` in the built-in shader roster
+
+#### src/main.rs
+- Added `"fractaltrap"` entry to `shader_descriptions()`
+
+### Shader count after Julia variants
+- Final v0.4.4 count: 25 built-ins
