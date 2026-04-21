@@ -10,7 +10,7 @@ precision highp float;
 // and produces the angular, mirror-symmetric "ship" silhouette aesthetic.
 //
 // c follows a tight orbit through a known-interesting region of the Burning
-// Ship parameter space. Full cycle ≈ 42 s at default speed.
+// Ship parameter space. Full cycle ≈ 28 s at default speed.
 // ---------------------------------------------------------------------------
 
 uniform float u_time;
@@ -25,8 +25,8 @@ void main() {
 
     // Tight orbit in a structurally-rich region of Burning Ship parameter
     // space. 3× faster angular velocity keeps interesting-state frequency high.
-    // Full cycle ≈ 42 s at default speed.
-    float angle = u_time * u_speed_scale * 0.15;
+    // Full cycle ≈ 28 s at default speed.
+    float angle = u_time * u_speed_scale * 0.225;
     vec2 c = vec2(
         -1.762 + 0.020 * cos(angle),
         -0.028 + 0.020 * sin(angle)
@@ -67,9 +67,9 @@ void main() {
 
     // Two-layer julia-style palette cycling
     // col_boundary cycles 3x across palette, drifts with time
-    vec3 col_boundary = palette(fract(t_thick * 3.0 + u_time * 0.05));
+    vec3 col_boundary = palette(fract(t_thick * 3.0 + u_time * 0.075));
     // col_shimmer cycles 2x, offset in palette space by 0.3, drifts at different rate
-    vec3 col_shimmer  = palette(fract(t_thick * 2.0 + u_time * 0.07 + 0.3));
+    vec3 col_shimmer  = palette(fract(t_thick * 2.0 + u_time * 0.105 + 0.3));
 
     // Blend — boundary dominant, shimmer adds within-line color variation
     vec3 col = mix(col_boundary, col_shimmer, 0.35);
