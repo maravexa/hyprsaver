@@ -41,6 +41,15 @@ pub struct UniformLocations {
     pub u_test_pi_lo: Option<glow::UniformLocation>,
     pub u_pi_sq_hi: Option<glow::UniformLocation>,
     pub u_pi_sq_lo: Option<glow::UniformLocation>,
+    // mandelbrot_deep per-frame uniforms (None for all other shaders)
+    pub u_focal_real_hi: Option<glow::UniformLocation>,
+    pub u_focal_real_lo: Option<glow::UniformLocation>,
+    pub u_focal_imag_hi: Option<glow::UniformLocation>,
+    pub u_focal_imag_lo: Option<glow::UniformLocation>,
+    pub u_zoom_t: Option<glow::UniformLocation>,
+    pub u_initial_extent: Option<glow::UniformLocation>,
+    pub u_max_iter_deep: Option<glow::UniformLocation>,
+    pub u_fade: Option<glow::UniformLocation>,
 }
 
 // ---------------------------------------------------------------------------
@@ -695,6 +704,19 @@ pub struct Renderer {
     /// at the start of a crossfade so it keeps consistent time during the
     /// transition.
     outgoing_start_elapsed: f32,
+
+    // ------------------------------------------------------------------
+    // mandelbrot_deep per-frame uniform values
+    // Uploaded each frame only when the active shader declares these uniforms.
+    // ------------------------------------------------------------------
+    md_focal_real_hi:  f32,
+    md_focal_real_lo:  f32,
+    md_focal_imag_hi:  f32,
+    md_focal_imag_lo:  f32,
+    md_zoom_t:         f32,
+    md_initial_extent: f32,
+    md_max_iter:       i32,
+    md_fade:           f32,
 }
 
 /// Hardcoded GLSL ES 3.20 vertex shader source. Passes UV coordinates (0..1) to the fragment
@@ -787,6 +809,14 @@ impl Renderer {
             outgoing_uniforms: UniformLocations::default(),
             shader_start_elapsed: 0.0,
             outgoing_start_elapsed: 0.0,
+            md_focal_real_hi:  0.0,
+            md_focal_real_lo:  0.0,
+            md_focal_imag_hi:  0.0,
+            md_focal_imag_lo:  0.0,
+            md_zoom_t:         1.0,
+            md_initial_extent: 4.0,
+            md_max_iter:       100,
+            md_fade:           0.0,
         })
     }
 
@@ -1002,6 +1032,19 @@ impl Renderer {
     /// Update the last known mouse position (window-space pixels, origin top-left).
     pub fn set_mouse(&mut self, x: f32, y: f32) {
         self.mouse_pos = [x, y];
+    }
+
+    /// Push per-frame uniform values for `mandelbrot_deep.frag`.
+    /// Values are cached in the Renderer and uploaded in the next `draw_program_with` call.
+    pub fn set_mandelbrot_deep_uniforms(&mut self, u: &crate::mandelbrot_deep::MandelbrotDeepUniforms) {
+        self.md_focal_real_hi  = u.focal_real_hi;
+        self.md_focal_real_lo  = u.focal_real_lo;
+        self.md_focal_imag_hi  = u.focal_imag_hi;
+        self.md_focal_imag_lo  = u.focal_imag_lo;
+        self.md_zoom_t         = u.zoom_t;
+        self.md_initial_extent = u.initial_extent;
+        self.md_max_iter       = u.max_iter;
+        self.md_fade           = u.fade;
     }
 
     /// Render one frame. Uploads all uniforms and calls `glDrawArrays`.
@@ -1244,6 +1287,37 @@ impl Renderer {
                 }
             }
 
+            // mandelbrot_deep per-frame uniforms — None for every other shader.
+            if uniforms.u_focal_real_hi.is_some()
+                || uniforms.u_zoom_t.is_some()
+                || uniforms.u_fade.is_some()
+            {
+                if let Some(ref loc) = uniforms.u_focal_real_hi {
+                    self.gl.uniform_1_f32(Some(loc), self.md_focal_real_hi);
+                }
+                if let Some(ref loc) = uniforms.u_focal_real_lo {
+                    self.gl.uniform_1_f32(Some(loc), self.md_focal_real_lo);
+                }
+                if let Some(ref loc) = uniforms.u_focal_imag_hi {
+                    self.gl.uniform_1_f32(Some(loc), self.md_focal_imag_hi);
+                }
+                if let Some(ref loc) = uniforms.u_focal_imag_lo {
+                    self.gl.uniform_1_f32(Some(loc), self.md_focal_imag_lo);
+                }
+                if let Some(ref loc) = uniforms.u_zoom_t {
+                    self.gl.uniform_1_f32(Some(loc), self.md_zoom_t);
+                }
+                if let Some(ref loc) = uniforms.u_initial_extent {
+                    self.gl.uniform_1_f32(Some(loc), self.md_initial_extent);
+                }
+                if let Some(ref loc) = uniforms.u_max_iter_deep {
+                    self.gl.uniform_1_i32(Some(loc), self.md_max_iter);
+                }
+                if let Some(ref loc) = uniforms.u_fade {
+                    self.gl.uniform_1_f32(Some(loc), self.md_fade);
+                }
+            }
+
             // All palettes are pre-baked to LUT on the CPU. Always sample via texture.
             // Texture unit 1 → u_lut_a (current)
             self.gl.active_texture(glow::TEXTURE1);
@@ -1364,6 +1438,14 @@ impl Renderer {
                 u_test_pi_lo: self.gl.get_uniform_location(prog, "u_test_pi_lo"),
                 u_pi_sq_hi: self.gl.get_uniform_location(prog, "u_pi_sq_hi"),
                 u_pi_sq_lo: self.gl.get_uniform_location(prog, "u_pi_sq_lo"),
+                u_focal_real_hi: self.gl.get_uniform_location(prog, "u_focal_real_hi"),
+                u_focal_real_lo: self.gl.get_uniform_location(prog, "u_focal_real_lo"),
+                u_focal_imag_hi: self.gl.get_uniform_location(prog, "u_focal_imag_hi"),
+                u_focal_imag_lo: self.gl.get_uniform_location(prog, "u_focal_imag_lo"),
+                u_zoom_t: self.gl.get_uniform_location(prog, "u_zoom_t"),
+                u_initial_extent: self.gl.get_uniform_location(prog, "u_initial_extent"),
+                u_max_iter_deep: self.gl.get_uniform_location(prog, "u_max_iter"),
+                u_fade: self.gl.get_uniform_location(prog, "u_fade"),
             }
         };
 
@@ -1603,6 +1685,14 @@ impl Renderer {
                 u_test_pi_lo: self.gl.get_uniform_location(prog, "u_test_pi_lo"),
                 u_pi_sq_hi: self.gl.get_uniform_location(prog, "u_pi_sq_hi"),
                 u_pi_sq_lo: self.gl.get_uniform_location(prog, "u_pi_sq_lo"),
+                u_focal_real_hi: self.gl.get_uniform_location(prog, "u_focal_real_hi"),
+                u_focal_real_lo: self.gl.get_uniform_location(prog, "u_focal_real_lo"),
+                u_focal_imag_hi: self.gl.get_uniform_location(prog, "u_focal_imag_hi"),
+                u_focal_imag_lo: self.gl.get_uniform_location(prog, "u_focal_imag_lo"),
+                u_zoom_t: self.gl.get_uniform_location(prog, "u_zoom_t"),
+                u_initial_extent: self.gl.get_uniform_location(prog, "u_initial_extent"),
+                u_max_iter_deep: self.gl.get_uniform_location(prog, "u_max_iter"),
+                u_fade: self.gl.get_uniform_location(prog, "u_fade"),
             };
         }
     }
