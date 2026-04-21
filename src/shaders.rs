@@ -107,6 +107,11 @@ pub const BUILTIN_FRACTALTRAP: &str = include_str!("../shaders/fractaltrap.frag"
 /// only — no calcNormal), Lambertian shading, hard linear fog. Lightweight GPU tier.
 pub const BUILTIN_GRIDFLY: &str = include_str!("../shaders/gridfly.frag");
 
+/// Curved wormhole tunnel with three spiral arms — 3D raymarcher flying through a static
+/// curved axis. Palette LUT spiral bands + distance fog. No normals, no lighting.
+/// Lightweight GPU tier.
+pub const BUILTIN_WORMHOLE: &str = include_str!("../shaders/wormhole.frag");
+
 // ---------------------------------------------------------------------------
 // Vertex shader for the fullscreen quad (triangle-strip, no VBO needed)
 // ---------------------------------------------------------------------------
@@ -284,6 +289,7 @@ impl ShaderManager {
             ("tesla", BUILTIN_TESLA),
             ("tunnel", BUILTIN_TUNNEL),
             ("voronoi", BUILTIN_VORONOI),
+            ("wormhole", BUILTIN_WORMHOLE),
         ];
         for (name, raw_const) in builtins {
             let raw = raw_const
@@ -827,7 +833,7 @@ mod tests {
 
     #[test]
     fn test_builtin_shader_count() {
-        assert_eq!(manager().list().len(), 27);
+        assert_eq!(manager().list().len(), 28);
     }
 
     #[test]
@@ -862,6 +868,7 @@ mod tests {
             "tesla",
             "tunnel",
             "voronoi",
+            "wormhole",
         ] {
             assert!(
                 names.contains(expected),
