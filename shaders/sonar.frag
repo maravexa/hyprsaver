@@ -62,40 +62,49 @@ void main() {
     // Aspect-preserved coordinates, centred at origin
     vec2 p = (gl_FragCoord.xy - 0.5 * u_resolution.xy) / u_resolution.y;
 
-    // ===== WAVE INTERFERENCE =====
+    // Sweep angle must be available before the emitter loop
+    float sweep_angle = t * SWEEP_SPEED;
+    float pixel_angle = atan(p.y, p.x);
+
+    // ===== WAVE INTERFERENCE WITH PING GATING =====
+    // Each emitter is silent until the sweep passes its angular position,
+    // then emits a ring pulse that decays over 3 seconds, then silent again until next sweep.
     float total_wave      = 0.0;
     float total_intensity = 0.0;
 
     for (int i = 0; i < NUM_EMITTERS; i++) {
-        vec2  epos  = emitter_pos(i, t);
+        vec2 epos = emitter_pos(i, t);
+
+        // How many seconds since the sweep last crossed this emitter's angle?
+        // mod(...) wraps into [0, TAU), divided by angular velocity gives seconds.
+        float emitter_angle   = atan(epos.y, epos.x);
+        float time_since_ping = mod(sweep_angle - emitter_angle, TAU) / SWEEP_SPEED;
+
+        // Amplitude envelope: 1.0 at ping moment, smooth fade to 0 at 3 seconds.
+        float amp = smoothstep(3.0, 0.0, time_since_ping);
+
         float d     = length(p - epos);
         float atten = exp(-d * 1.2);
-
         float phase = float(i) * 1.234;
-        float wave  = cos(d * RING_FREQ - t * WAVE_SPEED + phase);
 
-        total_wave      += wave * atten;
-        total_intensity += atten;
+        // Wave phase uses time_since_ping so rings expand outward from the ping moment
+        // (not continuously as before). At time_since_ping=0, wavefront is at emitter;
+        // expands at WAVE_SPEED thereafter.
+        float wave = cos(d * RING_FREQ - time_since_ping * WAVE_SPEED + phase);
+
+        total_wave      += wave * atten * amp;
+        total_intensity += atten * amp;
     }
 
-    // Normalise wave to prevent brightness drift
     float wave_n  = total_wave / max(total_intensity, 0.15);
-    float wave_01 = 0.5 + 0.5 * wave_n;  // remap to [0, 1]
+    float wave_01 = 0.5 + 0.5 * wave_n;
 
+    // Emphasize constructive-interference peaks only.
     float wave_intensity = smoothstep(0.35, 0.90, wave_01);
 
-    // ===== SWEEP (visibility gate for everything colored) =====
-    float sweep_angle = t * SWEEP_SPEED;
-    float pixel_angle = atan(p.y, p.x);
-
-    // "behind" = radians since this pixel was last swept (0 = just swept, ~TAU = about to be swept)
+    // Leading beam — sharp bright arc at current sweep angle.
     float behind = mod(sweep_angle - pixel_angle, TAU);
-
-    // Leading beam — sharp bright line at the current sweep angle
-    float beam = exp(-behind * 40.0);
-
-    // Trail — softer fade behind the beam, for wave visibility
-    float trail = exp(-behind * 3.0);
+    float beam   = exp(-behind * 40.0);
 
     // ===== EMITTER DOTS (white, sharp, no glow) =====
     float dots = 0.0;
@@ -109,15 +118,15 @@ void main() {
     // ===== COMPOSE =====
     vec3 color = vec3(0.0);
 
-    // Trail reveals colored wave interference. Outside trail, pure black.
+    // Waves (naturally localized near recently-pinged emitters via amp gating)
     vec3 col_wave = palette(fract(wave_01 * 0.7 + t * 0.06));
-    color += col_wave * wave_intensity * trail;
+    color += col_wave * wave_intensity;
 
-    // Leading beam — bright palette-cycling arc.
+    // Leading beam (rotating arc, palette-colored)
     vec3 col_beam = palette(fract(t * 0.1));
     color += col_beam * beam * 0.9;
 
-    // Emitter dots — pure white, sharp edges, always visible.
+    // White dots at emitter positions
     color += vec3(1.0) * dots;
 
     fragColor = vec4(clamp(color, 0.0, 1.0), 1.0);
