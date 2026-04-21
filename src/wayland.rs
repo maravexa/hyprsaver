@@ -437,7 +437,6 @@ pub struct WaylandState {
 
     /// Whether all monitors cycle in sync (`true`, default) or independently (`false`).
     synced: bool,
-
 }
 
 impl WaylandState {
