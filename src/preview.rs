@@ -346,6 +346,9 @@ struct PreviewState {
     fps_last_sample: Instant,
     fps_display: f32,
 
+    /// State machine for `mandelbrot_deep` zoom lifecycle in preview mode.
+    mandelbrot_deep_state: Option<crate::mandelbrot_deep::MandelbrotDeepState>,
+
     /// Cached 64×64 shader thumbnails keyed by shader name. Regenerated when
     /// palette changes. Values are RGBA8 pixel data (64*64*4 bytes).
     thumbnail_pixels: std::collections::HashMap<String, Vec<u8>>,
@@ -597,6 +600,20 @@ impl PreviewState {
             0
         };
         let shader_w_phys = phys_w.saturating_sub(panel_w_phys).max(1);
+
+        // Tick mandelbrot_deep state machine and push per-frame uniforms if active.
+        if self.active_shader == "mandelbrot_deep" {
+            if self.mandelbrot_deep_state.is_none() {
+                self.mandelbrot_deep_state =
+                    Some(crate::mandelbrot_deep::MandelbrotDeepState::new());
+            }
+            if let Some(ref mut deep_state) = self.mandelbrot_deep_state {
+                let uniforms = deep_state.update(now);
+                if let Some(r) = self.renderer.as_mut() {
+                    r.set_mandelbrot_deep_uniforms(&uniforms);
+                }
+            }
+        }
 
         // Render shader in the left portion (or full window when panel hidden).
         self.renderer
@@ -1369,6 +1386,11 @@ pub fn run(
         thumbnail_pixels: std::collections::HashMap::new(),
         thumbnail_textures: std::collections::HashMap::new(),
         thumbnails_palette: active_palette,
+        mandelbrot_deep_state: if active_shader == "mandelbrot_deep" {
+            Some(crate::mandelbrot_deep::MandelbrotDeepState::new())
+        } else {
+            None
+        },
     };
 
     // Calloop event loop.

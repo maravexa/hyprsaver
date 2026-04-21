@@ -96,6 +96,11 @@ pub const BUILTIN_AURORA: &str = include_str!("../shaders/aurora.frag");
 /// ds_add (TwoSum), and ds_mul (Dekker split). All stripes gray = df32 functional.
 pub const BUILTIN_DF32_NUCLEAR_TEST: &str = include_str!("../shaders/df32_nuclear_test.frag");
 
+/// Deep-zoom Mandelbrot — df32 coordinate arithmetic enables zoom depth ~1e11.
+/// CPU-side state machine drives focal-point selection, exponential zoom lifecycle,
+/// and iteration budget scaling. Palette-inherited background.
+pub const BUILTIN_MANDELBROT_DEEP: &str = include_str!("../shaders/mandelbrot_deep.frag");
+
 // ---------------------------------------------------------------------------
 // Vertex shader for the fullscreen quad (triangle-strip, no VBO needed)
 // ---------------------------------------------------------------------------
@@ -259,6 +264,7 @@ impl ShaderManager {
             ("kaleidoscope", BUILTIN_KALEIDOSCOPE),
             ("lissajous", BUILTIN_LISSAJOUS),
             ("mandelbrot", BUILTIN_MANDELBROT),
+            ("mandelbrot_deep", BUILTIN_MANDELBROT_DEEP),
             ("matrix", BUILTIN_MATRIX),
             ("network", BUILTIN_NETWORK),
             ("oscilloscope", BUILTIN_OSCILLOSCOPE),
@@ -850,7 +856,7 @@ mod tests {
 
     #[test]
     fn test_builtin_shader_count() {
-        assert_eq!(manager().list().len(), 25);
+        assert_eq!(manager().list().len(), 26);
     }
 
     #[test]
@@ -871,6 +877,7 @@ mod tests {
             "kaleidoscope",
             "lissajous",
             "mandelbrot",
+            "mandelbrot_deep",
             "marble",
             "matrix",
             "network",
