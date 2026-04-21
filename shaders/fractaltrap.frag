@@ -31,13 +31,13 @@ void main() {
     vec2 z = p * 1.8;
 
     // c traces the r=0.7885 circle — every angle produces a structured Julia.
-    // Full cycle ≈ 157 s at default speed.
-    float angle = u_time * u_speed_scale * 0.04;
+    // Full cycle ≈ 52 s at default speed.
+    float angle = u_time * u_speed_scale * 0.12;
     vec2 c = vec2(0.7885 * cos(angle), 0.7885 * sin(angle));
 
     // Three trap points at 120° phase offsets, rotating with time.
     const float TRAP_ORBIT_RADIUS = 0.6;
-    float trap_angle = u_time * 0.03;
+    float trap_angle = u_time * 0.09;
     vec2 trap_p1 = TRAP_ORBIT_RADIUS * vec2(cos(trap_angle),          sin(trap_angle));
     vec2 trap_p2 = TRAP_ORBIT_RADIUS * vec2(cos(trap_angle + 2.0944), sin(trap_angle + 2.0944));
     vec2 trap_p3 = TRAP_ORBIT_RADIUS * vec2(cos(trap_angle + 4.1888), sin(trap_angle + 4.1888));
@@ -75,11 +75,11 @@ void main() {
     // Primary layer: palette cycles with trap distance, animated over time
     // The *2.0 multiplier produces two full palette cycles across the trap range
     float t_trap = clamp(min_trap_dist, 0.0, 1.0);
-    vec3 col_primary = palette(fract(t_trap * 2.0 + u_time * 0.05));
+    vec3 col_primary = palette(fract(t_trap * 2.0 + u_time * 0.15));
 
     // Secondary layer: palette cycles with escape iteration, offset in palette space
     float t_iter = escape_iter / float(MAX_ITER);
-    vec3 col_secondary = palette(fract(t_iter * 3.0 + u_time * 0.07 + 0.3));
+    vec3 col_secondary = palette(fract(t_iter * 3.0 + u_time * 0.21 + 0.3));
 
     // Blend the two layers — primary dominant, secondary adds detail variation
     vec3 col = mix(col_primary, col_secondary, 0.4);
