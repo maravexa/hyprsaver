@@ -14,6 +14,7 @@ use std::sync::Arc;
 
 mod config;
 mod cycle;
+mod mandelbrot_deep;
 mod palette;
 mod preview;
 mod renderer;
