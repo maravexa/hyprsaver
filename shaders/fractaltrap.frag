@@ -30,7 +30,7 @@ void main() {
 
     // c traces the r=0.6 circle — stays inside cubic multibrot connected region.
     // Full cycle ≈ 52 s at default speed.
-    float angle = u_time * u_speed_scale * 0.12;
+    float angle = u_time * u_speed_scale * 0.06;
     vec2 c = 0.6 * vec2(cos(angle), sin(angle));
 
     // Three trap points at 120° phase offsets, rotating with time.
@@ -77,11 +77,11 @@ void main() {
     // Primary layer: palette cycles with trap distance, animated over time
     // The *2.0 multiplier produces two full palette cycles across the trap range
     float t_trap = clamp(min_trap_dist, 0.0, 1.0);
-    vec3 col_primary = palette(fract(t_trap * 2.0 + u_time * 0.15));
+    vec3 col_primary = palette(fract(t_trap * 2.0 + u_time * 0.10));
 
     // Secondary layer: palette cycles with escape iteration, offset in palette space
     float t_iter = escape_iter / float(MAX_ITER);
-    vec3 col_secondary = palette(fract(t_iter * 3.0 + u_time * 0.21 + 0.3));
+    vec3 col_secondary = palette(fract(t_iter * 3.0 + u_time * 0.14 + 0.3));
 
     // Blend the two layers — primary dominant, secondary adds detail variation
     vec3 col = mix(col_primary, col_secondary, 0.4);
