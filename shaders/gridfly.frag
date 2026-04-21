@@ -1,0 +1,101 @@
+#version 320 es
+precision highp float;
+
+// ---------------------------------------------------------------------------
+// hyprsaver — gridfly.frag
+//
+// Forward-flying raymarcher through an infinite grid of axis-aligned cubes.
+// Space is folded via mod() into repeating 4-unit cells, one cube per cell.
+// 48-step sphere march, ε=0.001, miss at t>30. Hard flat face normals
+// (±X, ±Y, ±Z only — no finite-difference calcNormal) give the PS1/90s look.
+// Lambertian shading + hard linear fog. Lightweight GPU tier target: <25%.
+// ---------------------------------------------------------------------------
+
+uniform float u_time;
+uniform vec2  u_resolution;
+uniform vec2  u_mouse;
+uniform int   u_frame;
+uniform float u_speed_scale;
+uniform float u_zoom_scale;
+
+// ---------------------------------------------------------------------------
+// 2D rotation matrix (CCW by angle a)
+// ---------------------------------------------------------------------------
+mat2 rot(float a) {
+    float c = cos(a), s = sin(a);
+    return mat2(c, s, -s, c);
+}
+
+// ---------------------------------------------------------------------------
+// Box SDF — axis-aligned box centred at origin with half-extents b
+// ---------------------------------------------------------------------------
+float sdBox(vec3 p, vec3 b) {
+    vec3 q = abs(p) - b;
+    return length(max(q, 0.0)) + min(max(q.x, max(q.y, q.z)), 0.0);
+}
+
+// ---------------------------------------------------------------------------
+// Scene: infinite grid of 0.8-half-extent cubes, one per 4-unit cell
+// ---------------------------------------------------------------------------
+float scene(vec3 p) {
+    vec3 cell_pos = mod(p - 2.0, 4.0) - 2.0;
+    return sdBox(cell_pos, vec3(0.8));
+}
+
+// ---------------------------------------------------------------------------
+// Sphere marcher: returns hit distance, or 30.0 on miss
+// ---------------------------------------------------------------------------
+float march(vec3 ro, vec3 rd) {
+    float t = 0.05;
+    for (int i = 0; i < 48; i++) {
+        float d = scene(ro + rd * t);
+        if (d < 0.001) return t;
+        if (t > 30.0)  break;
+        t += d;
+    }
+    return 30.0;
+}
+
+// ---------------------------------------------------------------------------
+// Flat PS1 face normal — derived from folded cell position, no SDF evals
+// ---------------------------------------------------------------------------
+vec3 flatNormal(vec3 cell_pos) {
+    vec3 d = abs(cell_pos);
+    if (d.x > d.y && d.x > d.z) return vec3(sign(cell_pos.x), 0.0, 0.0);
+    if (d.y > d.z)               return vec3(0.0, sign(cell_pos.y), 0.0);
+    return vec3(0.0, 0.0, sign(cell_pos.z));
+}
+
+// ---------------------------------------------------------------------------
+
+void main() {
+    vec2 uv = (gl_FragCoord.xy - 0.5 * u_resolution.xy) / u_resolution.y;
+
+    // Forward-flying camera with organic drift rotation
+    vec3 ro = vec3(0.0, 0.0, u_time * u_speed_scale * 2.0);
+    vec3 rd = normalize(vec3(uv, 1.5 / u_zoom_scale));
+    rd.xy = rot(sin(u_time * u_speed_scale * 0.05) * 0.3) * rd.xy;
+    rd.yz = rot(sin(u_time * u_speed_scale * 0.03) * 0.2) * rd.yz;
+
+    float dist = march(ro, rd);
+    vec3 col;
+
+    if (dist < 30.0) {
+        vec3 p        = ro + rd * dist;
+        vec3 cell_pos = mod(p - 2.0, 4.0) - 2.0;
+        vec3 n        = flatNormal(cell_pos);
+
+        vec3  light     = normalize(vec3(0.6, 0.8, -0.4));
+        float diff      = max(dot(n, light), 0.0);
+        float t_palette = diff * 0.7 + 0.3;
+        col = palette(t_palette) * (0.2 + diff * 0.8);
+
+        // PS1-style hard linear fog
+        float fog = clamp(dist / 25.0, 0.0, 1.0);
+        col = mix(col, palette(0.0), fog);
+    } else {
+        col = palette(0.0) * 0.15;
+    }
+
+    fragColor = vec4(col, 1.0);
+}

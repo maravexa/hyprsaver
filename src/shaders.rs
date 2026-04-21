@@ -102,6 +102,11 @@ pub const BUILTIN_SHIPBURN: &str = include_str!("../shaders/shipburn.frag");
 /// a stained-glass / cellular aesthetic distinct from every other fractal in the roster.
 pub const BUILTIN_FRACTALTRAP: &str = include_str!("../shaders/fractaltrap.frag");
 
+/// Forward-flying raymarcher through an infinite grid of axis-aligned cubes. Space-fold
+/// via mod() produces repeating 4-unit cells. Hard PS1-style flat face normals (±X/Y/Z
+/// only — no calcNormal), Lambertian shading, hard linear fog. Lightweight GPU tier.
+pub const BUILTIN_GRIDFLY: &str = include_str!("../shaders/gridfly.frag");
+
 // ---------------------------------------------------------------------------
 // Vertex shader for the fullscreen quad (triangle-strip, no VBO needed)
 // ---------------------------------------------------------------------------
@@ -271,6 +276,7 @@ impl ShaderManager {
             ("sonar", BUILTIN_SONAR),
             ("plasma", BUILTIN_PLASMA),
             ("donut", BUILTIN_DONUT),
+            ("gridfly", BUILTIN_GRIDFLY),
             ("shipburn", BUILTIN_SHIPBURN),
             ("snowfall", BUILTIN_SNOWFALL),
             ("starfield", BUILTIN_STARFIELD),
@@ -821,7 +827,7 @@ mod tests {
 
     #[test]
     fn test_builtin_shader_count() {
-        assert_eq!(manager().list().len(), 26);
+        assert_eq!(manager().list().len(), 27);
     }
 
     #[test]
@@ -837,6 +843,7 @@ mod tests {
             "donut",
             "flames",
             "geometry",
+            "gridfly",
             "hypercube",
             "fractaltrap",
             "julia",
