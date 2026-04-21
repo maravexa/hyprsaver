@@ -38,29 +38,25 @@ vec2 hash22(vec2 p) {
 // ---------------------------------------------------------------------------
 const vec2  GRID_SIZE       = vec2(8.0, 6.0);
 const vec2  SCROLL_VELOCITY = vec2(0.03, 0.015);
-const float NODE_SIZE       = 0.06;   // in cell units
-const float EDGE_WIDTH      = 0.025;  // in cell units
+const float NODE_SIZE       = 0.09;   // normalized to previous intensity-max size
+const float EDGE_WIDTH      = 0.038;  // normalized to previous intensity-max width
 
 // ---------------------------------------------------------------------------
 // Node info
 // ---------------------------------------------------------------------------
 struct NodeInfo {
     vec2  cell_uv;   // position in grid-coordinate space
-    float intensity; // 0.5 to 1.5, controls brightness and pulse strength
+    float intensity; // uniform 1.0 — all nodes normalized to largest size
 };
 
 NodeInfo get_node(vec2 cell_id) {
-    vec2 h = hash22(cell_id + vec2(13.0, 29.0));
-
-    // Brick-offset: odd rows shift x by 0.5 cell for non-rectangular feel
+    // Brick offset: odd rows shift x by 0.5 cell
     float row_shift = mod(cell_id.y, 2.0) * 0.5;
 
-    vec2 local_offset = vec2(0.35 + 0.3 * h.x, 0.35 + 0.3 * h.y);
-    vec2 cell_origin  = vec2(cell_id.x + row_shift, cell_id.y);
-
     NodeInfo n;
-    n.cell_uv   = cell_origin + local_offset;
-    n.intensity = 0.5 + 1.0 * h.x;
+    // Node at center of cell — uniform positioning, no per-node jitter
+    n.cell_uv   = vec2(cell_id.x + row_shift + 0.5, cell_id.y + 0.5);
+    n.intensity = 1.0;  // uniform — all nodes normalized to largest size
     return n;
 }
 
@@ -73,7 +69,7 @@ float hash_edge(vec2 a, vec2 b) {
 // ---------------------------------------------------------------------------
 vec3 edge_contribution(vec2 pg, NodeInfo nA, NodeInfo nB,
                         float e_hash, float t) {
-    float exists = smoothstep(0.40, 0.50, e_hash);  // ~55% density
+    float exists = smoothstep(0.60, 0.70, e_hash);  // ~30% density
 
     vec2  ab     = nB.cell_uv - nA.cell_uv;
     vec2  ap     = pg - nA.cell_uv;
