@@ -36,6 +36,11 @@ pub struct UniformLocations {
     // Preview speed/zoom multipliers (uploaded every frame; default 1.0 in daemon mode)
     pub u_speed_scale: Option<glow::UniformLocation>,
     pub u_zoom_scale: Option<glow::UniformLocation>,
+    // df32 nuclear test precision constants (None for all other shaders)
+    pub u_test_pi_hi: Option<glow::UniformLocation>,
+    pub u_test_pi_lo: Option<glow::UniformLocation>,
+    pub u_pi_sq_hi: Option<glow::UniformLocation>,
+    pub u_pi_sq_lo: Option<glow::UniformLocation>,
 }
 
 // ---------------------------------------------------------------------------
@@ -1212,6 +1217,33 @@ impl Renderer {
                 self.gl.uniform_1_f32(Some(loc), self.zoom_scale);
             }
 
+            // df32 nuclear test precision constants — None for every other shader.
+            // Computed from f64 so the lo words carry real sub-ULP residuals.
+            if uniforms.u_test_pi_hi.is_some()
+                || uniforms.u_test_pi_lo.is_some()
+                || uniforms.u_pi_sq_hi.is_some()
+                || uniforms.u_pi_sq_lo.is_some()
+            {
+                let pi_f64: f64 = std::f64::consts::PI;
+                let pi_hi: f32 = pi_f64 as f32;
+                let pi_lo: f32 = (pi_f64 - pi_hi as f64) as f32;
+                let pi_sq_f64: f64 = pi_f64 * pi_f64;
+                let pi_sq_hi: f32 = pi_sq_f64 as f32;
+                let pi_sq_lo: f32 = (pi_sq_f64 - pi_sq_hi as f64) as f32;
+                if let Some(ref loc) = uniforms.u_test_pi_hi {
+                    self.gl.uniform_1_f32(Some(loc), pi_hi);
+                }
+                if let Some(ref loc) = uniforms.u_test_pi_lo {
+                    self.gl.uniform_1_f32(Some(loc), pi_lo);
+                }
+                if let Some(ref loc) = uniforms.u_pi_sq_hi {
+                    self.gl.uniform_1_f32(Some(loc), pi_sq_hi);
+                }
+                if let Some(ref loc) = uniforms.u_pi_sq_lo {
+                    self.gl.uniform_1_f32(Some(loc), pi_sq_lo);
+                }
+            }
+
             // All palettes are pre-baked to LUT on the CPU. Always sample via texture.
             // Texture unit 1 → u_lut_a (current)
             self.gl.active_texture(glow::TEXTURE1);
@@ -1563,6 +1595,10 @@ impl Renderer {
                 u_alpha: self.gl.get_uniform_location(prog, "u_alpha"),
                 u_speed_scale: self.gl.get_uniform_location(prog, "u_speed_scale"),
                 u_zoom_scale: self.gl.get_uniform_location(prog, "u_zoom_scale"),
+                u_test_pi_hi: self.gl.get_uniform_location(prog, "u_test_pi_hi"),
+                u_test_pi_lo: self.gl.get_uniform_location(prog, "u_test_pi_lo"),
+                u_pi_sq_hi: self.gl.get_uniform_location(prog, "u_pi_sq_hi"),
+                u_pi_sq_lo: self.gl.get_uniform_location(prog, "u_pi_sq_lo"),
             };
         }
     }
