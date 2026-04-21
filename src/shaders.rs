@@ -16,9 +16,6 @@ use std::sync::mpsc;
 // Built-in shaders compiled into the binary
 // ---------------------------------------------------------------------------
 
-/// Mandelbrot set with animated zoom and smooth iteration coloring.
-pub const BUILTIN_MANDELBROT: &str = include_str!("../shaders/mandelbrot.frag");
-
 /// Julia set with animated parameter.
 pub const BUILTIN_JULIA: &str = include_str!("../shaders/julia.frag");
 
@@ -91,11 +88,6 @@ pub const BUILTIN_CLOUDS: &str = include_str!("../shaders/clouds.frag");
 /// Overhead aurora borealis — horizontal curtain bands with asymmetric exponential falloff
 /// (sharp bright lower edge, long soft glow tail upward). Pure trig + exp, no fBm.
 pub const BUILTIN_AURORA: &str = include_str!("../shaders/aurora.frag");
-
-/// Deep-zoom Mandelbrot — df32 coordinate arithmetic enables zoom depth ~1e11.
-/// CPU-side state machine drives focal-point selection, exponential zoom lifecycle,
-/// and iteration budget scaling. Palette-inherited background.
-pub const BUILTIN_MANDELBROT_DEEP: &str = include_str!("../shaders/mandelbrot_deep.frag");
 
 // ---------------------------------------------------------------------------
 // Vertex shader for the fullscreen quad (triangle-strip, no VBO needed)
@@ -206,7 +198,7 @@ fn dir_has_frags(dir: &Path) -> bool {
 
 /// A single shader entry in the registry.
 pub struct ShaderSource {
-    /// Canonical name (file stem, e.g. "mandelbrot").
+    /// Canonical name (file stem, e.g. "julia").
     pub name: String,
     /// Original source as loaded from disk or binary.
     pub raw: String,
@@ -259,8 +251,6 @@ impl ShaderManager {
             ("julia", BUILTIN_JULIA),
             ("kaleidoscope", BUILTIN_KALEIDOSCOPE),
             ("lissajous", BUILTIN_LISSAJOUS),
-            ("mandelbrot", BUILTIN_MANDELBROT),
-            ("mandelbrot_deep", BUILTIN_MANDELBROT_DEEP),
             ("matrix", BUILTIN_MATRIX),
             ("network", BUILTIN_NETWORK),
             ("oscilloscope", BUILTIN_OSCILLOSCOPE),
@@ -815,7 +805,7 @@ mod tests {
 
     #[test]
     fn test_builtin_shader_count() {
-        assert_eq!(manager().list().len(), 25);
+        assert_eq!(manager().list().len(), 23);
     }
 
     #[test]
@@ -834,8 +824,6 @@ mod tests {
             "julia",
             "kaleidoscope",
             "lissajous",
-            "mandelbrot",
-            "mandelbrot_deep",
             "marble",
             "matrix",
             "network",
@@ -1045,8 +1033,8 @@ mod tests {
     #[test]
     fn test_get_compiled() {
         let mgr = manager();
-        let compiled = mgr.get_compiled("mandelbrot");
-        assert!(compiled.is_some(), "mandelbrot compiled source must exist");
+        let compiled = mgr.get_compiled("julia");
+        assert!(compiled.is_some(), "julia compiled source must exist");
         assert!(
             !compiled.unwrap().is_empty(),
             "compiled source must not be empty"
@@ -1089,20 +1077,20 @@ mod tests {
     fn test_set_playlist_restricts_cycle() {
         let mut mgr = manager();
         // cycle_index starts at 0; first call increments to 1.
-        // Playlist = ["mandelbrot", "julia"], so: call1→"julia", call2→"mandelbrot", call3→"julia".
-        mgr.set_playlist(vec!["mandelbrot".to_string(), "julia".to_string()]);
+        // Playlist = ["julia", "plasma"], so: call1→"plasma", call2→"julia", call3→"plasma".
+        mgr.set_playlist(vec!["julia".to_string(), "plasma".to_string()]);
         let name1 = mgr.cycle_next().expect("must return Some");
         let name2 = mgr.cycle_next().expect("must return Some");
         let name3 = mgr.cycle_next().expect("must return Some"); // wraps
-        assert_eq!(name1, "julia");
-        assert_eq!(name2, "mandelbrot");
-        assert_eq!(name3, "julia", "must wrap around within playlist");
+        assert_eq!(name1, "plasma");
+        assert_eq!(name2, "julia");
+        assert_eq!(name3, "plasma", "must wrap around within playlist");
     }
 
     #[test]
     fn test_set_playlist_empty_resets_to_all() {
         let mut mgr = manager();
-        mgr.set_playlist(vec!["mandelbrot".to_string()]);
+        mgr.set_playlist(vec!["julia".to_string()]);
         mgr.set_playlist(vec![]); // reset
         let n = mgr.list().len();
         let mut seen = std::collections::HashSet::new();

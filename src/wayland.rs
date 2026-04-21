@@ -438,9 +438,6 @@ pub struct WaylandState {
     /// Whether all monitors cycle in sync (`true`, default) or independently (`false`).
     synced: bool,
 
-    /// State machine for `mandelbrot_deep` zoom lifecycle.
-    /// `Some` only when at least one surface is showing this shader.
-    mandelbrot_deep_state: Option<crate::mandelbrot_deep::MandelbrotDeepState>,
 }
 
 impl WaylandState {
@@ -453,7 +450,7 @@ impl WaylandState {
                 shader_manager
                     .current_cycle_name()
                     .map(str::to_string)
-                    .unwrap_or_else(|| "mandelbrot".to_string())
+                    .unwrap_or_else(|| "julia".to_string())
             }
             name => {
                 if shader_manager.get(name).is_some() {
@@ -483,17 +480,12 @@ impl WaylandState {
                         );
                         return "planet".to_string();
                     }
-                    // Fallback to mandelbrot or first available.
+                    // Fallback to first available shader.
                     shader_manager
-                        .get("mandelbrot")
-                        .map(|_| "mandelbrot".to_string())
-                        .unwrap_or_else(|| {
-                            shader_manager
-                                .list()
-                                .first()
-                                .map(|s| s.to_string())
-                                .unwrap_or_else(|| "mandelbrot".to_string())
-                        })
+                        .list()
+                        .first()
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|| "julia".to_string())
                 }
             }
         }
@@ -598,7 +590,7 @@ impl WaylandState {
 
         // Guard against empty playlists (should not happen given the fallback above).
         let shader_pl = if shader_pl.is_empty() {
-            vec!["mandelbrot".to_string()]
+            vec!["julia".to_string()]
         } else {
             shader_pl
         };
@@ -744,7 +736,7 @@ pub fn run(
                 vec![active_palette.clone()]
             };
             let shader_pl = if shader_pl.is_empty() {
-                vec!["mandelbrot".to_string()]
+                vec!["julia".to_string()]
             } else {
                 shader_pl
             };
@@ -764,12 +756,6 @@ pub fn run(
         } else {
             None
         }
-    } else {
-        None
-    };
-
-    let mandelbrot_deep_state = if active_shader == "mandelbrot_deep" {
-        Some(crate::mandelbrot_deep::MandelbrotDeepState::new())
     } else {
         None
     };
@@ -795,7 +781,6 @@ pub fn run(
         signal_flag,
         global_cycle_manager,
         synced,
-        mandelbrot_deep_state,
     };
 
     // Initial roundtrip to get outputs.
@@ -950,11 +935,6 @@ pub fn run(
                                     }
                                     surf.shader_name = name.clone();
                                 }
-                                // Initialize deep-zoom state machine when cycling to this shader.
-                                if name == "mandelbrot_deep" {
-                                    state.mandelbrot_deep_state =
-                                        Some(crate::mandelbrot_deep::MandelbrotDeepState::new());
-                                }
                                 state.active_shader = name;
                             }
                         }
@@ -1033,14 +1013,6 @@ pub fn run(
                                             if let Err(e) = r.load_shader(&compiled) {
                                                 log::warn!("Shader cycle compile error: {e:#}");
                                             }
-                                        }
-                                        // Initialize deep-zoom state machine when cycling to it.
-                                        if shader_name == "mandelbrot_deep"
-                                            && state.mandelbrot_deep_state.is_none()
-                                        {
-                                            state.mandelbrot_deep_state = Some(
-                                                crate::mandelbrot_deep::MandelbrotDeepState::new(),
-                                            );
                                         }
                                         surf.shader_name = shader_name;
                                     }
@@ -1189,19 +1161,6 @@ pub fn run(
                             if let Some(r) = surf.renderer.as_mut() {
                                 r.set_palette(&entry).ok();
                             }
-                        }
-                    }
-                }
-            }
-
-            // Tick mandelbrot_deep state machine and push per-frame uniforms to any
-            // surface currently showing this shader.
-            if let Some(ref mut deep_state) = state.mandelbrot_deep_state {
-                let uniforms = deep_state.update(now);
-                for surf in state.surfaces.values_mut() {
-                    if surf.shader_name == "mandelbrot_deep" {
-                        if let Some(r) = surf.renderer.as_mut() {
-                            r.set_mandelbrot_deep_uniforms(&uniforms);
                         }
                     }
                 }
@@ -1386,10 +1345,6 @@ impl OutputHandler for WaylandState {
             palette_name,
         );
         surface.cycle_manager = cycle_manager;
-        // Initialize deep-zoom state machine if this surface will show mandelbrot_deep.
-        if surface.shader_name == "mandelbrot_deep" && self.mandelbrot_deep_state.is_none() {
-            self.mandelbrot_deep_state = Some(crate::mandelbrot_deep::MandelbrotDeepState::new());
-        }
         self.surfaces.insert(output, surface);
     }
 
