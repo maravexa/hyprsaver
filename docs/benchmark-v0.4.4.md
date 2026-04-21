@@ -27,11 +27,11 @@ Results ranked by maximum GPU utilization (%). Tier thresholds: Lightweight <25%
 
 | Max % | Min % | Shader | Notes |
 |---|---|---|---|
-| ~35–50 | ~30 | Network | Single-layer grid with hash-gated edges. Estimate pending HawkPoint1 verification. |
+| ~45–52 | ~30 | Network | Single-layer grid, long-offset edges. Estimate pending HawkPoint1 verification. |
 
-**v0.4.4 architecture:** Single scrolling grid (8×5 nominal), 3×3 cell neighbourhood per pixel, 3 outgoing edges per cell (right, down, diagonal). Hash-driven edge existence (~60% density). Per-node size variance (0.6–1.4×) tapers edge widths and scales node brightness. Gradient pulse via `smoothstep` — no discrete dots. Additive composition over pure black.
+**v0.4.4 architecture:** Single scrolling grid (8×5 nominal), 5×5 cell neighbourhood per pixel (25 cells), 1 outgoing long-offset edge per cell from an 8-direction table (Chebyshev magnitude 2). Per-node size variance (0.5–2.0×, 4× ratio) tapers edge widths and scales node brightness. Per-node circular drift (radius 0.12 cell units, ~63 s period, independent phase per node). Hash-driven edge existence (~60% density). Single palette call per edge (with per-edge hash offset for color variety). Gradient pulse via `smoothstep`. Additive composition over pure black.
 
-**Expected improvement basis:** v0.4.3 used 3 parallax layers, which triples the edge-check work versus a single layer. The new single-layer approach removes that multiplier entirely. Despite richer per-edge features (tapered width, two-layer palette, gradient pulse), overall cost should be at or below v0.4.3's 43% because the layer multiplier dominated. Estimate: 35–50% max.
+**Expected improvement vs. prior v0.4.4 iteration:** Prior iteration used 3×3 + 3 outgoing short edges (36 features, 2 palette calls/edge = 54 palette calls/px). New iteration uses 5×5 + 1 long-offset edge (50 features, 1 palette call/edge = 50 palette calls/px). Net palette cost slightly lower; ALU slightly higher due to longer edge distances in projection math. Expected landing: 45–52% util.
 
 Update this entry with actual radeontop measurements after verification on HawkPoint1.
 
