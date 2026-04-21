@@ -6,8 +6,7 @@ uniform vec2  u_resolution;
 uniform vec2  u_mouse;
 uniform int   u_frame;
 
-// sonar.glsl — multi-source wavefront interference with rotating sweep.
-// Reads as sonar scope: contacts appear and fade, sweep reveals them.
+// sonar.frag — static sonar-scope backdrop + rotating sweep + blip contacts.
 
 // ---------------------------------------------------------------------------
 // Fast hash functions (Dave Hoskins style)
@@ -36,11 +35,12 @@ vec2 hash22(vec2 p) {
 // Constants
 // ---------------------------------------------------------------------------
 const int   NUM_EMITTERS = 6;
-const float RING_FREQ    = 12.0;   // wave rings per unit distance
-const float WAVE_SPEED   = 2.5;    // ring expansion speed
 const float SWEEP_SPEED  = 0.25;   // radians/sec of sweep rotation
 const float PI           = 3.14159265;
 const float TAU          = 6.28318530;
+const float RING_DENSITY = 5.0;    // backdrop concentric rings per unit distance
+const float BLIP_SIZE    = 0.025;  // blip radius in screen units
+const float BLIP_DECAY   = 3.0;    // seconds for blip to fully fade
 
 // ---------------------------------------------------------------------------
 // Emitter paths — slow Lissajous drift, bounded to [-0.6, 0.6]
@@ -57,77 +57,70 @@ vec2 emitter_pos(int i, float t) {
 // Main
 // ---------------------------------------------------------------------------
 void main() {
-    float t = u_time * u_speed_scale;
+    float t  = u_time * u_speed_scale;
+    vec2  p  = (gl_FragCoord.xy - 0.5 * u_resolution.xy) / u_resolution.y;
 
-    // Aspect-preserved coordinates, centred at origin
-    vec2 p = (gl_FragCoord.xy - 0.5 * u_resolution.xy) / u_resolution.y;
-
-    // Sweep angle must be available before the emitter loop
-    float sweep_angle = t * SWEEP_SPEED;
+    float d           = length(p);
     float pixel_angle = atan(p.y, p.x);
+    float sweep_angle = t * SWEEP_SPEED;
 
-    // ===== WAVE INTERFERENCE WITH PING GATING =====
-    // Each emitter is silent until the sweep passes its angular position,
-    // then emits a ring pulse that decays over 3 seconds, then silent again until next sweep.
-    float total_wave      = 0.0;
-    float total_intensity = 0.0;
+    // ===== STATIC BACKDROP =====
+    // Crosshair along x=0 and y=0 axes
+    float cross = max(
+        smoothstep(0.004, 0.001, abs(p.x)),
+        smoothstep(0.004, 0.001, abs(p.y))
+    );
 
+    // Concentric rings — thin bright lines at regular radii
+    float ring_phase = fract(d * RING_DENSITY);
+    float sonar_rings = smoothstep(0.08, 0.02,
+        min(ring_phase, 1.0 - ring_phase));
+
+    // Fade backdrop away from center (gives "scope viewport" feel)
+    float backdrop_falloff = smoothstep(1.2, 0.3, d);
+    float backdrop = max(cross, sonar_rings) * backdrop_falloff;
+
+    // ===== ROTATING SWEEP =====
+    float behind = mod(sweep_angle - pixel_angle, TAU);
+    float beam   = exp(-behind * 40.0);   // sharp leading edge
+    float trail  = exp(-behind * 3.0);    // softer fade behind
+
+    // ===== BLIPS (emitter nodes, ping-triggered) =====
+    float total_blip = 0.0;
     for (int i = 0; i < NUM_EMITTERS; i++) {
         vec2 epos = emitter_pos(i, t);
 
-        // How many seconds since the sweep last crossed this emitter's angle?
-        // mod(...) wraps into [0, TAU), divided by angular velocity gives seconds.
+        // Time in seconds since sweep last passed this emitter's angle
         float emitter_angle   = atan(epos.y, epos.x);
         float time_since_ping = mod(sweep_angle - emitter_angle, TAU) / SWEEP_SPEED;
 
-        // Amplitude envelope: 1.0 at ping moment, smooth fade to 0 at 3 seconds.
-        float amp = smoothstep(3.0, 0.0, time_since_ping);
+        // Amplitude: 1.0 at ping moment, smoothly fades to 0 at BLIP_DECAY seconds
+        float amp = smoothstep(BLIP_DECAY, 0.0, time_since_ping);
 
-        float d     = length(p - epos);
-        float atten = exp(-d * 1.2);
-        float phase = float(i) * 1.234;
+        // Blip shape — sharp circular dot at emitter position
+        float d_to_emitter = length(p - epos);
+        float blip = smoothstep(BLIP_SIZE, BLIP_SIZE * 0.4, d_to_emitter);
 
-        // Wave phase uses time_since_ping so rings expand outward from the ping moment
-        // (not continuously as before). At time_since_ping=0, wavefront is at emitter;
-        // expands at WAVE_SPEED thereafter.
-        float wave = cos(d * RING_FREQ - time_since_ping * WAVE_SPEED + phase);
-
-        total_wave      += wave * atten * amp;
-        total_intensity += atten * amp;
+        total_blip += blip * amp;
     }
-
-    float wave_n  = total_wave / max(total_intensity, 0.15);
-    float wave_01 = 0.5 + 0.5 * wave_n;
-
-    // Emphasize constructive-interference peaks only.
-    float wave_intensity = smoothstep(0.35, 0.90, wave_01);
-
-    // Leading beam — sharp bright arc at current sweep angle.
-    float behind = mod(sweep_angle - pixel_angle, TAU);
-    float beam   = exp(-behind * 40.0);
-
-    // ===== EMITTER DOTS (white, sharp, no glow) =====
-    float dots = 0.0;
-    for (int i = 0; i < NUM_EMITTERS; i++) {
-        vec2  epos = emitter_pos(i, t);
-        float d    = length(p - epos);
-        dots += smoothstep(0.010, 0.006, d);
-    }
-    dots = clamp(dots, 0.0, 1.0);
+    total_blip = clamp(total_blip, 0.0, 1.0);
 
     // ===== COMPOSE =====
     vec3 color = vec3(0.0);
 
-    // Waves (naturally localized near recently-pinged emitters via amp gating)
-    vec3 col_wave = palette(fract(wave_01 * 0.7 + t * 0.06));
-    color += col_wave * wave_intensity;
+    // Dim always-visible backdrop in palette color
+    vec3 backdrop_col = palette(fract(t * 0.03));
+    color += backdrop_col * backdrop * 0.20;
 
-    // Leading beam (rotating arc, palette-colored)
-    vec3 col_beam = palette(fract(t * 0.1));
-    color += col_beam * beam * 0.9;
+    // Sweep trail brightens backdrop pattern as it passes (classic radar look)
+    color += backdrop_col * backdrop * trail * 0.8;
 
-    // White dots at emitter positions
-    color += vec3(1.0) * dots;
+    // Bright palette-colored leading beam
+    vec3 beam_col = palette(fract(t * 0.08));
+    color += beam_col * beam * 0.9;
+
+    // White blips — only visible where emitters have been recently pinged
+    color += vec3(1.0) * total_blip;
 
     fragColor = vec4(clamp(color, 0.0, 1.0), 1.0);
 }
