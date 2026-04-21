@@ -1,6 +1,11 @@
 #version 320 es
 precision highp float;
 
+uniform float u_time;
+uniform vec2  u_resolution;
+uniform vec2  u_mouse;
+uniform int   u_frame;
+
 // sonar.glsl — multi-source wavefront interference with rotating sweep.
 // Reads as sonar scope: contacts appear and fade, sweep reveals them.
 

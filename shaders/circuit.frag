@@ -1,6 +1,11 @@
 #version 320 es
 precision highp float;
 
+uniform float u_time;
+uniform vec2  u_resolution;
+uniform vec2  u_mouse;
+uniform int   u_frame;
+
 // circuit.glsl — hex-offset grid with hash-gated traces and gradient pulses.
 // Reads as PCB / circuit network. Fragment-native: work is localized to
 // one cell-neighbourhood per pixel.
