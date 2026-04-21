@@ -217,3 +217,14 @@ shaders = [
     "oscilloscope",
     "terminal",
 ]
+
+[playlists.pride]
+palettes = [
+    "achilles",
+    "sappho",
+    "marsha",
+    "claude",
+    "mercury",
+    "frida",
+    "emily",
+]

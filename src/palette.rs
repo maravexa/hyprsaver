@@ -358,7 +358,9 @@ pub fn builtin_palettes() -> HashMap<String, Palette> {
     map
 }
 
-/// Build the three built-in gradient/LUT palettes: "sunset", "aurora", "midnight".
+/// Build the built-in gradient/LUT palettes: the three core gradients
+/// ("sunset", "aurora", "midnight") plus the pride flag pack
+/// ("achilles", "sappho", "marsha", "claude", "mercury", "frida", "emily").
 pub fn builtin_gradient_palettes() -> Vec<(String, PaletteEntry)> {
     let sunset = gradient_to_lut(&[
         GradientStop {
@@ -424,10 +426,184 @@ pub fn builtin_gradient_palettes() -> Vec<(String, PaletteEntry)> {
     ])
     .unwrap_or_default();
 
+    // Achilles -- MLM flag (gay men, 7-stripe)
+    let achilles = gradient_to_lut(&[
+        GradientStop {
+            position: 0.000,
+            color: [0.027, 0.553, 0.439],
+        }, // #078D70
+        GradientStop {
+            position: 0.167,
+            color: [0.149, 0.808, 0.667],
+        }, // #26CEAA
+        GradientStop {
+            position: 0.333,
+            color: [0.596, 0.910, 0.757],
+        }, // #98E8C1
+        GradientStop {
+            position: 0.500,
+            color: [1.000, 1.000, 1.000],
+        }, // #FFFFFF
+        GradientStop {
+            position: 0.667,
+            color: [0.482, 0.678, 0.886],
+        }, // #7BADE2
+        GradientStop {
+            position: 0.833,
+            color: [0.314, 0.286, 0.800],
+        }, // #5049CC
+        GradientStop {
+            position: 1.000,
+            color: [0.239, 0.102, 0.471],
+        }, // #3D1A78
+    ])
+    .unwrap_or_default();
+
+    // Sappho -- Lesbian sunset flag (7-stripe, Emily Gwen 2018)
+    let sappho = gradient_to_lut(&[
+        GradientStop {
+            position: 0.000,
+            color: [0.835, 0.176, 0.000],
+        }, // #D52D00
+        GradientStop {
+            position: 0.167,
+            color: [0.937, 0.463, 0.153],
+        }, // #EF7627
+        GradientStop {
+            position: 0.333,
+            color: [1.000, 0.604, 0.337],
+        }, // #FF9A56
+        GradientStop {
+            position: 0.500,
+            color: [1.000, 1.000, 1.000],
+        }, // #FFFFFF
+        GradientStop {
+            position: 0.667,
+            color: [0.820, 0.384, 0.643],
+        }, // #D162A4
+        GradientStop {
+            position: 0.833,
+            color: [0.710, 0.337, 0.565],
+        }, // #B55690
+        GradientStop {
+            position: 1.000,
+            color: [0.639, 0.008, 0.384],
+        }, // #A30262
+    ])
+    .unwrap_or_default();
+
+    // Marsha -- Trans flag (Monica Helms 2000, symmetric)
+    let marsha = gradient_to_lut(&[
+        GradientStop {
+            position: 0.00,
+            color: [0.357, 0.808, 0.980],
+        }, // #5BCEFA
+        GradientStop {
+            position: 0.25,
+            color: [0.961, 0.663, 0.722],
+        }, // #F5A9B8
+        GradientStop {
+            position: 0.50,
+            color: [1.000, 1.000, 1.000],
+        }, // #FFFFFF
+        GradientStop {
+            position: 0.75,
+            color: [0.961, 0.663, 0.722],
+        }, // #F5A9B8
+        GradientStop {
+            position: 1.00,
+            color: [0.357, 0.808, 0.980],
+        }, // #5BCEFA
+    ])
+    .unwrap_or_default();
+
+    // Claude -- Nonbinary flag (Kye Rowan 2014)
+    let claude = gradient_to_lut(&[
+        GradientStop {
+            position: 0.000,
+            color: [0.988, 0.957, 0.204],
+        }, // #FCF434
+        GradientStop {
+            position: 0.333,
+            color: [1.000, 1.000, 1.000],
+        }, // #FFFFFF
+        GradientStop {
+            position: 0.667,
+            color: [0.612, 0.349, 0.820],
+        }, // #9C59D1
+        GradientStop {
+            position: 1.000,
+            color: [0.173, 0.173, 0.173],
+        }, // #2C2C2C
+    ])
+    .unwrap_or_default();
+
+    // Mercury -- Pan flag (2010)
+    let mercury = gradient_to_lut(&[
+        GradientStop {
+            position: 0.00,
+            color: [1.000, 0.129, 0.549],
+        }, // #FF218C
+        GradientStop {
+            position: 0.50,
+            color: [1.000, 0.847, 0.000],
+        }, // #FFD800
+        GradientStop {
+            position: 1.00,
+            color: [0.129, 0.694, 1.000],
+        }, // #21B1FF
+    ])
+    .unwrap_or_default();
+
+    // Frida -- Bi flag (Michael Page 1998)
+    let frida = gradient_to_lut(&[
+        GradientStop {
+            position: 0.00,
+            color: [0.839, 0.008, 0.439],
+        }, // #D60270
+        GradientStop {
+            position: 0.50,
+            color: [0.608, 0.310, 0.588],
+        }, // #9B4F96
+        GradientStop {
+            position: 1.00,
+            color: [0.000, 0.220, 0.659],
+        }, // #0038A8
+    ])
+    .unwrap_or_default();
+
+    // Emily -- Ace flag (2010)
+    let emily = gradient_to_lut(&[
+        GradientStop {
+            position: 0.000,
+            color: [0.000, 0.000, 0.000],
+        }, // #000000
+        GradientStop {
+            position: 0.333,
+            color: [0.643, 0.643, 0.643],
+        }, // #A4A4A4
+        GradientStop {
+            position: 0.667,
+            color: [1.000, 1.000, 1.000],
+        }, // #FFFFFF
+        GradientStop {
+            position: 1.000,
+            color: [0.502, 0.000, 0.502],
+        }, // #800080
+    ])
+    .unwrap_or_default();
+
     vec![
         ("sunset".into(), PaletteEntry::Lut(sunset)),
         ("aurora".into(), PaletteEntry::Lut(aurora)),
         ("midnight".into(), PaletteEntry::Lut(midnight)),
+        ("achilles".into(), PaletteEntry::Lut(achilles)),
+        ("sappho".into(), PaletteEntry::Lut(sappho)),
+        ("marsha".into(), PaletteEntry::Lut(marsha)),
+        ("claude".into(), PaletteEntry::Lut(claude)),
+        ("mercury".into(), PaletteEntry::Lut(mercury)),
+        ("frida".into(), PaletteEntry::Lut(frida)),
+        ("emily".into(), PaletteEntry::Lut(emily)),
     ]
 }
 
