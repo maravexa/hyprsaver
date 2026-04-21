@@ -1360,6 +1360,10 @@ impl Renderer {
                 u_alpha: self.gl.get_uniform_location(prog, "u_alpha"),
                 u_speed_scale: self.gl.get_uniform_location(prog, "u_speed_scale"),
                 u_zoom_scale: self.gl.get_uniform_location(prog, "u_zoom_scale"),
+                u_test_pi_hi: self.gl.get_uniform_location(prog, "u_test_pi_hi"),
+                u_test_pi_lo: self.gl.get_uniform_location(prog, "u_test_pi_lo"),
+                u_pi_sq_hi: self.gl.get_uniform_location(prog, "u_pi_sq_hi"),
+                u_pi_sq_lo: self.gl.get_uniform_location(prog, "u_pi_sq_lo"),
             }
         };
 
