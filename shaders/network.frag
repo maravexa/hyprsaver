@@ -6,9 +6,12 @@ precision highp float;
 //
 // Single-layer scrolling grid network.  Nodes placed on a hash-perturbed
 // grid scroll diagonally over time.  Hash-gated edges (≈60% density) with
-// tapered width and gradient pulse animation.  Node-size variance (0.6–1.4×)
-// drives visual size, edge width, and brightness — producing depth illusion
-// without parallax layers.  Additive composition over pure black.
+// tapered width and gradient pulse animation.  Node-size variance (0.5–2.0×,
+// 4× ratio) drives visual size, edge width, and brightness — producing depth
+// illusion without parallax layers.  Each node drifts in a slow small circle
+// within its cell.  Each cell emits one long-offset edge from an 8-direction
+// table, producing screen-spanning lines at varied angles.  Additive
+// composition over pure black.
 // ---------------------------------------------------------------------------
 
 uniform float u_time;
@@ -38,7 +41,7 @@ float hash21(vec2 p) {
 
 struct NodeInfo {
     vec2  cell_uv;  // node position in grid (cell) coordinates
-    float size;     // visual size multiplier: 0.6 – 1.4
+    float size;     // visual size multiplier: 0.5 – 2.0
 };
 
 NodeInfo get_node(vec2 cell_id) {
@@ -48,9 +51,13 @@ NodeInfo get_node(vec2 cell_id) {
     // Keep node in the central 40 % of its cell — avoids crossing cell boundaries.
     vec2 local_offset = vec2(0.3) + 0.4 * vec2(h1, h2);
 
+    // Per-node drift: small circular motion within cell (one rotation ~63 s, independent phase).
+    float drift_angle = u_time * 0.1 + h1 * 6.2831853;
+    vec2  drift       = 0.12 * vec2(cos(drift_angle), sin(drift_angle));
+
     NodeInfo n;
-    n.cell_uv = cell_id + local_offset;
-    n.size    = 0.6 + 0.8 * h1;  // 0.6 → 1.4
+    n.cell_uv = cell_id + local_offset + drift;
+    n.size    = 0.5 + 1.5 * h1;  // 0.5 → 2.0, 4× ratio
     return n;
 }
 
@@ -60,6 +67,28 @@ NodeInfo get_node(vec2 cell_id) {
 
 float hash_edge(vec2 a, vec2 b) {
     return hash21(a + b);  // a+b == b+a keeps the gate symmetric
+}
+
+// ---------------------------------------------------------------------------
+// Long-offset edge table — 8 directions, Chebyshev magnitude 2
+// so a 5×5 search catches every rendered edge fully.
+// ---------------------------------------------------------------------------
+
+const vec2 EDGE_OFFSETS[8] = vec2[8](
+    vec2( 2.0,  0.0),   // E
+    vec2( 2.0,  2.0),   // SE
+    vec2( 0.0,  2.0),   // S
+    vec2(-2.0,  2.0),   // SW
+    vec2(-2.0,  0.0),   // W
+    vec2(-2.0, -2.0),   // NW
+    vec2( 0.0, -2.0),   // N
+    vec2( 2.0, -2.0)    // NE
+);
+
+vec2 get_cell_offset(vec2 cell_id) {
+    float h   = hash21(cell_id + vec2(71.0, 149.0));
+    int   idx = int(floor(h * 8.0));
+    return EDGE_OFFSETS[idx];
 }
 
 // ---------------------------------------------------------------------------
@@ -96,11 +125,9 @@ vec3 edge_contribution(vec2 pg, NodeInfo nA, NodeInfo nB,
     float width = mix(nA.size, nB.size, edge_t) * BASE_FEATURE_SIZE;
     float shape = smoothstep(width, width * 0.4, dist);
 
-    // Two-layer palette cycling along the edge — different rates produce
-    // drifting interference as the long beat frequency plays out.
-    vec3 col_a = palette(fract(edge_t * 2.0 + t * 0.05));
-    vec3 col_b = palette(fract(edge_t * 3.0 + t * 0.07 + 0.3));
-    vec3 col   = mix(col_a, col_b, 0.35);
+    // Single palette call — edge_hash offsets starting position so neighboring
+    // edges sample different palette positions despite similar edge_t values.
+    vec3 col = palette(fract(edge_t * 2.5 + t * 0.06 + edge_hash_val * 0.5));
 
     // Gradient pulse sweeping along the edge at a per-edge phase offset.
     float pulse_pos = fract(t * 0.15 + edge_hash_val);
@@ -126,25 +153,20 @@ void main() {
 
     vec3 color = vec3(0.0);
 
-    // 3×3 cell neighbourhood covers all edges and nodes that can affect this pixel.
-    for (float dy = -1.0; dy <= 1.0; dy += 1.0) {
-        for (float dx = -1.0; dx <= 1.0; dx += 1.0) {
+    // 5×5 cell neighbourhood — required to catch both endpoints of magnitude-2 edges.
+    for (float dy = -2.0; dy <= 2.0; dy += 1.0) {
+        for (float dx = -2.0; dx <= 2.0; dx += 1.0) {
             vec2     cell = center_cell + vec2(dx, dy);
             NodeInfo n    = get_node(cell);
 
             color += node_contribution(pg, n, t);
 
-            // Three outgoing edges: right, down, diagonal-down-right.
-            NodeInfo nR  = get_node(cell + vec2(1.0, 0.0));
-            NodeInfo nD  = get_node(cell + vec2(0.0, 1.0));
-            NodeInfo nDR = get_node(cell + vec2(1.0, 1.0));
-
-            color += edge_contribution(pg, n, nR,
-                         hash_edge(cell, cell + vec2(1.0, 0.0)), t);
-            color += edge_contribution(pg, n, nD,
-                         hash_edge(cell, cell + vec2(0.0, 1.0)), t);
-            color += edge_contribution(pg, n, nDR,
-                         hash_edge(cell, cell + vec2(1.0, 1.0)), t);
+            // One outgoing long-offset edge per cell, direction selected by per-cell hash.
+            vec2     offset    = get_cell_offset(cell);
+            vec2     dest_cell = cell + offset;
+            NodeInfo n_dest    = get_node(dest_cell);
+            float    e_hash    = hash_edge(cell, dest_cell);
+            color += edge_contribution(pg, n, n_dest, e_hash, t);
         }
     }
 
