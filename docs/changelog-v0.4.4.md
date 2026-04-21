@@ -177,3 +177,81 @@ Multi-source wavefront interference with a rotating radial sweep. Six point emit
 ### Shader count after network → circuit + sonar pivot
 - Before: 25 built-ins (network present)
 - After: 26 built-ins (network removed, circuit + sonar added — net +1)
+
+---
+
+## waves — Retro Horizon Shader
+
+First member of the planned "retro playlist" sub-group. Flat-plane perspective
+inverse producing a 2D-over-horizon wave field — no raymarching, no normals,
+no lighting model. The retro aesthetic is produced by *doing less*: triangle
+waves instead of sin, hard-step isolines instead of smoothstep AA, posterized
+palette quantization, CRT scanlines. Each choice is also a cost win on RDNA.
+
+Replaces the discarded Seascape (TDM, 2014) port which would have pegged
+HawkPoint1 at 100%+ (32-step raymarched 3D heightfield, 5-octave FBM normals,
+sin-based hashing — architectural mismatch identical to the deleted `network`
+shader).
+
+### Algorithm
+
+- Perspective: `z = min(1.0 / max(HORIZON - uv.y, 1e-3), Z_MAX)` — one divide,
+  one min, one max. Z_MAX cap prevents unbounded wave frequencies near the
+  horizon line that would otherwise moire.
+- Wave field: sum of 3 triangle waves in perspective-mapped world
+  coordinates `(wx, wz)` where `wx = (uv.x - 0.5) * z * WAVE_STRETCH_X` and
+  `wz = z + t * SCROLL_SPEED`. Triangle wave is ~2× cheaper than `sin` on
+  RDNA and its harmonic content reads as "textured" rather than "smooth swell."
+- Isolines: `step(0.5 - ISOLINE_WIDTH, abs(fract(h * ISOLINE_COUNT) - 0.5))`
+  — hard-edged, intentionally aliased at crossings of `h * ISOLINE_COUNT`.
+  Subpixel shimmer in motion is the feature.
+- Palette coordinate quantized with `floor(pc * POSTERIZE) / POSTERIZE` to
+  produce discrete color bands that crawl as the field scrolls.
+- Haze: `1.0 - smoothstep(HORIZON - HAZE_START, HORIZON - HAZE_END, uv.y)`
+  fades waves to black approaching the horizon line AND zeros out the
+  above-horizon region (pure black "sky").
+- Scanlines: `1.0 - SCANLINE * step(0.5, fract(gl_FragCoord.y / SCANLINE_PERIOD))`
+  in screen-space, unaffected by the optional PIXEL_SIZE snap.
+- Optional PIXEL_SIZE fragment snap (default 1.0 = off) for PS1-style
+  low-res look. Quantizes `gl_FragCoord.xy` before perspective math.
+
+No hashing. The wave field is fully deterministic from `(wx, wz)` — the
+retro aesthetic comes from regularity, not noise.
+
+### Expected GPU util
+
+18–25% on HawkPoint1. Lightweight tier — cheapest shader added in v0.4.4.
+
+### Files
+- `shaders/waves.frag` — new file
+
+#### src/shaders.rs
+- Added `BUILTIN_WAVES` constant (`include_str!("../shaders/waves.frag")`)
+- Registered `("waves", BUILTIN_WAVES)` in the built-in shader roster
+- Updated `test_builtin_shader_count` from 28 → 29
+- Added `"waves"` to `test_builtin_names` list
+
+#### src/main.rs
+- Added `"waves"` entry to `shader_descriptions()`
+
+#### README.md
+- Incremented built-in shader count 25 → 26
+- Added `waves` row to the built-in shader table
+- Added `Waves` to the Lightweight tier list in GPU Performance section
+
+#### docs/benchmark-v0.4.4.md
+- Added Lightweight-tier entry for Waves (~18–25% estimate)
+- Added "Waves estimate basis" note
+
+### Shader count after waves
+- Before: 26 built-ins
+- After: 27 built-ins
+
+### Future work (not part of this change)
+
+- A roster-metadata aesthetic-tag system to support curated playlists
+  (enabling the planned "retro" sub-group that will include `waves`,
+  `terminal`, `oscilloscope`, and future additions) is a candidate for
+  v0.5.0. Not built here.
+- Starfield center dead-zone (carry-forward from v0.4.3) remains the final
+  open v0.4.4 task.
