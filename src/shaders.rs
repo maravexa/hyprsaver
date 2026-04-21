@@ -89,6 +89,16 @@ pub const BUILTIN_CLOUDS: &str = include_str!("../shaders/clouds.frag");
 /// (sharp bright lower edge, long soft glow tail upward). Pure trig + exp, no fBm.
 pub const BUILTIN_AURORA: &str = include_str!("../shaders/aurora.frag");
 
+/// Burning Ship Julia variant — absolute-value folding before squaring produces angular,
+/// mirror-symmetric "ship" silhouette shapes. Animated c parameter orbits through the
+/// most structured region of the Burning Ship parameter space.
+pub const BUILTIN_SHIPBURN: &str = include_str!("../shaders/shipburn.frag");
+
+/// Julia set with orbit-trap coloring — tracks minimum distance from the orbit to a unit
+/// circle during iteration. Both interior and exterior pixels use the trap signal, producing
+/// a stained-glass / cellular aesthetic distinct from every other fractal in the roster.
+pub const BUILTIN_FRACTALTRAP: &str = include_str!("../shaders/fractaltrap.frag");
+
 // ---------------------------------------------------------------------------
 // Vertex shader for the fullscreen quad (triangle-strip, no VBO needed)
 // ---------------------------------------------------------------------------
@@ -248,6 +258,7 @@ impl ShaderManager {
             ("marble", BUILTIN_MARBLE),
             ("hypercube", BUILTIN_HYPERCUBE),
             ("geometry", BUILTIN_GEOMETRY),
+            ("fractaltrap", BUILTIN_FRACTALTRAP),
             ("julia", BUILTIN_JULIA),
             ("kaleidoscope", BUILTIN_KALEIDOSCOPE),
             ("lissajous", BUILTIN_LISSAJOUS),
@@ -256,6 +267,7 @@ impl ShaderManager {
             ("oscilloscope", BUILTIN_OSCILLOSCOPE),
             ("plasma", BUILTIN_PLASMA),
             ("donut", BUILTIN_DONUT),
+            ("shipburn", BUILTIN_SHIPBURN),
             ("snowfall", BUILTIN_SNOWFALL),
             ("starfield", BUILTIN_STARFIELD),
             ("terminal", BUILTIN_TERMINAL),
@@ -805,7 +817,7 @@ mod tests {
 
     #[test]
     fn test_builtin_shader_count() {
-        assert_eq!(manager().list().len(), 23);
+        assert_eq!(manager().list().len(), 25);
     }
 
     #[test]
@@ -821,6 +833,7 @@ mod tests {
             "flames",
             "geometry",
             "hypercube",
+            "fractaltrap",
             "julia",
             "kaleidoscope",
             "lissajous",
@@ -830,6 +843,7 @@ mod tests {
             "oscilloscope",
             "planet",
             "plasma",
+            "shipburn",
             "snowfall",
             "starfield",
             "terminal",
