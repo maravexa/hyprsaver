@@ -21,7 +21,7 @@ Results ranked by maximum GPU utilization (%). Tier thresholds: Lightweight <25%
 | ~45 | ~40 | Shipburn | Burning Ship Julia — MAX_ITER 150, abs() fold adds negligible cost vs. standard Julia. Estimate pending HawkPoint1 verification. |
 | ~30 | ~25 | Fractaltrap | Cubic Julia (z³+c) with orbit trap — MAX_ITER 80, cubic step ~3× quadratic ALU cost but most pixels escape early. Orbit trap adds length()+min() per step. Net estimate: Lightweight tier. Pending HawkPoint1 verification. |
 | ~20–30 | ~15 | Circuit | Brick-offset grid, 4×5 cached nodes, 3 edges per cell — fast fract hash, single palette call per feature. Estimate pending HawkPoint1 verification. |
-| ~20–30 | ~15 | Sonar | 6 Lissajous emitters, wave interference sum, radial sweep, blips — ~40 trig-equivalent ops/px, 3 palette samples. Estimate pending HawkPoint1 verification. |
+| ~15–20 | ~10 | Sonar | Full rewrite (v0.4.4): static backdrop (crosshair + rings), rotating sweep, blip contacts. ~12 sin/cos (emitter_pos) + 6 atan + 2 exp + 2 palette calls. No wave-interference math. Estimate pending HawkPoint1 verification. |
 
 ## Shaders Removed in v0.4.4
 
@@ -39,6 +39,6 @@ See `docs/BENCHMARK_0.4.3.md` for the full v0.4.3 baseline. All 23 shaders that 
 - **Shipburn estimate basis:** Burning Ship Julia iteration body is structurally identical to classic Julia plus two `abs()` calls per step. `abs()` is a single instruction on HawkPoint1 (RDNA compute). Expected overhead is <5% versus Julia (43% max). Estimated 45% max.
 - **Fractaltrap estimate basis (updated — cubic formula):** Iteration changed from z²+c to z³+c — Cartesian form uses 4 muls + 2 muls/adds vs. 2 muls + 1 mul for quadratic, roughly 3× per-step ALU cost. However, cubic Julias escape faster on average and MAX_ITER is 80 (lower than prior estimate's 100). Orbit trap adds length()+min() but no texture reads. Net estimate: 25–30% max, Lightweight tier.
 - **Circuit estimate basis:** 4×5 = 20 node cache eliminates repeated hash calls. 3×3 = 9 cell iteration × 3 edges = 27 edge evaluations/pixel. Each edge: 1 hash + 1 distance + 1 palette = cheap. Fast fract hash throughout. Expected 20–30% max.
-- **Sonar estimate basis:** 6 emitter_pos calls × 2 sin/cos = 12 trig. 6 exp for wave attenuation. 1 atan. 1 exp for sweep. 6 exp for blips. 3 palette samples. Total ~30 trig-equivalent ops/px. Expected 20–30% max.
+- **Sonar estimate basis (v0.4.4 rewrite):** 6 emitter_pos calls × 2 sin/cos = 12 trig. 6 atan (emitter angles) + 1 atan (pixel angle) = 7 atan. 1 exp (beam) + 1 exp (trail) = 2 exp. 6 length + 6 smoothstep (blips). 2 palette samples. No wave cos/exp per emitter. Total ~25 trig-equivalent ops/px. Expected 15–20% max — cheaper than prior wave-interference version.
 - Both circuit and sonar are single-pass with no texture reads in inner loops. Expected to behave well on RDNA wavefront execution.
 - Update this file with actual radeontop measurements after v0.4.4 ships and verifies on HawkPoint1.
