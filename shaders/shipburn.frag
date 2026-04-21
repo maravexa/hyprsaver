@@ -53,26 +53,33 @@ void main() {
         }
     }
 
-    // Darken palette[0] so background reads as dark on every palette.
-    vec3 bg = palette(0.0) * 0.25;
-
-    vec3 color;
-    if (escaped) {
-        float raw_t = escape_iter / float(MAX_ITER);
-        // Compress high-escape-iter region into a wider bright band.
-        float t_primary = smoothstep(0.0, 0.6, raw_t);
-
-        // Angle of escape gives subtle color variation within bands.
-        float angle_mod = 0.5 + 0.5 * sin(atan(z.y, z.x) * 2.0 + u_time * 0.1);
-
-        // Blend primary (structure) with secondary (detail), weighted toward primary.
-        float t = mix(t_primary, t_primary * angle_mod + (1.0 - angle_mod) * 0.5, 0.3);
-        t = clamp(t, 0.0, 1.0);
-
-        color = palette(t);
-    } else {
-        color = bg;
+    // Interior pixels are pure black — no palette sampling inside the set
+    if (!escaped) {
+        fragColor = vec4(0.0, 0.0, 0.0, 1.0);
+        return;
     }
 
-    fragColor = vec4(color, 1.0);
+    float t_col = escape_iter / float(MAX_ITER);
+
+    // Smoothstep thickening (preserved from previous tuning)
+    // Widens bright bands by compressing high-iter region into wider palette range
+    float t_thick = smoothstep(0.0, 0.6, t_col);
+
+    // Two-layer julia-style palette cycling
+    // col_boundary cycles 3x across palette, drifts with time
+    vec3 col_boundary = palette(fract(t_thick * 3.0 + u_time * 0.05));
+    // col_shimmer cycles 2x, offset in palette space by 0.3, drifts at different rate
+    vec3 col_shimmer  = palette(fract(t_thick * 2.0 + u_time * 0.07 + 0.3));
+
+    // Blend — boundary dominant, shimmer adds within-line color variation
+    vec3 col = mix(col_boundary, col_shimmer, 0.35);
+
+    // Brightness shaping: pow curve emphasizes mid-to-high escape range
+    // The 1.6 multiplier pushes bright regions toward saturation
+    col *= pow(t_thick, 0.5) * 1.6;
+
+    // Edge smoothstep: pixels with very low t_col fade to black
+    col *= smoothstep(0.0, 0.02, t_col);
+
+    fragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
 }
