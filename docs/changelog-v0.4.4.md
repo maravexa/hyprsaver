@@ -97,4 +97,83 @@ The result is a stained-glass / cellular / circuit-board aesthetic immediately d
 - Added `"fractaltrap"` entry to `shader_descriptions()`
 
 ### Shader count after Julia variants
-- Final v0.4.4 count: 25 built-ins
+- Count after Julia variants: 25 built-ins
+
+---
+
+## Network Deletion & circuit + sonar Shaders
+
+### Rationale
+
+`network.frag` produces a plexus / connected-nodes aesthetic — the visual that vertex-based libraries (particles.js, Vanta.js, Three.js line primitives) render at <5% GPU by drawing actual line segments. After three optimization passes the shader still sat at 45–52% GPU util because the fundamental architecture is wrong: per-pixel iteration over O(n) nodes and edges cannot compete with a vertex renderer on this visual.
+
+Continuing to optimize is a losing battle with the architecture. The correct response is to replace it with two aesthetics that are genuinely fragment-native: work that is localized to a small fixed neighbourhood per pixel regardless of scene complexity.
+
+### circuit
+
+Brick-offset grid (staggered rows) with hash-gated traces between cells. Each cell has a solder-pad node; each edge can carry a gradient signal pulse. Produces a PCB / circuit-board-ish network without rectangular-grid feel.
+
+**Why fragment-native:** All work is confined to a 3×3 cell neighbourhood (9 cells, 27 edges). A 4×5 = 20-entry node cache eliminates redundant hash calls. The 20-node array is computed once; the inner loop only reads from it. Per-pixel cost is O(1) regardless of how large the grid extends.
+
+**Algorithm:**
+- 8×6 brick-offset grid scrolling diagonally at `SCROLL_VELOCITY`
+- Odd rows shift x by 0.5 cell (`mod(cell_id.y, 2.0) * 0.5`) for non-rectangular appearance
+- Per-cell jitter via `hash22` places nodes within a 0.35–0.65 cell region
+- Three outgoing edges per cell: E, NE, SE; ~55% exist (hash threshold)
+- Edge width tapers between endpoint intensities; gradient pulse at `fract(t * 0.25 + e_hash)`
+- Single `palette()` call per edge with hash offset for per-edge color variety
+- Fast fract hash (Dave Hoskins) throughout — no `sin()`-based hashing
+
+**Expected GPU util:** 20–30% on HawkPoint1.
+
+#### Files
+- `shaders/circuit.frag` — new file
+
+#### src/shaders.rs
+- Added `BUILTIN_CIRCUIT` constant (`include_str!("../shaders/circuit.frag")`)
+- Registered `("circuit", BUILTIN_CIRCUIT)` in the built-in shader roster
+
+#### src/main.rs
+- Added `"circuit"` entry to `shader_descriptions()`
+
+### sonar
+
+Multi-source wavefront interference with a rotating radial sweep. Six point emitters trace slow Lissajous paths; each emits expanding cosine rings. The sweep reveals constructive interference peaks as contacts — classic sonar scope behaviour.
+
+**Why fragment-native:** Per-pixel cost is a fixed sum over 6 emitters (no spatial index needed): 6 distance computations, 6 `cos()` ring samples, 6 `exp()` attenuations, 1 `atan()`, 1 `exp()` sweep decay, 6 `exp()` blip contributions. Total ~40 trig-equivalent ops/pixel, constant regardless of scene state.
+
+**Algorithm:**
+- 6 emitters on Lissajous paths `(0.6*sin(t*0.08+i*1.237), 0.5*cos(t*0.11+i*2.413))`
+- Wave: `cos(d * RING_FREQ - t * WAVE_SPEED + phase)` per emitter, attenuated by `exp(-d * 1.2)`
+- Normalised wave sum prevents brightness drift across emitter configurations
+- Sweep: `exp(-recency * 6.0)` exponential trailing decay; `recency = mod((sweep_angle - pixel_angle)/TAU + 1.0, 1.0)`
+- Sweep **multiplies** the existing wave pattern rather than overpainting it — contacts are the waves, the sweep just reveals them
+- Blips: `exp(-d * 35.0)` tight bright points at each emitter position
+- Fast fract hash (Dave Hoskins) — included for completeness, used in hash22 only if future variants need it
+
+**Expected GPU util:** 20–30% on HawkPoint1.
+
+#### Files
+- `shaders/sonar.frag` — new file
+
+#### src/shaders.rs
+- Added `BUILTIN_SONAR` constant (`include_str!("../shaders/sonar.frag")`)
+- Registered `("sonar", BUILTIN_SONAR)` in the built-in shader roster
+
+#### src/main.rs
+- Added `"sonar"` entry to `shader_descriptions()`
+
+### Deleted
+
+- `shaders/network.frag` — removed entirely. Architecture mismatch: plexus aesthetic is vertex-native, not fragment-native. Three optimization passes failed to bring it below Medium-Heavy boundary at 45–52%.
+
+#### src/shaders.rs
+- Removed `BUILTIN_NETWORK` constant
+- Removed `("network", BUILTIN_NETWORK)` from the built-in shader roster
+
+#### src/main.rs
+- Removed `"network"` entry from `shader_descriptions()`
+
+### Shader count after network → circuit + sonar pivot
+- Before: 25 built-ins (network present)
+- After: 25 built-ins (network removed, circuit + sonar added — net zero change)
