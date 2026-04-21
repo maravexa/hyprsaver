@@ -661,7 +661,7 @@ pub struct Renderer {
 
     /// Preview speed multiplier (u_speed_scale). Default 1.0; no effect in daemon mode.
     speed_scale: f32,
-    /// Preview zoom multiplier (u_zoom_scale). Default 1.0; no effect in daemon mode.
+    /// Zoom multiplier uploaded as `u_zoom_scale` each frame. Fixed at 1.0 (zoom slider removed).
     zoom_scale: f32,
 
     // ------------------------------------------------------------------
@@ -690,7 +690,6 @@ pub struct Renderer {
     /// at the start of a crossfade so it keeps consistent time during the
     /// transition.
     outgoing_start_elapsed: f32,
-
 }
 
 /// Hardcoded GLSL ES 3.20 vertex shader source. Passes UV coordinates (0..1) to the fragment
@@ -987,12 +986,6 @@ impl Renderer {
     /// Values below 0.01 are clamped. Pass 1.0 to disable (daemon mode default).
     pub fn set_speed_scale(&mut self, s: f32) {
         self.speed_scale = s.max(0.01);
-    }
-
-    /// Set the zoom multiplier forwarded to `u_zoom_scale` each frame.
-    /// Values below 0.01 are clamped. Pass 1.0 to disable (daemon mode default).
-    pub fn set_zoom_scale(&mut self, z: f32) {
-        self.zoom_scale = z.max(0.01);
     }
 
     /// Update the last known mouse position (window-space pixels, origin top-left).
