@@ -120,37 +120,49 @@ void main() {
     vec2 center_cell = floor(cell_coord);
     vec2 pg          = cell_coord;
 
-    // Cache 4×5 = 20 nodes covering all potential edge endpoints.
-    // i=0..3 → dx offset -1..+2,  j=0..4 → dy offset -2..+2
+    // Node cache: 5 cols × 4 rows = 20 entries
+    // i = 0..4 represents dx -2..+2
+    // j = 0..3 represents dy -1..+2
     NodeInfo nodes[20];
-    for (int j = 0; j < 5; j++) {
-        for (int i = 0; i < 4; i++) {
-            vec2 cell = center_cell + vec2(float(i) - 1.0, float(j) - 2.0);
-            nodes[j * 4 + i] = get_node(cell);
+    for (int j = 0; j < 4; j++) {
+        for (int i = 0; i < 5; i++) {
+            vec2 cell = center_cell + vec2(float(i) - 2.0, float(j) - 1.0);
+            nodes[j * 5 + i] = get_node(cell);
         }
     }
 
     vec3 color = vec3(0.0);
 
-    // Iterate 3×3 centre cells: di ∈ {1,2,3} → dx ∈ {-1,0,1}
-    //                            dj ∈ {1,2,3} → dy ∈ {-1,0,1}
-    for (int dj = 1; dj <= 3; dj++) {
+    // Iterate 3x3 center range: dx, dy in {-1, 0, 1}
+    // Array indices: di = dx + 2 (range 1..3), dj = dy + 1 (range 0..2)
+    for (int dj = 0; dj <= 2; dj++) {
         for (int di = 1; di <= 3; di++) {
-            NodeInfo n = nodes[dj * 4 + di];
+            vec2 cell_id = center_cell + vec2(float(di) - 2.0, float(dj) - 1.0);
+            float row_parity = mod(cell_id.y, 2.0);
+            int parity_i = int(row_parity);
+
+            NodeInfo n = nodes[dj * 5 + di];
             color += node_contribution(pg, n, t);
 
-            // Three outgoing edges: E, NE, SE
-            NodeInfo nE  = nodes[dj       * 4 + (di + 1)];
-            NodeInfo nNE = nodes[(dj + 1) * 4 + (di + 1)];
-            NodeInfo nSE = nodes[(dj - 1) * 4 + (di + 1)];
+            // E neighbor: always (di+1, dj)
+            NodeInfo nE = nodes[dj * 5 + (di + 1)];
 
-            vec2 cell_id = center_cell + vec2(float(di) - 1.0, float(dj) - 2.0);
+            // NE neighbor: parity-dependent
+            //   even row (parity=0): (di, dj+1)   — same col, row up
+            //   odd row  (parity=1): (di+1, dj+1) — col right, row up
+            NodeInfo nNE = nodes[(dj + 1) * 5 + (di + parity_i)];
+
+            // NW neighbor: parity-dependent
+            //   even row (parity=0): (di-1, dj+1) — col left, row up
+            //   odd row  (parity=1): (di, dj+1)   — same col, row up
+            NodeInfo nNW = nodes[(dj + 1) * 5 + (di + parity_i - 1)];
+
             color += edge_contribution(pg, n, nE,
-                hash_edge(cell_id, cell_id + vec2(1.0,  0.0)), t);
+                hash_edge(cell_id, cell_id + vec2(1.0, 0.0)), t);
             color += edge_contribution(pg, n, nNE,
-                hash_edge(cell_id, cell_id + vec2(1.0,  1.0)), t);
-            color += edge_contribution(pg, n, nSE,
-                hash_edge(cell_id, cell_id + vec2(1.0, -1.0)), t);
+                hash_edge(cell_id, cell_id + vec2(row_parity,       1.0)), t);
+            color += edge_contribution(pg, n, nNW,
+                hash_edge(cell_id, cell_id + vec2(row_parity - 1.0, 1.0)), t);
         }
     }
 
