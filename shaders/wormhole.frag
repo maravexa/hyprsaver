@@ -23,6 +23,10 @@ const int   MAX_STEPS = 50;
 const float MAX_DIST  = 80.0;
 const float HIT_EPS   = 0.002;
 
+// DEBUG: visualize raymarch iteration count as grayscale.
+// Set to 1 to see where the march burns budget. 0 for normal output.
+#define DEBUG_ITER_COUNT 0
+
 // Set once per frame in main(), read by Map(). Models forward flight by
 // translating the world backward rather than moving the camera.
 float g_z_offset;
@@ -94,6 +98,12 @@ void main() {
         if (d < HIT_EPS || t > MAX_DIST) break;
     }
 
+#if DEBUG_ITER_COUNT
+    float iter_frac = float(iter_count) / float(MAX_STEPS);
+    fragColor = vec4(vec3(iter_frac), 1.0);
+    return;
+#endif
+
     // ---------------------------------------------------------------------------
     // Shading — no normals, no lighting; palette IS the color.
     // ---------------------------------------------------------------------------
@@ -105,16 +115,16 @@ void main() {
     float hit_angle = atan(xy_local.y, xy_local.x);
 
     // Spiral palette bands: z rings skewed into spirals by angle.
-    // fract() wraps cleanly as z advances; the 0.5 factor keeps bands visible
-    // without strobing against the arm rotation.
-    float t_pal = fract(z_local * 0.1 + hit_angle / (2.0 * PI) * 0.5);
+    // Angle multiplier is an integer (1.0) so the palette wraps seamlessly
+    // across the atan branch-cut at ±π — non-integer multipliers leave a seam.
+    float t_pal = fract(z_local * 0.15 + hit_angle / (2.0 * PI));
     vec3 col = palette(t_pal);
 
     // Iteration-count rim: brightens pixels where the ray grazed the wall tangentially.
     col += sqrt(float(iter_count)) * 0.005;
 
     // Distance fog fades the far wall to palette(0.0) — matches gridfly convention.
-    float fog = 1.0 - exp(-t * 0.04);
+    float fog = 1.0 - exp(-t * 0.025);
     col = mix(col, palette(0.0), fog);
 
     fragColor = vec4(col, 1.0);
