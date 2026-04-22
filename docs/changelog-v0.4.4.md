@@ -1028,3 +1028,33 @@ The face's outward normal is `(sin(angle), cos(angle))` in world (x, z), consist
 ### GPU cost
 
 `hex_face_is_visible()`: 1 `sin` + 1 `cos` + 2 `mul` + 1 `add` + 1 comparison ≈ ~6 ops per face × 3 faces × 20 pillars = ~360 ops/pixel. On HawkPoint1 this is a fraction of 1% util. **Expected util: ~30–32%**, small increase from round 7's ~28–34% baseline.
+
+---
+
+## temple — Pillar Round 9 (Iterate All 6 Faces with Culling)
+
+`hex_visible_faces` removed. The inner pillar loop now iterates all 6 faces; back-face culling via `hex_face_is_visible` determines which ~3 are visible. Replaces the selection heuristic that had an asymmetric bug causing right-side pillars to render their back 3 faces.
+
+### Problem
+
+Round 8 confirmed the diagnosis: `hex_visible_faces` was picking the wrong 3 faces for right-side pillars (1 front + 2 back). With back-face culling added in round 8, those 2 back faces were correctly rejected, leaving only 1 face rendered on the right side vs. 3 on the left. The selection heuristic has an asymmetric sign or direction bug that only manifests for one hemisphere of pillar positions.
+
+### Fix
+
+**`hex_visible_faces` removed entirely.** No heuristic, no selection, no atan per pillar.
+
+**Inner pillar loop added:** Each outer pillar iteration now contains `for (int f = 0; f < 6; f++)`. First op inside the inner loop is `if (!hex_face_is_visible(pos, f)) { continue; }`. Back faces bail within 5 ops. The remaining ~3 front faces proceed through the full corner projection + depth interp + pattern pipeline.
+
+**`hex_face_is_visible` EPSILON raised from `0.0` to `0.02`:** Filters out faces within ~2° of exactly edge-on, which would otherwise produce sliver-thin glitches and potential frame-to-frame flicker at those angles.
+
+**Face index `f` drives `HEX_FACE_COLOR_SHIFT` directly:** `float(f) * HEX_FACE_COLOR_SHIFT` naturally cycles through face-specific offsets 0, 0.089, 0.178, 0.267, 0.356, 0.445 for faces 0–5. Previously only 3 of these 6 offsets were used; now all 6 cycle through as faces become visible from different approach angles.
+
+### Files changed
+
+- `shaders/temple.frag` — `hex_visible_faces()` deleted; `hex_face_is_visible()` threshold raised from `0.0` to `0.02`; pillar loop body replaced: `int f0, f1, f2` + 3 unrolled face blocks removed, inner `for (int f = 0; f < 6; f++)` loop added with continue-first cull funnel
+- `docs/benchmark-v0.4.4.md` — Temple entry updated to round 9; estimate note added
+- `docs/changelog-v0.4.4.md` — this entry
+
+### GPU cost
+
+Baseline ~30–32% from round 8. Delta: +3 inner loop iterations per pillar that each bail at the first `continue` (~5 ops) = 3 × 5 × 20 = 300 extra ops/pixel. On HawkPoint1, <1% util increase. **Expected util: ~30–33%**.
