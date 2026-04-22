@@ -42,8 +42,9 @@ void main() {
         depth + u_time * u_speed_scale * 2.0
     );
 
-    // Subtle low-frequency wave warping along X — organic, non-rigid feel.
-    grid_uv.x += sin(grid_uv.y * 0.3 + u_time * u_speed_scale * 0.5) * 0.15;
+    // Dual-axis warping — lateral sway + vertical undulation for 3D wave effect
+    grid_uv.x += sin(grid_uv.y * 0.3 + u_time * u_speed_scale * 0.5) * 0.25;
+    grid_uv.y += sin(grid_uv.x * 0.25 + u_time * u_speed_scale * 0.4) * 0.25;
 
     // Distance to nearest grid line in each axis.
     vec2 grid_dist = abs(fract(grid_uv) - 0.5);
