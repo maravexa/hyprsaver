@@ -67,7 +67,6 @@ const float CAPITAL_BRACKET_THRESH = 0.90;  // pillar_v threshold for bracket fl
 // Trace patterns per zone
 const float BASE_BAR_DENSITY       = 6.0;   // horizontal bar frequency in base zone
 const float CAPITAL_BAR_DENSITY    = 6.0;   // horizontal bar frequency in capital zone
-const float BASE_NOTCH_AMPLITUDE   = 0.15;  // u-direction notch modulation in base pattern
 
 // Zone color offsets
 const float BASE_COLOR_SHIFT       = 0.19;  // palette shift for base zone
@@ -90,7 +89,7 @@ const float PALETTE_HASH         = 0.618;
 // Offline/online (liveness inverted in round 4: online brightens, offline raw)
 // ---------------------------------------------------------------------------
 const float ONLINE_BRIGHTEN      = 0.8;    // 0 = no change, 1 = online fully white
-const float OFFLINE_RATIO        = 0.4;
+const float OFFLINE_RATIO        = 0.7;    // was 0.4 — online traces now ~30% of bands
 const float OFFLINE_HASH         = 0.4142;
 
 // ---------------------------------------------------------------------------
@@ -278,8 +277,9 @@ void main() {
             if (in_shaft) {
                 h_zone = face_u * PILLAR_LINE_DENSITY;
             } else if (in_base) {
-                h_zone = pillar_v * BASE_BAR_DENSITY
-                       + tri(face_u * 4.0) * BASE_NOTCH_AMPLITUDE;
+                // Identical formula to capital — plain horizontal bars.
+                // Color distinction preserved via BASE_COLOR_SHIFT.
+                h_zone = pillar_v * BASE_BAR_DENSITY;
                 zone_shift = BASE_COLOR_SHIFT;
             } else {
                 h_zone = pillar_v * CAPITAL_BAR_DENSITY;
