@@ -44,14 +44,26 @@ const int   NUM_PILLARS          = NUM_PILLARS_PER_ROW * NUM_ROWS;   // 20
 const float PILLAR_LINE_DENSITY   = 0.5;   // linear h coefficient; 3 vertical lines per pillar (was 1.0 = ~7)
 const float PILLAR_ISOLINE_WIDTH  = 0.12;  // pillar isoline thickness; doubled vs. surface (0.06) to suppress sweep-aliasing flicker
 
-// Pillar cap bars — horizontal bus-bars at top and bottom of each pillar
-const float PILLAR_CAP_WIDTH     = 0.1;   // fraction of pillar length (from each end) that is cap
-const float PILLAR_CAP_H_VALUE   = 0.0;   // h_render in cap zone; must be at an isoline
-                                          // (integer / ISOLINE_COUNT). 0.0 works; 0.333 also works.
-
 // Pillar temporal drift — default 0 makes pillar colors static and eliminates flicker.
 // Raise to 0.3-1.0 to re-enable color cycling on pillars (at cost of returning flicker).
 const float PILLAR_DRIFT_SCALE   = 0.0;
+
+// Column structure (classical architecture: base + shaft + capital)
+const float BASE_HEIGHT            = 0.15;  // base zone: pillar_v < -(1.0 - BASE_HEIGHT*2) = -0.70
+const float CAPITAL_HEIGHT         = 0.15;  // capital zone: pillar_v > +(1.0 - CAPITAL_HEIGHT*2) = +0.70
+const float BASE_WIDTH_SCALE       = 1.35;  // base is 1.35× shaft width
+const float CAPITAL_WIDTH_SCALE    = 1.35;  // capital mirrors base width
+const float CAPITAL_BRACKET_SCALE  = 1.55;  // top fraction of capital flares wider ("bracket")
+const float CAPITAL_BRACKET_THRESH = 0.90;  // pillar_v threshold for bracket flare
+
+// Trace patterns per zone
+const float BASE_BAR_DENSITY       = 6.0;   // horizontal bar frequency in base zone
+const float CAPITAL_BAR_DENSITY    = 6.0;   // horizontal bar frequency in capital zone
+const float BASE_NOTCH_AMPLITUDE   = 0.15;  // u-direction notch modulation in base pattern
+
+// Zone color offsets
+const float BASE_COLOR_SHIFT       = 0.19;  // palette shift for base zone
+const float CAPITAL_COLOR_SHIFT    = 0.31;  // palette shift for capital zone (different tonal variety)
 
 // ---------------------------------------------------------------------------
 // Isolines (unchanged)
@@ -72,11 +84,6 @@ const float PALETTE_HASH         = 0.618;
 const float ONLINE_BRIGHTEN      = 0.6;    // 0 = no change, 1 = online fully white
 const float OFFLINE_RATIO        = 0.4;
 const float OFFLINE_HASH         = 0.4142;
-
-// Side face trace pattern
-// Shares density with front face for visual coherence — same vertical lines, two sides.
-const float SIDE_FACE_LINE_DENSITY = 0.5;  // matches front face's effective density
-const float SIDE_FACE_COLOR_SHIFT  = 0.19; // palette offset for side face vs front face
 
 // ---------------------------------------------------------------------------
 // Brightness clamps (unchanged from color-tweaks-r2)
@@ -166,104 +173,84 @@ void main() {
     float color_offset = 0.0;
     bool  is_pillar    = false;
 
-    // Pillar pass — 2 faces per pillar: front face and inner side face.
-    // Inner side face is the face on the corridor-axis side of the pillar,
-    // showing depth parallax as the viewer walks past.
+    // Pillar pass — structured columns with base / shaft / capital.
+    // Single face per pillar; widening in base and capital zones sells 3D
+    // through silhouette variation rather than projected second face.
     float best_pillar_z = z_surface;
     for (int i = 0; i < NUM_PILLARS; i++) {
         vec2  pos    = pillar_wpos(i, t);
         float wx_p   = pos.x;
         float wz_p   = pos.y;
 
-        // Early reject: pillar is entirely behind whatever we've already chosen
-        if (wz_p + PILLAR_RADIUS >= best_pillar_z) { continue; }
+        // Early reject: any pillar farther than current best is useless
+        if (wz_p >= best_pillar_z) { continue; }
 
-        // ---- Front face test (existing logic) ----
-        {
-            float sx       = 0.5 + wx_p / (wz_p * WAVE_STRETCH_X);
-            float sw       = PILLAR_RADIUS / (wz_p * WAVE_STRETCH_X);
-            float y_extent = 1.0 / wz_p;
+        // Shaft screen projection (same math as before)
+        float sx         = 0.5 + wx_p / (wz_p * WAVE_STRETCH_X);
+        float sw_shaft   = PILLAR_RADIUS / (wz_p * WAVE_STRETCH_X);
+        float y_extent   = 1.0 / wz_p;
 
-            if (abs(uv.x - sx) < sw && abs(dist_h) < y_extent && wz_p < best_pillar_z) {
-                best_pillar_z = wz_p;
+        // Widened half-widths for base and capital zones
+        float sw_base    = sw_shaft * BASE_WIDTH_SCALE;
+        float sw_capital = sw_shaft * CAPITAL_WIDTH_SCALE;
+        float sw_bracket = sw_shaft * CAPITAL_BRACKET_SCALE;
 
-                float pillar_u = (uv.x - sx) / sw;
-                float pillar_v = dist_h * wz_p;
-                float cap_zone = step(1.0 - PILLAR_CAP_WIDTH, abs(pillar_v));
+        // Widest possible rect (used for quick rect rejection)
+        float sw_widest  = max(sw_base, sw_bracket);
 
-                h_render = mix(pillar_u * PILLAR_LINE_DENSITY,
-                               PILLAR_CAP_H_VALUE,
-                               cap_zone);
+        // Quick rejection: not even inside the widest possible rect
+        if (abs(uv.x - sx) >= sw_widest || abs(dist_h) >= y_extent) { continue; }
+        if (wz_p >= best_pillar_z) { continue; }  // re-check after prior hits
 
-                z_render     = wz_p;
-                color_offset = (float(i) + 1.0) * PILLAR_COLOR_SHIFT;
-                is_pillar    = true;
-            }
+        // pillar_v identifies vertical zone: [-1, +1], floor edge to ceiling edge
+        float pillar_v = dist_h * wz_p;
+
+        // Determine zone based on pillar_v
+        bool in_base    = pillar_v < -(1.0 - BASE_HEIGHT * 2.0);
+        bool in_capital = pillar_v >  (1.0 - CAPITAL_HEIGHT * 2.0);
+        bool in_shaft   = !in_base && !in_capital;
+
+        // Effective horizontal half-width for this zone
+        float sw_effective;
+        if (in_base) {
+            sw_effective = sw_base;
+        } else if (in_capital) {
+            sw_effective = (pillar_v > CAPITAL_BRACKET_THRESH) ? sw_bracket : sw_capital;
+        } else {
+            sw_effective = sw_shaft;
         }
 
-        // ---- Inner side face test ----
-        // The inner face is on the corridor-axis side of the pillar.
-        // For wx_p > 0, inner side is at x = wx_p - PILLAR_RADIUS.
-        // For wx_p < 0, inner side is at x = wx_p + PILLAR_RADIUS.
-        // The side face extends in world-z from (wz_p - PILLAR_RADIUS) to wz_p,
-        // and projects as a screen-space quad between the near and far corners.
-        {
-            float inner_sign = wx_p < 0.0 ? 1.0 : -1.0;  // face faces toward center
-            float face_wx    = wx_p + inner_sign * PILLAR_RADIUS;  // world-x of inner edge
-            float wz_near    = wz_p - PILLAR_RADIUS;
-            float wz_far     = wz_p;
+        // Horizontal test against zone-specific width
+        if (abs(uv.x - sx) >= sw_effective) { continue; }
 
-            // Skip side face if near edge would be behind camera
-            if (wz_near > PILLAR_NEAR_CLIP * 0.5) {
-                // Near and far corner screen-x
-                float sx_near  = 0.5 + face_wx / (wz_near * WAVE_STRETCH_X);
-                float sx_far   = 0.5 + face_wx / (wz_far  * WAVE_STRETCH_X);
+        // This pixel IS part of this pillar. Lock it in.
+        best_pillar_z = wz_p;
 
-                // The face spans [min(sx_near, sx_far), max(sx_near, sx_far)] on screen
-                float sx_lo    = min(sx_near, sx_far);
-                float sx_hi    = max(sx_near, sx_far);
+        // Face-local u coordinate, normalized against shaft width consistently so
+        // shaft vertical lines register at the same face-local positions regardless of depth.
+        float pillar_u = (uv.x - sx) / sw_shaft;
 
-                // Interpolate world-z across the face for the current pixel.
-                // Linear 1/z interpolation maintains perspective correctness.
-                float face_t   = clamp((uv.x - sx_lo) / max(sx_hi - sx_lo, 1e-5), 0.0, 1.0);
-                bool  near_is_lo = sx_near < sx_far;
-                float inv_z_near = 1.0 / wz_near;
-                float inv_z_far  = 1.0 / wz_far;
-                float inv_z_here = near_is_lo
-                    ? mix(inv_z_near, inv_z_far,  face_t)
-                    : mix(inv_z_far,  inv_z_near, face_t);
-                float z_here     = 1.0 / inv_z_here;
+        float h_zone;
+        float zone_color_offset = 0.0;
 
-                // Y extent at this sub-pixel's depth
-                float y_extent_here = 1.0 / z_here;
-
-                if (uv.x >= sx_lo && uv.x <= sx_hi &&
-                    abs(dist_h) < y_extent_here &&
-                    z_here < best_pillar_z) {
-                    best_pillar_z = z_here;
-
-                    // Face-local horizontal coordinate [-1, +1]. Derived from pixel
-                    // position within the face's current screen-x bounds, so a point
-                    // on the face keeps the same face_u regardless of pillar depth —
-                    // no scanning as the pillar scrolls toward the viewer.
-                    float face_u = ((uv.x - sx_lo) / max(sx_hi - sx_lo, 1e-5)) * 2.0 - 1.0;
-
-                    // Pillar vertical coord for cap zone (identical to front face)
-                    float pillar_v = dist_h * z_here;
-                    float cap_zone = step(1.0 - PILLAR_CAP_WIDTH, abs(pillar_v));
-
-                    // Vertical lines matching front face style + cap override
-                    h_render = mix(face_u * SIDE_FACE_LINE_DENSITY,
-                                   PILLAR_CAP_H_VALUE,
-                                   cap_zone);
-
-                    z_render     = z_here;
-                    color_offset = (float(i) + 1.0) * PILLAR_COLOR_SHIFT
-                                 + SIDE_FACE_COLOR_SHIFT;
-                    is_pillar    = true;
-                }
-            }
+        if (in_shaft) {
+            // Shaft: vertical line pattern
+            h_zone = pillar_u * PILLAR_LINE_DENSITY;
+        } else if (in_base) {
+            // Base: horizontal bars with u-modulated notch detail
+            h_zone = pillar_v * BASE_BAR_DENSITY
+                   + tri(pillar_u * 4.0) * BASE_NOTCH_AMPLITUDE;
+            zone_color_offset = BASE_COLOR_SHIFT;
+        } else {
+            // Capital: horizontal bars
+            h_zone = pillar_v * CAPITAL_BAR_DENSITY;
+            zone_color_offset = CAPITAL_COLOR_SHIFT;
         }
+
+        h_render     = h_zone;
+        z_render     = wz_p;
+        color_offset = (float(i) + 1.0) * PILLAR_COLOR_SHIFT + zone_color_offset;
+        is_pillar    = true;
     }
 
     // Isoline detection. Pillars use a thicker isoline width than floor/ceiling
