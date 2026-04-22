@@ -49,9 +49,9 @@ float march(vec3 ro, vec3 rd) {
     float t = 0.05;
     for (int i = 0; i < 48; i++) {
         float d = scene(ro + rd * t);
-        if (d < 0.001) return t;
+        if (d < 0.002) return t;
         if (t > 30.0)  break;
-        t += d;
+        t += d * 0.7;
     }
     return 30.0;
 }
