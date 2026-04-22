@@ -937,3 +937,55 @@ Changed from `wz_p + PILLAR_RADIUS >= best_pillar_z` (round 4–5, accounting fo
 ### GPU cost
 
 Side face removal: −2–3% (eliminates 1/z interpolation block, side face rect test, associated ALU). Zone logic: +1–2% (3 width scales, 1 max, widened rect test, 3-way zone bool chain, ternary bracket test, 3-branch pattern select). Net: ~−1% to −2% from round-5 baseline (~20%). **Expected util: ~18–22%**, lower than round 5.
+
+---
+
+## temple — Pillar Round 7 (Hex Columns with 3-Visible-Face Geometry)
+
+Replace single-face pillar rendering with hexagonal columns showing 3 visible faces per pillar. Genuine geometric 3D: as the viewer moves past a column, one face shrinks and rotates away while another grows and rotates in. Matches the alien-temple + circuit-trace aesthetic — hex patterns read as both organic (honeycomb) and digital (gate arrays, grid structures).
+
+### Rationale
+
+Round 6's base/shaft/capital silhouette is a reliable architectural cue but still reads as a flat front face — the widening sells "classical column profile" not "I can see around this column." Hex faces provide true perspective parallax: inner pillars show one face prominently and two flanking faces compressed; outer pillars reverse this ratio. The corner between faces is visible as two distinct planes meeting at a vertical edge. This is the alien-computer aesthetic target: structured, geometric, non-Earth.
+
+### Algorithm
+
+**Face selection:** `hex_visible_faces(pillar_pos)` computes the viewer-to-pillar direction via `atan(-wx_p, -wz_p)`, maps it to the nearest face index (6 faces at 60° intervals), and returns that face plus its two immediate neighbors. At any viewer position outside the hex prism, exactly 3 faces are geometrically visible.
+
+**Face projection:** For each of the 3 visible faces, the two bounding corners are projected to world-space via `hex_corner_world()` (pillar center + PILLAR_RADIUS × (sin, cos) of corner angle), then to screen-x via perspective divide. The face maps to a screen-space trapezoid.
+
+**Perspective-correct depth:** Within each face's screen-x bounds, depth at the current pixel is reconstructed by linear interpolation of `1/z` between the two corner depths (standard inverse-z perspective correction). This gives true depth at each pixel on the face, not just at the face center.
+
+**Depth sorting:** Each of the 3 faces checks `z_here < best_pillar_z` before committing to the pixel. The center face (most directly facing viewer) is typically closest; its neighbors are slightly receding. At corners where two faces' screen projections overlap, the nearer face wins. `best_pillar_z` is shared across all faces of all pillars and only decreases — monotone depth buffer.
+
+**Zone structure:** The base/shaft/capital zone logic from round 6 maps onto each face via `pillar_v = dist_h * z_here` (same computation, now using per-pixel face depth). Shaft: `face_u * PILLAR_LINE_DENSITY`. Base: horizontal bars + notch. Capital: horizontal bars. Zones are per-face, not per-pillar — each face independently shows the three architectural sections.
+
+**Face color distinction:** `color_offset` includes `float(face_idx) * HEX_FACE_COLOR_SHIFT = 0.089`. Face 0 (left neighbor) has offset 0×0.089=0; face 1 (center) has 1×0.089=0.089; face 2 (right neighbor) has 2×0.089=0.178. Adjacent faces shift palette position by ~0.089, producing a visible but not jarring color step at the corner.
+
+### Constants added
+
+| Constant | Value | Purpose |
+|---|---|---|
+| `HEX_FACE_HALFANGLE` | `0.5235988` | π/6 = 30°; half the angular extent of one hex face |
+| `HEX_FACE_COLOR_SHIFT` | `0.089` | Palette offset per face index; distinguishes adjacent faces |
+
+### Constants kept (unchanged from round 6)
+
+`BASE_HEIGHT`, `CAPITAL_HEIGHT`, `BASE_WIDTH_SCALE`, `CAPITAL_WIDTH_SCALE`, `CAPITAL_BRACKET_SCALE`, `CAPITAL_BRACKET_THRESH`, `BASE_BAR_DENSITY`, `CAPITAL_BAR_DENSITY`, `BASE_NOTCH_AMPLITUDE`, `BASE_COLOR_SHIFT`, `CAPITAL_COLOR_SHIFT`. Note: `BASE_WIDTH_SCALE` and `CAPITAL_WIDTH_SCALE` are no longer used to widen pillar rects (hex faces don't widen in the same way) but are retained for the early-reject `max_reach` computation.
+
+### Helper functions added
+
+- `hex_face_normal_angle(int face_idx) → float` — returns `face_idx * π/3`; the angular direction of a face's outward normal from the +z axis.
+- `hex_visible_faces(vec2 pillar_pos, out int f0, out int f1, out int f2)` — selects 3 visible face indices. Uses `atan(-wx_p, -max(wz_p, 0.1))` with the 0.1 clamp to guard against atan NaN at near-zero depth.
+- `hex_corner_world(vec2 pillar_center, float corner_angle) → vec2` — returns world-space (x, z) of a hex corner: `pillar_center + PILLAR_RADIUS * vec2(sin, cos)`.
+- `world_to_screen_x(vec2 world_pos) → float` — perspective divide to screen-x: `0.5 + world_pos.x / (max(world_pos.y, 0.01) * WAVE_STRETCH_X)`.
+
+### Files changed
+
+- `shaders/temple.frag` — hex constants added; 4 hex helper functions added after `pillar_wpos()`; pillar loop body replaced with 3-face unrolled hex loop
+- `docs/benchmark-v0.4.4.md` — Temple entry updated to round 7; estimate note added
+- `docs/changelog-v0.4.4.md` — this entry
+
+### GPU cost
+
+Baseline ~20% from round 6. Primary cost increase: trig ops — 1 `atan` + 4 `sin` + 4 `cos` per pillar (corners of 3 faces, with shared corners partially amortized) = ~9 trig ops × 20 pillars = 180 trig ops/pixel in the worst case. Additional cost: 3× face projection + depth interpolation per pillar; 3× y-extent + z-depth check. Single-face rect test removed (−2%). Net estimated delta: **+8–14%**. **Expected util: ~28–34%, Medium tier**.
