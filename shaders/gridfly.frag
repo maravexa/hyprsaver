@@ -1,9 +1,12 @@
 #version 320 es
 precision highp float;
 
+#define EDGE_BORDER 1
+
 // ---------------------------------------------------------------------------
 // hyprsaver — gridfly.frag
 //
+// Phase 4: black edge borders along cube edges restore face definition.
 // Phase 3: depth-gradient shading — each cube a single solid colour,
 // palette position driven by hit distance (near→vivid, far→fog).
 // Forward-flying raymarcher through an infinite grid of axis-aligned cubes.
@@ -78,6 +81,15 @@ void main() {
     if (dist < 30.0) {
         float t_palette = 1.0 - clamp(dist / 25.0, 0.0, 1.0);
         col = palette(t_palette);
+
+#if EDGE_BORDER
+        vec3 hit_pos = ro + rd * dist;
+        vec3 cell_pos = mod(hit_pos - 2.0, 4.0) - 2.0;
+        vec3 d = 0.8 - abs(cell_pos);
+        float edge_dist = min(d.x + d.y, min(d.y + d.z, d.x + d.z));
+        float edge = 1.0 - smoothstep(0.0, 0.08, edge_dist);
+        col = mix(col, vec3(0.0), edge * 0.6);
+#endif
 
         float fog = clamp(dist / 25.0, 0.0, 1.0);
         col = mix(col, palette(0.0), fog);
