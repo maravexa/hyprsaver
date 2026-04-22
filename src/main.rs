@@ -530,43 +530,22 @@ fn expand_tilde(path: &str) -> PathBuf {
 /// Short descriptions for built-in shaders.
 fn shader_descriptions() -> std::collections::HashMap<&'static str, &'static str> {
     [
-        (
-            "planet",
-            "Raymarched planet with aurora-band latitudes",
-        ),
-        (
-            "aurora",
-            "Aurora borealis ribbon bands over a night sky",
-        ),
-        (
-            "bezier",
-            "Five animated Bézier curves",
-        ),
+        ("planet", "Raymarched planet with aurora-band latitudes"),
+        ("aurora", "Aurora borealis ribbon bands over a night sky"),
+        ("bezier", "Five animated Bézier curves"),
         (
             "caustics",
             "Underwater light caustic patterns dancing across the screen",
         ),
-        (
-            "clouds",
-            "Drifting procedural clouds over a tinted sky",
-        ),
-        (
-            "flames",
-            "Domain-warped procedural fire",
-        ),
+        ("clouds", "Drifting procedural clouds over a tinted sky"),
+        ("flames", "Domain-warped procedural fire"),
         ("marble", "Curl-noise flow field with particle tracing"),
         (
             "geometry",
             "Rotating wireframe polyhedra morphing between geometric forms",
         ),
-        (
-            "hypercube",
-            "4D tesseract projected to 2D with neon glow",
-        ),
-        (
-            "fractaltrap",
-            "Julia set with orbit-trap coloring",
-        ),
+        ("hypercube", "4D tesseract projected to 2D with neon glow"),
+        ("fractaltrap", "Julia set with orbit-trap coloring"),
         ("julia", "Julia set with animated constant"),
         ("kaleidoscope", "6-fold kaleidoscope with domain-warped FBM"),
         ("lissajous", "Three overlapping Lissajous curves with glow"),
@@ -574,43 +553,25 @@ fn shader_descriptions() -> std::collections::HashMap<&'static str, &'static str
             "matrix",
             "Digital rain — falling characters in the style of The Matrix",
         ),
-        (
-            "circuit",
-            "Circuit board with gradient pulses along traces",
-        ),
+        ("circuit", "Circuit board with gradient pulses along traces"),
         (
             "oscilloscope",
             "CRT oscilloscope with animated waveform traces",
         ),
         ("plasma", "Classic plasma effect"),
-        (
-            "sonar",
-            "Rotating sonar sweep with wavefront interference",
-        ),
-        (
-            "shipburn",
-            "Burning Ship Julia variant",
-        ),
+        ("sonar", "Rotating sonar sweep with wavefront interference"),
+        ("shipburn", "Burning Ship Julia variant"),
         ("donut", "Raymarched torus with Phong lighting"),
         ("snowfall", "Five-layer parallax snowfall"),
         (
             "starfield",
             "Hyperspace zoom tunnel with motion-blur tracers",
         ),
-        (
-            "terminal",
-            "Scrolling CRT terminal with phosphor glow",
-        ),
-        (
-            "tesla",
-            "Tesla coil arcs with fractal-lightning branching",
-        ),
+        ("terminal", "Scrolling CRT terminal with phosphor glow"),
+        ("tesla", "Tesla coil arcs with fractal-lightning branching"),
         ("tunnel", "Infinite tunnel flythrough"),
         ("voronoi", "Animated Voronoi cells"),
-        (
-            "temple",
-            "Retro temple corridor with scrolling pillars",
-        ),
+        ("temple", "Retro temple corridor with scrolling pillars"),
         ("blob", "Lit alien orb with flowing emission veins"),
         ("gridwave", "Warping neon grid, Tron/Outrun style"),
         ("wormhole", "Curved tunnel flythrough"),
