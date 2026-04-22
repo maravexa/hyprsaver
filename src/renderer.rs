@@ -1413,14 +1413,7 @@ impl Renderer {
         // Pass `time` as both `elapsed` and `shader_start_elapsed = 0.0` so
         // u_time = time - 0.0 = time (explicit GIF frame time).
         let uniforms = self.uniforms.clone();
-        self.draw_program_with(
-            program,
-            &uniforms,
-            [w as f32, h as f32],
-            time,
-            0.0,
-            frame,
-        );
+        self.draw_program_with(program, &uniforms, [w as f32, h as f32], time, 0.0, frame);
 
         let pixel_count = (w * h * 4) as usize;
         let mut pixels = vec![0u8; pixel_count];

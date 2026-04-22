@@ -29,9 +29,7 @@ impl Drop for HeadlessContext {
     fn drop(&mut self) {
         // Detach the context before teardown so subsequent EGL calls in other
         // threads (if any) don't hit a dangling context.
-        let _ = self
-            .egl
-            .make_current(self.display, None, None, None);
+        let _ = self.egl.make_current(self.display, None, None, None);
         if let Some(surf) = self.surface.take() {
             let _ = self.egl.destroy_surface(self.display, surf);
         }
@@ -61,13 +59,12 @@ pub fn init() -> anyhow::Result<(glow::Context, HeadlessContext)> {
 
     // EGL_DEFAULT_DISPLAY: Mesa finds the DRM device automatically; no
     // Wayland socket or X display needed.
-    let display = unsafe { egl.get_display(khronos_egl::DEFAULT_DISPLAY) }
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "eglGetDisplay(EGL_DEFAULT_DISPLAY) returned EGL_NO_DISPLAY; \
+    let display = unsafe { egl.get_display(khronos_egl::DEFAULT_DISPLAY) }.ok_or_else(|| {
+        anyhow::anyhow!(
+            "eglGetDisplay(EGL_DEFAULT_DISPLAY) returned EGL_NO_DISPLAY; \
                  no GPU/DRM device found"
-            )
-        })?;
+        )
+    })?;
 
     egl.initialize(display).context("eglInitialize failed")?;
 
