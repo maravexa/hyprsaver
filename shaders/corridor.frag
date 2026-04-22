@@ -42,7 +42,7 @@ vec2 march(vec3 ro, vec3 rd) {
     for (int i = 0; i < 32; i++) {
         float d = scene(ro + rd * t);
         if (d < 0.001) return vec2(t, 1.0);
-        if (t > 25.0)  return vec2(25.0, 0.0);
+        if (t > 18.0)  return vec2(18.0, 0.0);
         t += d;
     }
     return vec2(t, 0.0);
@@ -62,13 +62,14 @@ void main() {
 
     vec2 result = march(ro, rd);
     float dist = result.x;
+    float hit  = result.y;
 
-    // Palette gradient is the entire shading model.
-    // pow(., 0.6) compresses near-field into vivid palette range and
-    // stretches far-field into horizon fog. palette(1.0-t) so near=vivid,
-    // far=palette(0.0) horizon — same convention as donut.
-    float t_palette = pow(clamp(dist / 25.0, 0.0, 1.0), 0.6);
-    vec3 col = palette(1.0 - t_palette);
+    // Palette for cube hits, black for horizon/miss.
+    // pow(., 0.6) compresses near-field into vivid palette range.
+    // mix with binary hit factor: hit=1.0 → cube_col, hit=0.0 → black.
+    float t_palette = pow(clamp(dist / 18.0, 0.0, 1.0), 0.6);
+    vec3 cube_col = palette(1.0 - t_palette);
+    vec3 col = mix(vec3(0.0), cube_col, hit);
 
     fragColor = vec4(col, 1.0);
 }
