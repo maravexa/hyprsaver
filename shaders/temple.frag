@@ -73,8 +73,9 @@ const float ONLINE_BRIGHTEN      = 0.6;    // 0 = no change, 1 = online fully wh
 const float OFFLINE_RATIO        = 0.4;
 const float OFFLINE_HASH         = 0.4142;
 
-// Side face horizontal trace pattern
-const float SIDE_FACE_RING_DENSITY = 0.8;  // horizontal rings per unit world-z on side face
+// Side face trace pattern
+// Shares density with front face for visual coherence — same vertical lines, two sides.
+const float SIDE_FACE_LINE_DENSITY = 0.5;  // matches front face's effective density
 const float SIDE_FACE_COLOR_SHIFT  = 0.19; // palette offset for side face vs front face
 
 // ---------------------------------------------------------------------------
@@ -241,12 +242,20 @@ void main() {
                     z_here < best_pillar_z) {
                     best_pillar_z = z_here;
 
+                    // Face-local horizontal coordinate [-1, +1]. Derived from pixel
+                    // position within the face's current screen-x bounds, so a point
+                    // on the face keeps the same face_u regardless of pillar depth —
+                    // no scanning as the pillar scrolls toward the viewer.
+                    float face_u = ((uv.x - sx_lo) / max(sx_hi - sx_lo, 1e-5)) * 2.0 - 1.0;
+
+                    // Pillar vertical coord for cap zone (identical to front face)
                     float pillar_v = dist_h * z_here;
                     float cap_zone = step(1.0 - PILLAR_CAP_WIDTH, abs(pillar_v));
 
-                    // Side face: horizontal rings fixed in world-z → parallax scrolls
-                    float ring_h = z_here * SIDE_FACE_RING_DENSITY;
-                    h_render = mix(ring_h, PILLAR_CAP_H_VALUE, cap_zone);
+                    // Vertical lines matching front face style + cap override
+                    h_render = mix(face_u * SIDE_FACE_LINE_DENSITY,
+                                   PILLAR_CAP_H_VALUE,
+                                   cap_zone);
 
                     z_render     = z_here;
                     color_offset = (float(i) + 1.0) * PILLAR_COLOR_SHIFT
