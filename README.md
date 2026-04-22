@@ -37,36 +37,36 @@ cargo install hyprsaver
 
 | Shader | Preview |
 |---|---|
-| **aurora** | <video src="https://github.com/maravexa/hyprsaver/raw/master/media/aurora.mp4" autoplay loop muted playsinline width="400"></video> |
-| **bezier** | <video src="https://github.com/maravexa/hyprsaver/raw/master/media/bezier.mp4" autoplay loop muted playsinline width="400"></video> |
-| **blob** | <video src="https://github.com/maravexa/hyprsaver/raw/master/media/blob.mp4" autoplay loop muted playsinline width="400"></video> |
-| **caustics** | <video src="https://github.com/maravexa/hyprsaver/raw/master/media/caustics.mp4" autoplay loop muted playsinline width="400"></video> |
-| **circuit** | <video src="https://github.com/maravexa/hyprsaver/raw/master/media/circuit.mp4" autoplay loop muted playsinline width="400"></video> |
-| **clouds** | <video src="https://github.com/maravexa/hyprsaver/raw/master/media/clouds.mp4" autoplay loop muted playsinline width="400"></video> |
-| **donut** | <video src="https://github.com/maravexa/hyprsaver/raw/master/media/donut.mp4" autoplay loop muted playsinline width="400"></video> |
-| **flames** | <video src="https://github.com/maravexa/hyprsaver/raw/master/media/flames.mp4" autoplay loop muted playsinline width="400"></video> |
-| **fractaltrap** | <video src="https://github.com/maravexa/hyprsaver/raw/master/media/fractaltrap.mp4" autoplay loop muted playsinline width="400"></video> |
-| **geometry** | <video src="https://github.com/maravexa/hyprsaver/raw/master/media/geometry.mp4" autoplay loop muted playsinline width="400"></video> |
-| **gridwave** | <video src="https://github.com/maravexa/hyprsaver/raw/master/media/gridwave.mp4" autoplay loop muted playsinline width="400"></video> |
-| **hypercube** | <video src="https://github.com/maravexa/hyprsaver/raw/master/media/hypercube.mp4" autoplay loop muted playsinline width="400"></video> |
-| **julia** | <video src="https://github.com/maravexa/hyprsaver/raw/master/media/julia.mp4" autoplay loop muted playsinline width="400"></video> |
-| **kaleidoscope** | <video src="https://github.com/maravexa/hyprsaver/raw/master/media/kaleidoscope.mp4" autoplay loop muted playsinline width="400"></video> |
-| **lissajous** | <video src="https://github.com/maravexa/hyprsaver/raw/master/media/lissajous.mp4" autoplay loop muted playsinline width="400"></video> |
-| **marble** | <video src="https://github.com/maravexa/hyprsaver/raw/master/media/marble.mp4" autoplay loop muted playsinline width="400"></video> |
-| **matrix** | <video src="https://github.com/maravexa/hyprsaver/raw/master/media/matrix.mp4" autoplay loop muted playsinline width="400"></video> |
-| **oscilloscope** | <video src="https://github.com/maravexa/hyprsaver/raw/master/media/oscilloscope.mp4" autoplay loop muted playsinline width="400"></video> |
-| **planet** | <video src="https://github.com/maravexa/hyprsaver/raw/master/media/planet.mp4" autoplay loop muted playsinline width="400"></video> |
-| **plasma** | <video src="https://github.com/maravexa/hyprsaver/raw/master/media/plasma.mp4" autoplay loop muted playsinline width="400"></video> |
-| **shipburn** | <video src="https://github.com/maravexa/hyprsaver/raw/master/media/shipburn.mp4" autoplay loop muted playsinline width="400"></video> |
-| **snowfall** | <video src="https://github.com/maravexa/hyprsaver/raw/master/media/snowfall.mp4" autoplay loop muted playsinline width="400"></video> |
-| **sonar** | <video src="https://github.com/maravexa/hyprsaver/raw/master/media/sonar.mp4" autoplay loop muted playsinline width="400"></video> |
-| **starfield** | <video src="https://github.com/maravexa/hyprsaver/raw/master/media/starfield.mp4" autoplay loop muted playsinline width="400"></video> |
-| **temple** | <video src="https://github.com/maravexa/hyprsaver/raw/master/media/temple.mp4" autoplay loop muted playsinline width="400"></video> |
-| **terminal** | <video src="https://github.com/maravexa/hyprsaver/raw/master/media/terminal.mp4" autoplay loop muted playsinline width="400"></video> |
-| **tesla** | <video src="https://github.com/maravexa/hyprsaver/raw/master/media/tesla.mp4" autoplay loop muted playsinline width="400"></video> |
-| **tunnel** | <video src="https://github.com/maravexa/hyprsaver/raw/master/media/tunnel.mp4" autoplay loop muted playsinline width="400"></video> |
-| **voronoi** | <video src="https://github.com/maravexa/hyprsaver/raw/master/media/voronoi.mp4" autoplay loop muted playsinline width="400"></video> |
-| **wormhole** | <video src="https://github.com/maravexa/hyprsaver/raw/master/media/wormhole.mp4" autoplay loop muted playsinline width="400"></video> |
+| **aurora** | ![aurora](https://github.com/maravexa/hyprsaver/raw/main/media/aurora.mp4) |
+| **bezier** | ![bezier](https://github.com/maravexa/hyprsaver/raw/main/media/bezier.mp4) |
+| **blob** | ![blob](https://github.com/maravexa/hyprsaver/raw/main/media/blob.mp4) |
+| **caustics** | ![caustics](https://github.com/maravexa/hyprsaver/raw/main/media/caustics.mp4) |
+| **circuit** | ![circuit](https://github.com/maravexa/hyprsaver/raw/main/media/circuit.mp4) |
+| **clouds** | ![clouds](https://github.com/maravexa/hyprsaver/raw/main/media/clouds.mp4) |
+| **donut** | ![donut](https://github.com/maravexa/hyprsaver/raw/main/media/donut.mp4) |
+| **flames** | ![flames](https://github.com/maravexa/hyprsaver/raw/main/media/flames.mp4) |
+| **fractaltrap** | ![fractaltrap](https://github.com/maravexa/hyprsaver/raw/main/media/fractaltrap.mp4) |
+| **geometry** | ![geometry](https://github.com/maravexa/hyprsaver/raw/main/media/geometry.mp4) |
+| **gridwave** | ![gridwave](https://github.com/maravexa/hyprsaver/raw/main/media/gridwave.mp4) |
+| **hypercube** | ![hypercube](https://github.com/maravexa/hyprsaver/raw/main/media/hypercube.mp4) |
+| **julia** | ![julia](https://github.com/maravexa/hyprsaver/raw/main/media/julia.mp4) |
+| **kaleidoscope** | ![kaleidoscope](https://github.com/maravexa/hyprsaver/raw/main/media/kaleidoscope.mp4) |
+| **lissajous** | ![lissajous](https://github.com/maravexa/hyprsaver/raw/main/media/lissajous.mp4) |
+| **marble** | ![marble](https://github.com/maravexa/hyprsaver/raw/main/media/marble.mp4) |
+| **matrix** | ![matrix](https://github.com/maravexa/hyprsaver/raw/main/media/matrix.mp4) |
+| **oscilloscope** | ![oscilloscope](https://github.com/maravexa/hyprsaver/raw/main/media/oscilloscope.mp4) |
+| **planet** | ![planet](https://github.com/maravexa/hyprsaver/raw/main/media/planet.mp4) |
+| **plasma** | ![plasma](https://github.com/maravexa/hyprsaver/raw/main/media/plasma.mp4) |
+| **shipburn** | ![shipburn](https://github.com/maravexa/hyprsaver/raw/main/media/shipburn.mp4) |
+| **snowfall** | ![snowfall](https://github.com/maravexa/hyprsaver/raw/main/media/snowfall.mp4) |
+| **sonar** | ![sonar](https://github.com/maravexa/hyprsaver/raw/main/media/sonar.mp4) |
+| **starfield** | ![starfield](https://github.com/maravexa/hyprsaver/raw/main/media/starfield.mp4) |
+| **temple** | ![temple](https://github.com/maravexa/hyprsaver/raw/main/media/temple.mp4) |
+| **terminal** | ![terminal](https://github.com/maravexa/hyprsaver/raw/main/media/terminal.mp4) |
+| **tesla** | ![tesla](https://github.com/maravexa/hyprsaver/raw/main/media/tesla.mp4) |
+| **tunnel** | ![tunnel](https://github.com/maravexa/hyprsaver/raw/main/media/tunnel.mp4) |
+| **voronoi** | ![voronoi](https://github.com/maravexa/hyprsaver/raw/main/media/voronoi.mp4) |
+| **wormhole** | ![wormhole](https://github.com/maravexa/hyprsaver/raw/main/media/wormhole.mp4) |
 
 </details>
 
