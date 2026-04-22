@@ -33,14 +33,16 @@ const float PIXEL_SIZE       = 1.0;    // 1.0 = no snap, 2-3 = visible pixelatio
 // Offline/online band mechanism
 const float OFFLINE_FLOOR    = 0.25;   // dimming factor for offline bands (0 = black, 1 = no effect)
 const float OFFLINE_RATIO    = 0.4;    // fraction of bands that are offline (higher = more offline)
-const float OFFLINE_HASH     = 0.375;  // band-to-liveness hash multiplier; keep irrational-ish
+const float OFFLINE_HASH     = 0.4142; // band-to-liveness hash multiplier; irrational (√2−1) to
+                                       // decorrelate from PALETTE_HASH and avoid period-8 cycling
 
 // Palette sampling
 const float PALETTE_HASH         = 0.618;  // band-to-palette-position hash (golden ratio)
 
 // Brightness clamps — applied AFTER liveness to guarantee visibility on all palettes
 const float MIN_TRACE_BRIGHTNESS = 0.08;   // per-channel floor; ensures dark palettes remain visible
-const float MAX_TRACE_BRIGHTNESS = 0.85;   // per-channel ceiling; prevents wash-out on bright palettes
+const float MAX_TRACE_BRIGHTNESS = 0.70;   // luminance-preserving ceiling; safe to lower because scale
+                                           // preserves saturation (per-channel clamp would desaturate)
 
 // Distance fog (exponential, retro-era)
 const float FOG_DENSITY      = 0.12;   // fog falloff rate per unit of z; higher = closer fog wall
@@ -109,12 +111,20 @@ void main() {
                    * step(OFFLINE_RATIO, fract(band_idx * OFFLINE_HASH));
     col *= liveness;
 
-    // Brightness clamp — applied AFTER liveness so offline traces on
-    // dark palettes remain visible at the MIN floor. On midnight/other
-    // dark palettes, online and offline will converge toward the floor
-    // brightness; the palette's color character (hue) is preserved as
-    // long as any channel of the palette sample is above zero.
-    col = clamp(col, vec3(MIN_TRACE_BRIGHTNESS), vec3(MAX_TRACE_BRIGHTNESS));
+    // Brightness floor — per-channel, preserves hue of palette samples
+    // above the floor. Dim-below-floor samples flat to neutral grey,
+    // which is still distinct from pure black between traces.
+    col = max(col, vec3(MIN_TRACE_BRIGHTNESS));
+
+    // Brightness ceiling — luminance-preserving scale.
+    // Per-channel `min(col, MAX)` would desaturate any color whose max
+    // channel exceeds the ceiling (bright pink turns grey-ish when R
+    // clamps while G and B are left alone). Uniform scale-down preserves
+    // the ratio between channels, so saturation is kept. White still
+    // goes grey at low MAX — this is unavoidable (white has zero
+    // saturation to preserve), but non-white bright colors retain hue.
+    float max_channel = max(max(col.r, col.g), col.b);
+    col *= min(1.0, MAX_TRACE_BRIGHTNESS / max(max_channel, 1e-4));
 
     // Exponential distance fog — retro-era depth cue that also hides horizon aliasing
     // by crushing dynamic range where sub-pixel wave frequencies live.
