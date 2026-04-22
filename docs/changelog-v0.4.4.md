@@ -989,3 +989,42 @@ Round 6's base/shaft/capital silhouette is a reliable architectural cue but stil
 ### GPU cost
 
 Baseline ~20% from round 6. Primary cost increase: trig ops — 1 `atan` + 4 `sin` + 4 `cos` per pillar (corners of 3 faces, with shared corners partially amortized) = ~9 trig ops × 20 pillars = 180 trig ops/pixel in the worst case. Additional cost: 3× face projection + depth interpolation per pillar; 3× y-extent + z-depth check. Single-face rect test removed (−2%). Net estimated delta: **+8–14%**. **Expected util: ~28–34%, Medium tier**.
+
+---
+
+## temple — Pillar Round 8 (Back-Face Culling Fix for Right-Side Pillars)
+
+Back-face culling added to fix right-side pillars rendering their back 3 faces instead of their front 3. Rather than re-deriving the sign error in `hex_visible_faces`, a robust per-face visibility test is added: each candidate face explicitly checks whether its outward normal points toward or away from the viewer before rendering.
+
+### Problem
+
+Round 7 hexagonal columns render correctly for pillars on the left side of the corridor but display back faces for right-side pillars. Classic back-face bug: somewhere in `hex_visible_faces` (atan arg order, corner angle convention, or face index direction) a sign or direction is off in a way that only manifests for one hemisphere of pillar positions.
+
+### Fix
+
+**New helper:** `hex_face_is_visible(vec2 pillar_pos, int face_idx) → bool`
+
+```glsl
+bool hex_face_is_visible(vec2 pillar_pos, int face_idx) {
+    float angle     = hex_face_normal_angle(face_idx);
+    vec2  normal    = vec2(sin(angle), cos(angle));
+    vec2  to_viewer = -pillar_pos;
+    return dot(normal, to_viewer) > 0.0;
+}
+```
+
+The face's outward normal is `(sin(angle), cos(angle))` in world (x, z), consistent with `hex_corner_world`'s convention. The viewer is at the origin; the vector from pillar to viewer is `-pillar_pos`. A face is visible iff its normal has a positive component toward the viewer — `dot(normal, to_viewer) > 0`.
+
+**Usage:** Each of the 3 face blocks (f0, f1, f2) is now guarded by `if (hex_face_is_visible(pos, fN))`. The outer `{}` scope is replaced with the conditional.
+
+`hex_visible_faces` is unchanged — it still narrows candidates to 3 faces. The culling test acts as a safety net catching any selection errors. If `hex_visible_faces` picks wrong faces (e.g., all-back-faces for right-side pillars), culling silently drops them. If that results in 0 visible faces for some pillars (pillars disappearing), that is a diagnostic signal for round 9 to expand to 6-face iteration with culling.
+
+### Files changed
+
+- `shaders/temple.frag` — `hex_face_is_visible()` helper added after `world_to_screen_x()`; face blocks for f0, f1, f2 each wrapped in `if (hex_face_is_visible(pos, fN))` guard
+- `docs/benchmark-v0.4.4.md` — Temple entry updated to round 8; estimate note added
+- `docs/changelog-v0.4.4.md` — this entry
+
+### GPU cost
+
+`hex_face_is_visible()`: 1 `sin` + 1 `cos` + 2 `mul` + 1 `add` + 1 comparison ≈ ~6 ops per face × 3 faces × 20 pillars = ~360 ops/pixel. On HawkPoint1 this is a fraction of 1% util. **Expected util: ~30–32%**, small increase from round 7's ~28–34% baseline.
