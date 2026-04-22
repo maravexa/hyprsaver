@@ -8,7 +8,9 @@
 //! events are ever emitted for it, preserving the pre-cycle-mode behaviour
 //! where `shader = "mandelbrot"` just shows mandelbrot forever.
 
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
+
+use crate::shuffle::{seed_from_time, xorshift64, ShuffleBag};
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -102,8 +104,8 @@ pub struct CycleManager {
     last_shader_change: Instant,
     last_palette_change: Instant,
     order: CycleOrder,
-    /// xorshift64 PRNG state. Non-zero, seeded from system entropy.
-    rng_state: u64,
+    shader_bag: ShuffleBag,
+    palette_bag: ShuffleBag,
 }
 
 impl CycleManager {
@@ -127,15 +129,24 @@ impl CycleManager {
             "CycleManager: palette_playlist must not be empty"
         );
 
-        let mut rng_state = seed_from_time();
+        // Derive two independent seeds from one wall-clock read.
+        let mut rng = seed_from_time();
+        let shader_seed = xorshift64(&mut rng);
+        let palette_seed = xorshift64(&mut rng);
 
+        let mut shader_bag = ShuffleBag::new(config.shader_playlist.len(), shader_seed);
+        let mut palette_bag = ShuffleBag::new(config.palette_playlist.len(), palette_seed);
+
+        // Random starting positions: pop once from each bag so the first
+        // shown item isn't always index 0, and the popped index is removed
+        // from the first bag cycle.
         let shader_index = if config.shader_playlist.len() > 1 {
-            xorshift64(&mut rng_state) as usize % config.shader_playlist.len()
+            shader_bag.next()
         } else {
             0
         };
         let palette_index = if config.palette_playlist.len() > 1 {
-            xorshift64(&mut rng_state) as usize % config.palette_playlist.len()
+            palette_bag.next()
         } else {
             0
         };
@@ -151,7 +162,8 @@ impl CycleManager {
             last_shader_change: now,
             last_palette_change: now,
             order: config.order,
-            rng_state,
+            shader_bag,
+            palette_bag,
         }
     }
 
@@ -166,7 +178,7 @@ impl CycleManager {
         if self.shader_playlist.len() > 1
             && now.duration_since(self.last_shader_change) >= self.shader_interval
         {
-            self.shader_index = self.next_index(self.shader_playlist.len(), self.shader_index);
+            self.shader_index = self.next_shader_index();
             self.last_shader_change = now;
             events.push(CycleEvent::ShaderChange(
                 self.shader_playlist[self.shader_index].clone(),
@@ -176,7 +188,7 @@ impl CycleManager {
         if self.palette_playlist.len() > 1
             && now.duration_since(self.last_palette_change) >= self.palette_interval
         {
-            self.palette_index = self.next_index(self.palette_playlist.len(), self.palette_index);
+            self.palette_index = self.next_palette_index();
             self.last_palette_change = now;
             events.push(CycleEvent::PaletteChange(
                 self.palette_playlist[self.palette_index].clone(),
@@ -192,12 +204,19 @@ impl CycleManager {
     /// output name to guarantee independent RNG streams across monitors.
     pub fn new_with_offset(config: CycleConfig, seed_offset: u64) -> Self {
         let mut mgr = Self::new(config);
-        // XOR-mix the offset with a Knuth constant to spread bits across the state.
-        mgr.rng_state ^= seed_offset.wrapping_mul(0x9e37_79b9_7f4a_7c15);
-        // xorshift64 must never have state 0.
-        if mgr.rng_state == 0 {
-            mgr.rng_state = 0x853c_49e6_748f_ea9b;
+        // Rebuild the bags with offset-mixed seeds so per-monitor cycles
+        // follow independent streams. The start indices chosen in `new`
+        // are preserved.
+        let shader_len = mgr.shader_playlist.len();
+        let palette_len = mgr.palette_playlist.len();
+        let mut rng = seed_from_time() ^ seed_offset.wrapping_mul(0x9e37_79b9_7f4a_7c15);
+        if rng == 0 {
+            rng = 0x853c_49e6_748f_ea9b;
         }
+        let shader_seed = xorshift64(&mut rng);
+        let palette_seed = xorshift64(&mut rng);
+        mgr.shader_bag = ShuffleBag::new(shader_len, shader_seed);
+        mgr.palette_bag = ShuffleBag::new(palette_len, palette_seed);
         mgr
     }
 
@@ -207,7 +226,7 @@ impl CycleManager {
     /// Useful for preview/debug manual advancement.
     pub fn force_next_shader(&mut self) -> CycleEvent {
         if self.shader_playlist.len() > 1 {
-            self.shader_index = self.next_index(self.shader_playlist.len(), self.shader_index);
+            self.shader_index = self.next_shader_index();
         }
         self.last_shader_change = Instant::now();
         CycleEvent::ShaderChange(self.current_shader().to_string())
@@ -218,7 +237,7 @@ impl CycleManager {
     /// Resets the palette timer so the next automatic advance starts from now.
     pub fn force_next_palette(&mut self) -> CycleEvent {
         if self.palette_playlist.len() > 1 {
-            self.palette_index = self.next_index(self.palette_playlist.len(), self.palette_index);
+            self.palette_index = self.next_palette_index();
         }
         self.last_palette_change = Instant::now();
         CycleEvent::PaletteChange(self.current_palette().to_string())
@@ -238,65 +257,32 @@ impl CycleManager {
     // Internal helpers
     // ---------------------------------------------------------------------------
 
-    /// Pick the next index according to the configured [`CycleOrder`].
+    /// Pick the next shader index according to the configured [`CycleOrder`].
     ///
-    /// Sequential: `(current + 1) % len`, always different when `len >= 2`.
-    /// Random: loops until a candidate != `current` is found. Expected
-    /// iterations: `len / (len - 1)` — O(1) for `len >= 2`.
-    fn next_index(&mut self, len: usize, current: usize) -> usize {
-        debug_assert!(len > 0, "playlist must not be empty");
+    /// Sequential: `(current + 1) % len`.
+    /// Random: next pick from the shuffle bag — every index appears
+    /// exactly once per bag cycle, with no cross-bag consecutive repeats.
+    fn next_shader_index(&mut self) -> usize {
+        let len = self.shader_playlist.len();
+        debug_assert!(len > 0);
         match self.order {
-            CycleOrder::Sequential => (current + 1) % len,
-            CycleOrder::Random => {
-                if len == 1 {
-                    return 0;
-                }
-                loop {
-                    let candidate = xorshift64(&mut self.rng_state) as usize % len;
-                    if candidate != current {
-                        return candidate;
-                    }
-                }
-            }
+            CycleOrder::Sequential => (self.shader_index + 1) % len,
+            CycleOrder::Random => self.shader_bag.next(),
         }
     }
-}
 
-// ---------------------------------------------------------------------------
-// PRNG (no external rand crate needed)
-// ---------------------------------------------------------------------------
-
-/// xorshift64 — fast, sufficient statistical quality for playlist shuffling.
-///
-/// Reference: G. Marsaglia, "Xorshift RNGs", *Journal of Statistical
-/// Software* 8(14), 2003.
-fn xorshift64(state: &mut u64) -> u64 {
-    let mut x = *state;
-    x ^= x << 13;
-    x ^= x >> 7;
-    x ^= x << 17;
-    *state = x;
-    x
-}
-
-/// Seed the PRNG from wall-clock time.
-///
-/// Mixes sub-second nanos with the seconds component so that rapid successive
-/// calls don't produce identical seeds. Falls back to a non-zero constant if
-/// the clock is unavailable. xorshift64 must never receive state 0.
-fn seed_from_time() -> u64 {
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| {
-            // Mix sub-second nanos (high entropy) with seconds (low-entropy but
-            // changes the upper bits over time) via a Knuth multiplicative hash.
-            (d.subsec_nanos() as u64).wrapping_add(d.as_secs().wrapping_mul(0x9e37_79b9_7f4a_7c15))
-        })
-        .unwrap_or(0x853c_49e6_748f_ea9b);
-    if nanos == 0 {
-        0x853c_49e6_748f_ea9b
-    } else {
-        nanos
+    /// Pick the next palette index according to the configured [`CycleOrder`].
+    ///
+    /// Sequential: `(current + 1) % len`.
+    /// Random: next pick from the shuffle bag — every index appears
+    /// exactly once per bag cycle, with no cross-bag consecutive repeats.
+    fn next_palette_index(&mut self) -> usize {
+        let len = self.palette_playlist.len();
+        debug_assert!(len > 0);
+        match self.order {
+            CycleOrder::Sequential => (self.palette_index + 1) % len,
+            CycleOrder::Random => self.palette_bag.next(),
+        }
     }
 }
 
@@ -510,30 +496,18 @@ mod tests {
         assert_eq!(CycleOrder::from_str("sequential"), CycleOrder::Sequential);
     }
 
-    // --- PRNG internals ---
+    // PRNG internals (xorshift64, seed_from_time) are tested in `shuffle.rs`.
 
-    #[test]
-    fn seed_is_nonzero() {
-        let s = seed_from_time();
-        assert_ne!(s, 0, "PRNG seed must be non-zero");
-    }
-
-    #[test]
-    fn xorshift64_produces_distinct_values() {
-        let mut state = 0xdead_beef_cafe_babe_u64;
-        let a = xorshift64(&mut state);
-        let b = xorshift64(&mut state);
-        let c = xorshift64(&mut state);
-        assert_ne!(a, b);
-        assert_ne!(b, c);
-    }
+    // Regression for the former `rng_state = 0` hang is now structurally
+    // impossible: `ShuffleBag::new` coerces any zero seed to a non-zero
+    // constant at construction, and `new_with_offset` does the same before
+    // rebuilding the bags. The test below is kept as a smoke check that
+    // `new_with_offset` with offset=0 still produces a working manager.
 
     // --- new_with_offset ---
 
     #[test]
     fn new_with_offset_terminates_with_zero_offset() {
-        // Regression: offset=0 XORs with 0, leaving rng_state unchanged.
-        // Verify that force_next_shader still terminates (rng_state is never 0).
         let mut mgr = CycleManager::new_with_offset(
             CycleConfig {
                 shader_playlist: vec!["a".into(), "b".into()],
@@ -544,7 +518,6 @@ mod tests {
             },
             0,
         );
-        // If rng_state were 0 the next_index loop would spin forever.
         let _ = mgr.force_next_shader();
     }
 
