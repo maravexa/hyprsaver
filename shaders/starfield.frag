@@ -104,12 +104,12 @@ vec3 StarLayer(vec2 uv, float trans, float cycle_id, float layer_idx) {
         float spawn_screen_r = length(world_grid) / 20.0;
         bool  in_dead_zone = spawn_screen_r < DEAD_ZONE_RADIUS;
 
-        if (n <= 0.40 && !in_dead_zone) {
+        if (n <= 0.36 && !in_dead_zone) {
             vec2 delta = gv - star_pos;
             float d2 = dot(delta, delta);
 
             float size_hash = fract(n * 345.67);
-            float star_size = 0.013 + size_hash * 0.02;
+            float star_size = 0.0195 + size_hash * 0.03;   // 1.5× original (0.013→0.0195, 0.02→0.03)
 
             float att = 1.0 - smoothstep(star_size * 0.85, star_size, sqrt(d2));
 
