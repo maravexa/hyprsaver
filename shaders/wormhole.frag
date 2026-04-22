@@ -22,6 +22,8 @@ const int   MAX_STEPS = 50;
 const float MAX_DIST  = 80.0;
 const float HIT_EPS   = 0.002;
 
+#define PS1_QUANTIZE 1
+
 // Set once per frame in main(), read by Map(). Models forward flight by
 // translating the world backward rather than moving the camera.
 float g_z_offset;
@@ -118,6 +120,21 @@ void main() {
     // with abs-step march, so no max(t, 0.0) guard needed.
     float fog = 1.0 - exp(-t * 0.025);
     col = mix(col, palette(0.0), fog);
+
+    col = clamp(col, 0.0, 1.0);
+
+#if PS1_QUANTIZE
+    const mat4 bayer4 = mat4(
+         0.0,  8.0,  2.0, 10.0,
+        12.0,  4.0, 14.0,  6.0,
+         3.0, 11.0,  1.0,  9.0,
+        15.0,  7.0, 13.0,  5.0
+    ) / 16.0 - 0.5;
+
+    ivec2 px = ivec2(gl_FragCoord.xy) & 3;
+    float dither = bayer4[px.x][px.y] / 32.0;
+    col = floor(col * 32.0 + dither + 0.5) / 32.0;
+#endif
 
     fragColor = vec4(col, 1.0);
 }
