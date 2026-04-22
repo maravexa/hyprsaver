@@ -48,6 +48,14 @@ const float PILLAR_ISOLINE_WIDTH  = 0.12;  // pillar isoline thickness; doubled 
 // Raise to 0.3-1.0 to re-enable color cycling on pillars (at cost of returning flicker).
 const float PILLAR_DRIFT_SCALE   = 0.0;
 
+// Hex column geometry
+// 6 faces, normals at angles [0°, 60°, 120°, 180°, 240°, 300°] = [0, π/3, 2π/3, π, 4π/3, 5π/3]
+// Face 0 normal points +z (toward the viewer's default forward direction).
+const float HEX_FACE_HALFANGLE   = 0.5235988;  // π/6 = 30°, half the angular extent of a face
+
+// Per-face palette offset to distinguish adjacent faces visually
+const float HEX_FACE_COLOR_SHIFT = 0.089;      // multiplied by face index for stepped color distinction
+
 // Column structure (classical architecture: base + shaft + capital)
 const float BASE_HEIGHT            = 0.15;  // base zone: pillar_v < -(1.0 - BASE_HEIGHT*2) = -0.70
 const float CAPITAL_HEIGHT         = 0.15;  // capital zone: pillar_v > +(1.0 - CAPITAL_HEIGHT*2) = +0.70
@@ -144,6 +152,40 @@ vec2 pillar_wpos(int i, float t) {
 }
 
 // ---------------------------------------------------------------------------
+// Hex face helpers
+// ---------------------------------------------------------------------------
+
+// Returns the signed angular offset of a face's normal direction from +z axis.
+// Face 0: 0 rad, face 1: π/3, face 2: 2π/3, etc.
+float hex_face_normal_angle(int face_idx) {
+    return float(face_idx) * (3.14159265 / 3.0);
+}
+
+// Determines which 3 hex faces are visible from the viewer for a given pillar.
+// Returns the 3 face indices. Standard rule: the face whose normal is closest
+// to the view direction (column-to-viewer), plus its two immediate neighbors.
+void hex_visible_faces(vec2 pillar_pos, out int f0, out int f1, out int f2) {
+    float view_angle = atan(-pillar_pos.x, -max(pillar_pos.y, 0.1));
+    float third_pi = 3.14159265 / 3.0;
+    int center_face = int(floor((view_angle / third_pi) + 0.5));
+    center_face = ((center_face % 6) + 6) % 6;
+    f0 = (center_face + 5) % 6;   // left neighbor
+    f1 = center_face;             // center face (most directly facing viewer)
+    f2 = (center_face + 1) % 6;   // right neighbor
+}
+
+// Projects a hex column corner to world-space coordinates given pillar center
+// and corner angle (in pillar-local radians from +z).
+vec2 hex_corner_world(vec2 pillar_center, float corner_angle) {
+    return pillar_center + PILLAR_RADIUS * vec2(sin(corner_angle), cos(corner_angle));
+}
+
+// Projects a world-space point to screen-x (camera at origin, looking +z).
+float world_to_screen_x(vec2 world_pos) {
+    return 0.5 + world_pos.x / (max(world_pos.y, 0.01) * WAVE_STRETCH_X);
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 void main() {
@@ -173,84 +215,195 @@ void main() {
     float color_offset = 0.0;
     bool  is_pillar    = false;
 
-    // Pillar pass — structured columns with base / shaft / capital.
-    // Single face per pillar; widening in base and capital zones sells 3D
-    // through silhouette variation rather than projected second face.
+    // Pillar pass — hexagonal columns with 3 visible faces per pillar.
     float best_pillar_z = z_surface;
+
     for (int i = 0; i < NUM_PILLARS; i++) {
-        vec2  pos    = pillar_wpos(i, t);
-        float wx_p   = pos.x;
-        float wz_p   = pos.y;
+        vec2  pos  = pillar_wpos(i, t);
+        float wz_p = pos.y;
 
-        // Early reject: any pillar farther than current best is useless
-        if (wz_p >= best_pillar_z) { continue; }
+        // Early reject against widest possible extent
+        float max_reach = PILLAR_RADIUS * max(BASE_WIDTH_SCALE, CAPITAL_BRACKET_SCALE);
+        if (wz_p - max_reach >= best_pillar_z) { continue; }
 
-        // Shaft screen projection (same math as before)
-        float sx         = 0.5 + wx_p / (wz_p * WAVE_STRETCH_X);
-        float sw_shaft   = PILLAR_RADIUS / (wz_p * WAVE_STRETCH_X);
-        float y_extent   = 1.0 / wz_p;
+        // Determine 3 visible faces for this pillar
+        int f0, f1, f2;
+        hex_visible_faces(pos, f0, f1, f2);
 
-        // Widened half-widths for base and capital zones
-        float sw_base    = sw_shaft * BASE_WIDTH_SCALE;
-        float sw_capital = sw_shaft * CAPITAL_WIDTH_SCALE;
-        float sw_bracket = sw_shaft * CAPITAL_BRACKET_SCALE;
+        // For each visible face, compute its projected screen bounds and test if
+        // the current pixel lies on it. Closest winning face takes the pixel.
+        // Unrolled for 3 faces (loops-of-3 in GLSL can generate poor code).
 
-        // Widest possible rect (used for quick rect rejection)
-        float sw_widest  = max(sw_base, sw_bracket);
+        // ---- Face 1 (center-facing, widest on screen) ----
+        {
+            float n_angle  = hex_face_normal_angle(f1);
+            float ea_left  = n_angle - HEX_FACE_HALFANGLE;
+            float ea_right = n_angle + HEX_FACE_HALFANGLE;
 
-        // Quick rejection: not even inside the widest possible rect
-        if (abs(uv.x - sx) >= sw_widest || abs(dist_h) >= y_extent) { continue; }
-        if (wz_p >= best_pillar_z) { continue; }  // re-check after prior hits
+            vec2 c_left  = hex_corner_world(pos, ea_left);
+            vec2 c_right = hex_corner_world(pos, ea_right);
 
-        // pillar_v identifies vertical zone: [-1, +1], floor edge to ceiling edge
-        float pillar_v = dist_h * wz_p;
+            if (c_left.y > PILLAR_NEAR_CLIP * 0.5 && c_right.y > PILLAR_NEAR_CLIP * 0.5) {
+                float sx_a  = world_to_screen_x(c_left);
+                float sx_b  = world_to_screen_x(c_right);
+                float sx_lo = min(sx_a, sx_b);
+                float sx_hi = max(sx_a, sx_b);
 
-        // Determine zone based on pillar_v
-        bool in_base    = pillar_v < -(1.0 - BASE_HEIGHT * 2.0);
-        bool in_capital = pillar_v >  (1.0 - CAPITAL_HEIGHT * 2.0);
-        bool in_shaft   = !in_base && !in_capital;
+                if (uv.x >= sx_lo && uv.x <= sx_hi) {
+                    float face_t  = clamp((uv.x - sx_lo) / max(sx_hi - sx_lo, 1e-5), 0.0, 1.0);
+                    bool  a_is_lo = sx_a < sx_b;
+                    float inv_z   = a_is_lo
+                        ? mix(1.0/c_left.y,  1.0/c_right.y, face_t)
+                        : mix(1.0/c_right.y, 1.0/c_left.y,  face_t);
+                    float z_here        = 1.0 / inv_z;
+                    float y_extent_here = 1.0 / z_here;
 
-        // Effective horizontal half-width for this zone
-        float sw_effective;
-        if (in_base) {
-            sw_effective = sw_base;
-        } else if (in_capital) {
-            sw_effective = (pillar_v > CAPITAL_BRACKET_THRESH) ? sw_bracket : sw_capital;
-        } else {
-            sw_effective = sw_shaft;
+                    if (abs(dist_h) < y_extent_here && z_here < best_pillar_z) {
+                        float face_u = face_t * 2.0 - 1.0;
+                        if (!a_is_lo) { face_u = -face_u; }
+
+                        float pillar_v  = dist_h * z_here;
+                        bool  in_base    = pillar_v < -(1.0 - BASE_HEIGHT * 2.0);
+                        bool  in_capital = pillar_v >  (1.0 - CAPITAL_HEIGHT * 2.0);
+
+                        float h_zone;
+                        float zone_shift = 0.0;
+                        if (in_base) {
+                            h_zone = pillar_v * BASE_BAR_DENSITY
+                                   + tri(face_u * 4.0) * BASE_NOTCH_AMPLITUDE;
+                            zone_shift = BASE_COLOR_SHIFT;
+                        } else if (in_capital) {
+                            h_zone = pillar_v * CAPITAL_BAR_DENSITY;
+                            zone_shift = CAPITAL_COLOR_SHIFT;
+                        } else {
+                            h_zone = face_u * PILLAR_LINE_DENSITY;
+                        }
+
+                        best_pillar_z = z_here;
+                        h_render      = h_zone;
+                        z_render      = z_here;
+                        color_offset  = (float(i) + 1.0) * PILLAR_COLOR_SHIFT
+                                      + float(f1) * HEX_FACE_COLOR_SHIFT
+                                      + zone_shift;
+                        is_pillar     = true;
+                    }
+                }
+            }
         }
 
-        // Horizontal test against zone-specific width
-        if (abs(uv.x - sx) >= sw_effective) { continue; }
+        // ---- Face 0 (left neighbor) ----
+        {
+            float n_angle  = hex_face_normal_angle(f0);
+            float ea_left  = n_angle - HEX_FACE_HALFANGLE;
+            float ea_right = n_angle + HEX_FACE_HALFANGLE;
 
-        // This pixel IS part of this pillar. Lock it in.
-        best_pillar_z = wz_p;
+            vec2 c_left  = hex_corner_world(pos, ea_left);
+            vec2 c_right = hex_corner_world(pos, ea_right);
 
-        // Face-local u coordinate, normalized against shaft width consistently so
-        // shaft vertical lines register at the same face-local positions regardless of depth.
-        float pillar_u = (uv.x - sx) / sw_shaft;
+            if (c_left.y > PILLAR_NEAR_CLIP * 0.5 && c_right.y > PILLAR_NEAR_CLIP * 0.5) {
+                float sx_a  = world_to_screen_x(c_left);
+                float sx_b  = world_to_screen_x(c_right);
+                float sx_lo = min(sx_a, sx_b);
+                float sx_hi = max(sx_a, sx_b);
 
-        float h_zone;
-        float zone_color_offset = 0.0;
+                if (uv.x >= sx_lo && uv.x <= sx_hi) {
+                    float face_t  = clamp((uv.x - sx_lo) / max(sx_hi - sx_lo, 1e-5), 0.0, 1.0);
+                    bool  a_is_lo = sx_a < sx_b;
+                    float inv_z   = a_is_lo
+                        ? mix(1.0/c_left.y,  1.0/c_right.y, face_t)
+                        : mix(1.0/c_right.y, 1.0/c_left.y,  face_t);
+                    float z_here        = 1.0 / inv_z;
+                    float y_extent_here = 1.0 / z_here;
 
-        if (in_shaft) {
-            // Shaft: vertical line pattern
-            h_zone = pillar_u * PILLAR_LINE_DENSITY;
-        } else if (in_base) {
-            // Base: horizontal bars with u-modulated notch detail
-            h_zone = pillar_v * BASE_BAR_DENSITY
-                   + tri(pillar_u * 4.0) * BASE_NOTCH_AMPLITUDE;
-            zone_color_offset = BASE_COLOR_SHIFT;
-        } else {
-            // Capital: horizontal bars
-            h_zone = pillar_v * CAPITAL_BAR_DENSITY;
-            zone_color_offset = CAPITAL_COLOR_SHIFT;
+                    if (abs(dist_h) < y_extent_here && z_here < best_pillar_z) {
+                        float face_u = face_t * 2.0 - 1.0;
+                        if (!a_is_lo) { face_u = -face_u; }
+
+                        float pillar_v  = dist_h * z_here;
+                        bool  in_base    = pillar_v < -(1.0 - BASE_HEIGHT * 2.0);
+                        bool  in_capital = pillar_v >  (1.0 - CAPITAL_HEIGHT * 2.0);
+
+                        float h_zone;
+                        float zone_shift = 0.0;
+                        if (in_base) {
+                            h_zone = pillar_v * BASE_BAR_DENSITY
+                                   + tri(face_u * 4.0) * BASE_NOTCH_AMPLITUDE;
+                            zone_shift = BASE_COLOR_SHIFT;
+                        } else if (in_capital) {
+                            h_zone = pillar_v * CAPITAL_BAR_DENSITY;
+                            zone_shift = CAPITAL_COLOR_SHIFT;
+                        } else {
+                            h_zone = face_u * PILLAR_LINE_DENSITY;
+                        }
+
+                        best_pillar_z = z_here;
+                        h_render      = h_zone;
+                        z_render      = z_here;
+                        color_offset  = (float(i) + 1.0) * PILLAR_COLOR_SHIFT
+                                      + float(f0) * HEX_FACE_COLOR_SHIFT
+                                      + zone_shift;
+                        is_pillar     = true;
+                    }
+                }
+            }
         }
 
-        h_render     = h_zone;
-        z_render     = wz_p;
-        color_offset = (float(i) + 1.0) * PILLAR_COLOR_SHIFT + zone_color_offset;
-        is_pillar    = true;
+        // ---- Face 2 (right neighbor) ----
+        {
+            float n_angle  = hex_face_normal_angle(f2);
+            float ea_left  = n_angle - HEX_FACE_HALFANGLE;
+            float ea_right = n_angle + HEX_FACE_HALFANGLE;
+
+            vec2 c_left  = hex_corner_world(pos, ea_left);
+            vec2 c_right = hex_corner_world(pos, ea_right);
+
+            if (c_left.y > PILLAR_NEAR_CLIP * 0.5 && c_right.y > PILLAR_NEAR_CLIP * 0.5) {
+                float sx_a  = world_to_screen_x(c_left);
+                float sx_b  = world_to_screen_x(c_right);
+                float sx_lo = min(sx_a, sx_b);
+                float sx_hi = max(sx_a, sx_b);
+
+                if (uv.x >= sx_lo && uv.x <= sx_hi) {
+                    float face_t  = clamp((uv.x - sx_lo) / max(sx_hi - sx_lo, 1e-5), 0.0, 1.0);
+                    bool  a_is_lo = sx_a < sx_b;
+                    float inv_z   = a_is_lo
+                        ? mix(1.0/c_left.y,  1.0/c_right.y, face_t)
+                        : mix(1.0/c_right.y, 1.0/c_left.y,  face_t);
+                    float z_here        = 1.0 / inv_z;
+                    float y_extent_here = 1.0 / z_here;
+
+                    if (abs(dist_h) < y_extent_here && z_here < best_pillar_z) {
+                        float face_u = face_t * 2.0 - 1.0;
+                        if (!a_is_lo) { face_u = -face_u; }
+
+                        float pillar_v  = dist_h * z_here;
+                        bool  in_base    = pillar_v < -(1.0 - BASE_HEIGHT * 2.0);
+                        bool  in_capital = pillar_v >  (1.0 - CAPITAL_HEIGHT * 2.0);
+
+                        float h_zone;
+                        float zone_shift = 0.0;
+                        if (in_base) {
+                            h_zone = pillar_v * BASE_BAR_DENSITY
+                                   + tri(face_u * 4.0) * BASE_NOTCH_AMPLITUDE;
+                            zone_shift = BASE_COLOR_SHIFT;
+                        } else if (in_capital) {
+                            h_zone = pillar_v * CAPITAL_BAR_DENSITY;
+                            zone_shift = CAPITAL_COLOR_SHIFT;
+                        } else {
+                            h_zone = face_u * PILLAR_LINE_DENSITY;
+                        }
+
+                        best_pillar_z = z_here;
+                        h_render      = h_zone;
+                        z_render      = z_here;
+                        color_offset  = (float(i) + 1.0) * PILLAR_COLOR_SHIFT
+                                      + float(f2) * HEX_FACE_COLOR_SHIFT
+                                      + zone_shift;
+                        is_pillar     = true;
+                    }
+                }
+            }
+        }
     }
 
     // Isoline detection. Pillars use a thicker isoline width than floor/ceiling
