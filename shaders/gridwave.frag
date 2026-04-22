@@ -71,9 +71,12 @@ void main() {
 
     line *= fade * aa_factor;
 
-    // Depth-driven palette: near=vivid, far=black. Gamma 0.6 compresses
-    // near range into vivid colors and stretches far into darker tones.
+    // Depth-driven palette with time-based cycling.
+    // Gamma 0.6 compresses near range into vivid palette positions.
+    // Time scroll slides the entire palette range over time — every grid cell
+    // cycles through all palette positions every ~20 seconds.
     float t_palette = pow(clamp(1.0 - depth / 25.0, 0.0, 1.0), 0.6);
+    t_palette = fract(t_palette + u_time * u_speed_scale * 0.05);
     vec3 line_col = palette(t_palette);
 
     fragColor = vec4(line_col * line, 1.0);
