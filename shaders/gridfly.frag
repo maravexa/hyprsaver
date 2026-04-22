@@ -1,6 +1,15 @@
 #version 320 es
 precision highp float;
 
+// -----------------------------------------------------------------------
+// Debug visualization mode. Set to 0 for normal rendering.
+//   1 = hit distance as grayscale (black=near, white=far)
+//   2 = iteration count as grayscale (black=few, white=max 48)
+//   3 = reconstructed face normal as RGB (each axis maps to a color channel)
+//   4 = cell ID hashed to color (each cube gets its own hue)
+// -----------------------------------------------------------------------
+#define DEBUG_MODE 0
+
 // ---------------------------------------------------------------------------
 // hyprsaver — gridfly.frag
 //
@@ -42,6 +51,18 @@ float scene(vec3 p) {
     return sdBox(cell_pos, vec3(0.8));
 }
 
+#if DEBUG_MODE == 3
+vec3 debug_normal(vec3 p) {
+    const float e = 0.001;
+    vec2 h = vec2(e, 0.0);
+    return normalize(vec3(
+        scene(p + h.xyy) - scene(p - h.xyy),
+        scene(p + h.yxy) - scene(p - h.yxy),
+        scene(p + h.yyx) - scene(p - h.yyx)
+    ));
+}
+#endif
+
 // ---------------------------------------------------------------------------
 // Sphere marcher: returns hit distance, or 30.0 on miss
 // ---------------------------------------------------------------------------
@@ -55,6 +76,19 @@ float march(vec3 ro, vec3 rd) {
     }
     return 30.0;
 }
+
+#if DEBUG_MODE == 2
+vec2 march_debug(vec3 ro, vec3 rd) {
+    float t = 0.05;
+    for (int i = 0; i < 48; i++) {
+        float d = scene(ro + rd * t);
+        if (d < 0.001) return vec2(t, float(i));
+        if (t > 30.0)  return vec2(30.0, float(i));
+        t += d;
+    }
+    return vec2(30.0, 48.0);
+}
+#endif
 
 // ---------------------------------------------------------------------------
 
@@ -72,29 +106,63 @@ void main() {
     rd.xy = rot(sin(u_time * u_speed_scale * 0.05) * 0.3) * rd.xy;
     rd.yz = rot(sin(u_time * u_speed_scale * 0.03) * 0.2) * rd.yz;
 
+#if DEBUG_MODE == 0
+    // ===== Normal rendering =====
     float dist = march(ro, rd);
     vec3 col;
-
     if (dist < 30.0) {
-        // Identify which cube was hit (cell ID in world space)
         vec3 hit_pos = ro + rd * dist;
         vec3 cell_id = floor((hit_pos + 2.0) / 4.0);
-
-        // Distance from camera to this cube's cell center in Z.
-        // All pixels hitting the same cube share the same cell_id.z, so they
-        // sample the same palette position — eliminating across-face banding.
         float cube_dist = cell_id.z * 4.0 - ro.z;
-
-        // Palette: per-cube (constant across face)
         float t_palette = 1.0 - clamp(cube_dist / 25.0, 0.0, 1.0);
         col = palette(t_palette);
-
-        // Fog: per-pixel (correct depth fade through scene)
         float fog = clamp(dist / 25.0, 0.0, 1.0);
         col = mix(col, palette(0.0), fog);
     } else {
         col = palette(0.0) * 0.15;
     }
-
     fragColor = vec4(col, 1.0);
+
+#elif DEBUG_MODE == 1
+    // ===== Mode 1: hit distance as grayscale =====
+    // Black = near (0 units), white = far (30 units = miss horizon)
+    float dist = march(ro, rd);
+    float g = clamp(dist / 30.0, 0.0, 1.0);
+    fragColor = vec4(vec3(g), 1.0);
+
+#elif DEBUG_MODE == 2
+    // ===== Mode 2: iteration count as grayscale =====
+    // Black = converged fast, white = hit 48-iteration cap
+    vec2 result = march_debug(ro, rd);
+    float g = result.y / 48.0;
+    fragColor = vec4(vec3(g), 1.0);
+
+#elif DEBUG_MODE == 3
+    // ===== Mode 3: face normal as RGB =====
+    // X-axis = red, Y-axis = green, Z-axis = blue
+    // Positive and negative axes produce distinct colors via the 0.5 remap
+    float dist = march(ro, rd);
+    if (dist < 30.0) {
+        vec3 hit_pos = ro + rd * dist;
+        vec3 n = debug_normal(hit_pos);
+        fragColor = vec4(n * 0.5 + 0.5, 1.0);
+    } else {
+        fragColor = vec4(0.0, 0.0, 0.0, 1.0);
+    }
+
+#elif DEBUG_MODE == 4
+    // ===== Mode 4: cell ID hashed to color =====
+    // Each cube gets a unique hue from its integer cell coordinates
+    float dist = march(ro, rd);
+    if (dist < 30.0) {
+        vec3 hit_pos = ro + rd * dist;
+        vec3 cell_id = floor((hit_pos + 2.0) / 4.0);
+        // Simple hash — deterministic, distinct for adjacent cubes
+        vec3 h = fract(sin(cell_id * vec3(12.9898, 78.233, 37.719)) * 43758.5453);
+        fragColor = vec4(h, 1.0);
+    } else {
+        fragColor = vec4(0.0, 0.0, 0.0, 1.0);
+    }
+
+#endif
 }
