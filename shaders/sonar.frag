@@ -34,8 +34,8 @@ vec2 hash22(vec2 p) {
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
-const int   NUM_EMITTERS = 6;
-const float SWEEP_SPEED  = 0.25;   // radians/sec of sweep rotation
+const int   NUM_EMITTERS = 12;
+const float SWEEP_SPEED  = 0.5;    // radians/sec of sweep rotation
 const float PI           = 3.14159265;
 const float TAU          = 6.28318530;
 const float RING_DENSITY = 5.0;    // backdrop concentric rings per unit distance
