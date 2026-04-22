@@ -139,10 +139,10 @@ void main() {
         vec3  light = normalize(vec3(1.0, 2.0, 1.5));
         float diff  = max(dot(n, light), 0.0);
         float spec  = pow(max(dot(reflect(-light, n), -rd), 0.0), 32.0);
-        float amb   = 0.15;
+        float amb   = 0.7;  // lifted from 0.15 to keep shadow palette colors vibrant
 
         float t_diff = diff * 0.7 + 0.3;
-        vec3  base   = palette(t_diff) * (amb + diff);
+        vec3  base   = palette(t_diff) * (amb + diff * 0.5);  // narrower contrast
 
         // --- Fresnel rim with latitudinal bands (v3) ---
         float rim  = pow(1.0 - max(0.0, dot(n, -rd)), 3.0);
