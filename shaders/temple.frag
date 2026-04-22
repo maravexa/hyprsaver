@@ -185,6 +185,16 @@ float world_to_screen_x(vec2 world_pos) {
     return 0.5 + world_pos.x / (max(world_pos.y, 0.01) * WAVE_STRETCH_X);
 }
 
+// Returns true if the given hex face is front-facing (visible) from the viewer.
+// Face normal points outward from pillar center at angle face_idx * π/3 from +z.
+// Viewer at origin; face is visible iff dot(normal, -pillar_pos) > 0.
+bool hex_face_is_visible(vec2 pillar_pos, int face_idx) {
+    float angle     = hex_face_normal_angle(face_idx);
+    vec2  normal    = vec2(sin(angle), cos(angle));
+    vec2  to_viewer = -pillar_pos;
+    return dot(normal, to_viewer) > 0.0;
+}
+
 // ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
@@ -235,7 +245,7 @@ void main() {
         // Unrolled for 3 faces (loops-of-3 in GLSL can generate poor code).
 
         // ---- Face 1 (center-facing, widest on screen) ----
-        {
+        if (hex_face_is_visible(pos, f1)) {
             float n_angle  = hex_face_normal_angle(f1);
             float ea_left  = n_angle - HEX_FACE_HALFANGLE;
             float ea_right = n_angle + HEX_FACE_HALFANGLE;
@@ -292,7 +302,7 @@ void main() {
         }
 
         // ---- Face 0 (left neighbor) ----
-        {
+        if (hex_face_is_visible(pos, f0)) {
             float n_angle  = hex_face_normal_angle(f0);
             float ea_left  = n_angle - HEX_FACE_HALFANGLE;
             float ea_right = n_angle + HEX_FACE_HALFANGLE;
@@ -349,7 +359,7 @@ void main() {
         }
 
         // ---- Face 2 (right neighbor) ----
-        {
+        if (hex_face_is_visible(pos, f2)) {
             float n_angle  = hex_face_normal_angle(f2);
             float ea_left  = n_angle - HEX_FACE_HALFANGLE;
             float ea_right = n_angle + HEX_FACE_HALFANGLE;
