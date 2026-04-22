@@ -92,7 +92,9 @@ vec3 StarLayer(vec2 uv, float trans, float cycle_id, float layer_idx) {
             float d2 = dot(delta, delta);
 
             float size_hash = fract(n * 345.67);
-            float star_size = 0.013 + size_hash * 0.02;
+            float base_cell = 0.013 + size_hash * 0.02;
+            const float MAX_SCREEN = 0.015;                 // cap at ~1.5% of screen height
+            float star_size = min(base_cell, MAX_SCREEN * scale_now);
 
             float att = 1.0 - smoothstep(star_size * 0.85, star_size, sqrt(d2));
 
@@ -146,8 +148,11 @@ void main() {
         // no pop is visible.
         float fade = smoothstep(0.0, 0.1, trans) * smoothstep(1.0, 0.92, trans);
 
-        // Depth-based brightness: layers at mid-depth are brightest
-        float brightness = trans * fade;
+        // Bell brightness: peaks at mid-cycle (~trans=0.45) instead of at death.
+        // Prevents stars from being simultaneously largest and brightest at end-of-life.
+        float rise = smoothstep(0.0, 0.30, trans);
+        float fall = smoothstep(1.0, 0.60, trans);
+        float brightness = rise * fall;
 
         col += StarLayer(uv, trans, cycle_id, i * NUM_LAYERS) * brightness;
     }
