@@ -25,7 +25,7 @@ const float HIT_EPS   = 0.002;
 
 // DEBUG: visualize raymarch iteration count as grayscale.
 // Set to 1 to see where the march burns budget. 0 for normal output.
-#define DEBUG_ITER_COUNT 0
+#define DEBUG_ITER_COUNT 1
 
 // Set once per frame in main(), read by Map(). Models forward flight by
 // translating the world backward rather than moving the camera.
@@ -107,13 +107,9 @@ void main() {
     // ---------------------------------------------------------------------------
     // Shading — no normals, no lighting; palette IS the color.
     // ---------------------------------------------------------------------------
-    vec3 p = ro + rd * t;
-
-    // Reconstruct tunnel-local z at the hit point.
-    float z_local  = p.z - g_z_offset;
-
-    // z-dominant concentric rings: bands fly outward from vanishing point as time advances.
-    float t_pal = fract(z_local * 0.5);
+    // Ray-distance rings: ~3 cycles across typical hit range (t ≈ 3..30+).
+    // Minus sign makes rings flow outward (growing t_pal over time = tunnel rush).
+    float t_pal = fract(t * 0.1 - u_time * u_speed_scale * 0.7);
     vec3 col = palette(t_pal);
 
     // Iteration-count rim: brightens pixels where the ray grazed the wall tangentially.
