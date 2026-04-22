@@ -83,14 +83,32 @@ float march(vec3 ro, vec3 rd, float ts) {
 }
 
 // ---------------------------------------------------------------------------
-// Zero-crossing contour veins — continuous curves along surface where the
-// sine-sum field crosses zero. Replaces v2's multiplicative dot pattern.
+// Zero-crossing contour veins with domain-warped coordinates and high-freq
+// break-up. The domain warp (low-freq sines at amplitude 0.25) bends the
+// contour lines into organic curves. The break-up term (high-freq dot-product
+// sin) introduces fine-grained irregularity so the veins don't read as smooth
+// repeating waves. Still all sines — no hash-based noise — to keep cost
+// proportional.
 // ---------------------------------------------------------------------------
 float veins(vec3 p, float ts) {
-    float w = sin(p.x * 8.0 + ts * 0.9)
-            + sin(p.y * 8.0 + ts * 0.7)
-            + sin(p.z * 8.0 + ts * 1.1);
-    return 1.0 - smoothstep(0.0, 0.4, abs(w));
+    // Low-frequency domain warp (3 sin)
+    vec3 warped = p + 0.25 * vec3(
+        sin(p.y * 2.0 + ts * 0.5),
+        sin(p.z * 2.0 + ts * 0.3),
+        sin(p.x * 2.0 + ts * 0.7)
+    );
+
+    // Base contour field (3 sin)
+    float w = sin(warped.x * 8.0 + ts * 0.9)
+            + sin(warped.y * 8.0 + ts * 0.7)
+            + sin(warped.z * 8.0 + ts * 1.1);
+
+    // High-frequency break-up for fine-grained chaos (1 sin, cross-axis
+    // direction so it doesn't align with base axes)
+    w += 0.5 * sin(dot(p, vec3(17.0, 23.0, 19.0)) - ts * 2.5);
+
+    // Slightly wider smoothstep than v3 — more high-freq content, more fuzz
+    return 1.0 - smoothstep(0.0, 0.5, abs(w));
 }
 
 // ---------------------------------------------------------------------------
@@ -117,8 +135,8 @@ void main() {
         vec3 p = ro + rd * dist;
         vec3 n = calcNormal(p, ts);
 
-        // --- Rotating light direction (v3) ---
-        vec3  light = normalize(vec3(sin(ts * 0.3), 2.0, cos(ts * 0.3)));
+        // Static light direction (matches donut.frag)
+        vec3  light = normalize(vec3(1.0, 2.0, 1.5));
         float diff  = max(dot(n, light), 0.0);
         float spec  = pow(max(dot(reflect(-light, n), -rd), 0.0), 32.0);
         float amb   = 0.15;
