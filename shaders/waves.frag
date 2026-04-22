@@ -30,6 +30,15 @@ const float SCANLINE         = 0.25;   // 0.0 = off, 1.0 = fully black dim rows
 const float SCANLINE_PERIOD  = 4.0;    // pixels per scanline cycle (2 bright, 2 dim)
 const float PIXEL_SIZE       = 1.0;    // 1.0 = no snap, 2-3 = visible pixelation
 
+// Offline/online band mechanism
+const float OFFLINE_FLOOR    = 0.25;   // dimming factor for offline bands (0 = black, 1 = no effect)
+const float OFFLINE_RATIO    = 0.4;    // fraction of bands that are offline (higher = more offline)
+const float OFFLINE_HASH     = 0.375;  // band-to-liveness hash multiplier; keep irrational-ish
+
+// Distance fog (exponential, retro-era)
+const float FOG_DENSITY      = 0.12;   // fog falloff rate per unit of z; higher = closer fog wall
+const float FOG_FLOOR        = 0.0;    // min fog factor (0 = fog fades to black, 1 = no fog)
+
 // ---------------------------------------------------------------------------
 // Triangle wave in [-1, 1] with period 2.0 — cheaper than sin on RDNA,
 // and the harmonic content reads as "textured" rather than "smooth swell."
@@ -72,21 +81,35 @@ void main() {
     float edge = abs(fract(h * ISOLINE_COUNT) - 0.5);
     float lines = step(0.5 - ISOLINE_WIDTH, edge);
 
-    // Posterized palette coordinate drifting with height, time, and depth
-    float pc = h * 0.15 + t * PALETTE_DRIFT + z * 0.01;
-    pc = floor(pc * POSTERIZE) / POSTERIZE;
-    vec3 col = palette(fract(pc));
+    // Raw palette coordinate (drifts with height, time, depth)
+    float pc_raw = h * 0.15 + t * PALETTE_DRIFT + z * 0.01;
 
-    // Horizon haze — fades waves to black approaching horizon line.
-    // Also kills the above-horizon region (pixels with uv.y >= HORIZON)
-    // because smoothstep(a, b, uv.y) with a < b returns 1 for uv.y >= b,
-    // and we subtract from 1.
+    // Band index and quantized coordinate
+    float band_idx = floor(pc_raw * POSTERIZE);
+    float pc_quantized = band_idx / POSTERIZE;
+
+    // Palette sample
+    vec3 col = palette(fract(pc_quantized));
+
+    // Offline/online liveness — hashes band index to a binary dim/full factor.
+    // As palette coordinate drifts, each pixel cycles through different bands,
+    // so the offline/online pattern rotates through the scene over time.
+    float liveness = OFFLINE_FLOOR + (1.0 - OFFLINE_FLOOR)
+                   * step(OFFLINE_RATIO, fract(band_idx * OFFLINE_HASH));
+    col *= liveness;
+
+    // Exponential distance fog — retro-era depth cue that also hides horizon aliasing
+    // by crushing dynamic range where sub-pixel wave frequencies live.
+    float fog = FOG_FLOOR + (1.0 - FOG_FLOOR) * exp(-z * FOG_DENSITY);
+
+    // Horizon haze — existing mechanism, unchanged
     float fade = 1.0 - smoothstep(HORIZON - HAZE_START,
                                    HORIZON - HAZE_END,
                                    uv.y);
 
-    // CRT scanlines in screen-space (unaffected by PIXEL_SIZE snap)
+    // CRT scanlines — existing, unchanged, NOT affected by fog
     float scan = 1.0 - SCANLINE * step(0.5, fract(gl_FragCoord.y / SCANLINE_PERIOD));
 
-    fragColor = vec4(col * lines * fade * scan, 1.0);
+    // Compose: lines × color × fog × haze, then scanlines
+    fragColor = vec4(col * lines * fog * fade * scan, 1.0);
 }
