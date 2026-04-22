@@ -1058,3 +1058,52 @@ Round 8 confirmed the diagnosis: `hex_visible_faces` was picking the wrong 3 fac
 ### GPU cost
 
 Baseline ~30–32% from round 8. Delta: +3 inner loop iterations per pillar that each bail at the first `continue` (~5 ops) = 3 × 5 × 20 = 300 extra ops/pixel. On HawkPoint1, <1% util increase. **Expected util: ~30–33%**.
+
+---
+
+## temple — Pillar Round 10 (Online Ratio + Base Pattern Match)
+
+Two polish tweaks to `shaders/temple.frag`. No other source files changed.
+
+### Online trace ratio reduced to ~30%
+
+`OFFLINE_RATIO` raised from `0.4` to `0.7`. The liveness computation is `step(OFFLINE_RATIO, fract(band_idx * OFFLINE_HASH))`; a higher threshold means fewer bands are online. At 0.4, ~60% of bands were online (mostly-lit corridor). At 0.7, ~30% are online — rarer, sparser "signal active" moments. Offline bands remain at raw palette color; occasional online bands brighten toward white.
+
+**Constant changed:**
+
+| Constant | Old | New | Effect |
+|---|---|---|---|
+| `OFFLINE_RATIO` | `0.4` | `0.7` | Online traces ~30% of bands (was ~60%) |
+
+### Base pattern now matches capital
+
+The `in_base` branch previously computed:
+
+```glsl
+h_zone = pillar_v * BASE_BAR_DENSITY
+       + tri(face_u * 4.0) * BASE_NOTCH_AMPLITUDE;
+```
+
+The `tri(face_u * 4.0) * BASE_NOTCH_AMPLITUDE` term added a u-direction notch modulation, producing zigzag lines in the base zone rather than plain horizontal bars. This was the original design intent (more ornate base) but diverges from the capital's clean horizontal bars. User preference is symmetric structure: same pattern, different tint.
+
+Simplified to:
+
+```glsl
+h_zone = pillar_v * BASE_BAR_DENSITY;
+```
+
+`BASE_NOTCH_AMPLITUDE = 0.15` constant deleted (no longer referenced anywhere).
+
+**Design note:** Base and capital now share the identical formula (linear `pillar_v` scaled by density). They remain visually distinct through their color offsets: `BASE_COLOR_SHIFT = 0.19` vs. `CAPITAL_COLOR_SHIFT = 0.31`. Classical architectural convention: base and capital are structurally mirrored, visually distinguished only by tint.
+
+`BASE_BAR_DENSITY` and `CAPITAL_BAR_DENSITY` are kept as separate constants (both currently 6.0) to preserve independent tuning flexibility.
+
+### Files changed
+
+- `shaders/temple.frag` — `OFFLINE_RATIO` 0.4 → 0.7; `BASE_NOTCH_AMPLITUDE` constant removed; `in_base` branch simplified to `h_zone = pillar_v * BASE_BAR_DENSITY`
+- `docs/benchmark-v0.4.4.md` — Temple entry updated to round 10; estimate note added
+- `docs/changelog-v0.4.4.md` — this entry
+
+### GPU cost
+
+`OFFLINE_RATIO` change: zero GPU cost (constant). Base pattern simplification: removes one `tri()` call + one multiply per base-zone pixel — trivial cost reduction. **Expected util: ~30%, unchanged**.
