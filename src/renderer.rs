@@ -1367,6 +1367,79 @@ impl Renderer {
         Some(pixels)
     }
 
+    /// Upload or replace the LUT A texture with 256 new RGB samples.
+    ///
+    /// Called each frame by the GIF render path to deliver the CPU-blended
+    /// palette data. Deletes the previous texture and allocates a new one.
+    /// `lut_texture_b` is left untouched; the GIF path keeps it `None` so
+    /// `draw_program_with` falls back to texture A for both LUT samplers.
+    pub fn update_lut_a(&mut self, samples: &[[f32; 3]]) -> anyhow::Result<()> {
+        let old = self.lut_texture_a.take();
+        self.delete_texture(old);
+        self.lut_texture_a = Some(self.upload_lut(samples)?);
+        Ok(())
+    }
+
+    /// Render one frame at an explicit `time` into `fbo` and return the raw
+    /// RGBA8 pixel data (`width * height * 4` bytes).
+    ///
+    /// The FBO must already be allocated at `resolution` pixels.
+    /// Does **not** flip the buffer vertically — the caller is responsible
+    /// (OpenGL origin is bottom-left; GIF expects top-left).
+    /// Does not increment the internal frame counter or modify any other state.
+    ///
+    /// Used by the `render-gif` subcommand to capture frames deterministically
+    /// without wall-clock time. The Wayland path is unaffected — it continues
+    /// to call [`Renderer::render`].
+    pub fn render_and_capture(
+        &self,
+        fbo: glow::Framebuffer,
+        resolution: [u32; 2],
+        time: f32,
+        frame: u64,
+    ) -> anyhow::Result<Vec<u8>> {
+        let [w, h] = resolution;
+        let program = self
+            .program
+            .ok_or_else(|| anyhow::anyhow!("render_and_capture: no shader program loaded"))?;
+
+        unsafe {
+            self.gl.bind_framebuffer(glow::FRAMEBUFFER, Some(fbo));
+            self.gl.viewport(0, 0, w as i32, h as i32);
+            self.gl.clear(glow::COLOR_BUFFER_BIT);
+        }
+
+        // Reuse the existing uniform upload + draw kernel.
+        // Pass `time` as both `elapsed` and `shader_start_elapsed = 0.0` so
+        // u_time = time - 0.0 = time (explicit GIF frame time).
+        let uniforms = self.uniforms.clone();
+        self.draw_program_with(
+            program,
+            &uniforms,
+            [w as f32, h as f32],
+            time,
+            0.0,
+            frame,
+        );
+
+        let pixel_count = (w * h * 4) as usize;
+        let mut pixels = vec![0u8; pixel_count];
+        unsafe {
+            self.gl.read_pixels(
+                0,
+                0,
+                w as i32,
+                h as i32,
+                glow::RGBA,
+                glow::UNSIGNED_BYTE,
+                glow::PixelPackData::Slice(&mut pixels),
+            );
+            self.gl.bind_framebuffer(glow::FRAMEBUFFER, None);
+        }
+
+        Ok(pixels)
+    }
+
     /// Release all GPU resources. Must be called before the GL context is destroyed.
     pub fn destroy(&mut self) {
         unsafe {
