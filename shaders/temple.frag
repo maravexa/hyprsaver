@@ -18,7 +18,7 @@ uniform int   u_frame;
 const float HORIZON              = 0.5;    // centered for symmetric floor/ceiling
 const float Z_MAX                = 20.0;   // cap on perspective depth
 const float WAVE_STRETCH_X       = 1.8;    // perspective x-stretch
-const float SCROLL_SPEED         = 0.4;    // scene scroll toward viewer
+const float SCROLL_SPEED         = 0.8;    // scene scroll toward viewer
 
 // Ceiling-specific
 const float CEILING_PHASE_OFFSET = 3.7;    // wz shift so ceiling != mirror of floor
@@ -41,7 +41,8 @@ const int   NUM_ROWS             = 3;
 const int   NUM_PILLARS          = NUM_PILLARS_PER_ROW * NUM_ROWS;   // 12
 
 // Pillar trace pattern — vertical circuit lines, static on pillar surface
-const float PILLAR_LINE_DENSITY   = 1.0;   // linear h coefficient; ~7 vertical lines per pillar
+const float PILLAR_LINE_DENSITY   = 0.5;   // linear h coefficient; 3 vertical lines per pillar (was 1.0 = ~7)
+const float PILLAR_ISOLINE_WIDTH  = 0.12;  // pillar isoline thickness; doubled vs. surface (0.06) to suppress sweep-aliasing flicker
 
 // Pillar cap bars — horizontal bus-bars at top and bottom of each pillar
 const float PILLAR_CAP_WIDTH     = 0.1;   // fraction of pillar length (from each end) that is cap
@@ -199,9 +200,11 @@ void main() {
         }
     }
 
-    // Isoline detection (common to all surfaces)
-    float edge  = abs(fract(h_render * ISOLINE_COUNT) - 0.5);
-    float lines = step(0.5 - ISOLINE_WIDTH, edge);
+    // Isoline detection. Pillars use a thicker isoline width than floor/ceiling
+    // to reduce spatial aliasing as pillars scroll past the viewer.
+    float iso_width = is_pillar ? PILLAR_ISOLINE_WIDTH : ISOLINE_WIDTH;
+    float edge      = abs(fract(h_render * ISOLINE_COUNT) - 0.5);
+    float lines     = step(0.5 - iso_width, edge);
 
     // Palette sampling via band index hash
     // Palette drift is removed for pillars (PILLAR_DRIFT_SCALE = 0 by default).
