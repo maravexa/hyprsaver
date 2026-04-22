@@ -198,8 +198,7 @@ pub fn run(
         flip_vertical(&mut pixels, width, height);
 
         // Encode frame.
-        let mut frame =
-            gif::Frame::from_rgba_speed(width as u16, height as u16, &mut pixels, 10);
+        let mut frame = gif::Frame::from_rgba_speed(width as u16, height as u16, &mut pixels, 10);
         // delay is in centiseconds (1/100 s).
         frame.delay = (100 / fps) as u16;
         encoder
@@ -380,10 +379,7 @@ fn parse_resolution(s: &str) -> anyhow::Result<(u32, u32)> {
         .split_once('x')
         .or_else(|| s.split_once('X'))
         .ok_or_else(|| {
-            anyhow::anyhow!(
-                "invalid resolution '{}'; expected WxH, e.g. '960x540'",
-                s
-            )
+            anyhow::anyhow!("invalid resolution '{}'; expected WxH, e.g. '960x540'", s)
         })?;
     let w: u32 = ws
         .trim()
@@ -435,10 +431,10 @@ mod tests {
         // A→B crossfade: [2.5, 3.5)
         check(2.5, 3, 10.0, 1.0, 0, 0.0); // start of A→B
         check(3.0, 3, 10.0, 1.0, 0, 0.5); // midpoint A→B
-        // B→C crossfade: [5.5, 6.5)
+                                          // B→C crossfade: [5.5, 6.5)
         check(5.5, 3, 10.0, 1.0, 1, 0.0); // start of B→C
         check(6.0, 3, 10.0, 1.0, 1, 0.5); // midpoint B→C
-        // C→A crossfade: [8.5, 9.5)
+                                          // C→A crossfade: [8.5, 9.5)
         check(8.5, 3, 10.0, 1.0, 2, 0.0); // start of C→A
         check(9.0, 3, 10.0, 1.0, 2, 0.5); // midpoint C→A
     }
