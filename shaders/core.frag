@@ -2,16 +2,24 @@
 precision highp float;
 
 // ---------------------------------------------------------------------------
-// hyprsaver — core.frag  (v0.4.4, v2 pivot)
+// hyprsaver — core.frag  (v0.4.4, v3)
 //
-// Lit alien-core orb: sphere SDF with small-amplitude analytical domain warp,
-// Phong lighting driven through palette(), Fresnel rim glow, pulsed
-// sin-based emissive veins. Orbital camera (donut-style), zoom-scaled.
+// Lit alien-core orb with flowing energy emission.
 //
-// Architecture follows donut.frag: well-conditioned SDF, finite-difference
-// normals, palette-driven diffuse. Cost lives in lighting, not in resolving
-// a poorly conditioned raymarch. v1's shell-and-core topology was retired
-// because it requires 1024 steps to resolve and collapsed at 48.
+// Architecture (unchanged from v2):
+//   - Unit sphere SDF with small analytical domain warp (amp 0.08) so the
+//     distance estimate stays honest and the march converges cleanly
+//   - 48-step sphere march, step factor 1.0
+//   - Finite-difference normals; Phong lighting through palette()
+//   - Orbital camera, zoom-scaled via u_zoom_scale
+//
+// v3 upgrades:
+//   - Veins: zero-crossing contours of a sine sum (continuous curves
+//     instead of v2's multiplicative dot lattice)
+//   - Atmospheric halo in the miss path (1/(1+d²) falloff on ray-to-origin
+//     perpendicular distance, slow pulse)
+//   - Rotating light direction
+//   - Fresnel rim modulated by latitudinal sin bands
 // ---------------------------------------------------------------------------
 
 uniform float u_time;
@@ -30,9 +38,7 @@ mat3 rotY(float a) {
 }
 
 // ---------------------------------------------------------------------------
-// Analytical domain warp — 3 sin, no noise, no texture.
-// Amplitude deliberately small (0.08) so the SDF stays a reliable distance
-// estimate and sphere marching converges cleanly.
+// Analytical domain warp — 3 sin, amplitude 0.08 (unchanged from v2)
 // ---------------------------------------------------------------------------
 float warp(vec3 p, float ts) {
     return 0.08 * (sin(p.x * 3.1 + ts)
@@ -41,7 +47,7 @@ float warp(vec3 p, float ts) {
 }
 
 // ---------------------------------------------------------------------------
-// SDF: warped, breathing unit sphere. Slow Y-rotation so veins drift.
+// SDF: warped, breathing unit sphere
 // ---------------------------------------------------------------------------
 float scene(vec3 p, float ts) {
     vec3  rp     = rotY(ts * 0.20) * p;
@@ -51,7 +57,7 @@ float scene(vec3 p, float ts) {
 }
 
 // ---------------------------------------------------------------------------
-// Finite-difference normal (matches donut's pattern)
+// Finite-difference normal
 // ---------------------------------------------------------------------------
 vec3 calcNormal(vec3 p, float ts) {
     const float e = 0.001;
@@ -63,7 +69,7 @@ vec3 calcNormal(vec3 p, float ts) {
 }
 
 // ---------------------------------------------------------------------------
-// Sphere marcher: 48 steps, step factor 1.0 (SDF is well-conditioned)
+// Sphere marcher
 // ---------------------------------------------------------------------------
 float march(vec3 ro, vec3 rd, float ts) {
     float t = 0.1;
@@ -77,13 +83,14 @@ float march(vec3 ro, vec3 rd, float ts) {
 }
 
 // ---------------------------------------------------------------------------
-// Emissive vein pattern — 3 sin multiplied, smoothstep'd to sharp highlights
+// Zero-crossing contour veins — continuous curves along surface where the
+// sine-sum field crosses zero. Replaces v2's multiplicative dot pattern.
 // ---------------------------------------------------------------------------
 float veins(vec3 p, float ts) {
-    float v = sin(p.x * 6.0 + ts * 0.6)
-            * sin(p.y * 6.0 + ts * 0.4)
-            * sin(p.z * 6.0 + ts * 0.8);
-    return smoothstep(0.25, 0.75, v);
+    float w = sin(p.x * 8.0 + ts * 0.9)
+            + sin(p.y * 8.0 + ts * 0.7)
+            + sin(p.z * 8.0 + ts * 1.1);
+    return 1.0 - smoothstep(0.0, 0.4, abs(w));
 }
 
 // ---------------------------------------------------------------------------
@@ -92,7 +99,7 @@ void main() {
     vec2  uv = (gl_FragCoord.xy - 0.5 * u_resolution.xy) / u_resolution.y;
     float ts = u_time * u_speed_scale;
 
-    // Orbital camera with gentle Y bob (donut pattern), zoom-scaled
+    // Orbital camera, zoom-scaled
     float camAngle  = ts * 0.15;
     float camY      = 0.3 * sin(ts * 0.23);
     float camRadius = 3.0 / u_zoom_scale;
@@ -110,8 +117,8 @@ void main() {
         vec3 p = ro + rd * dist;
         vec3 n = calcNormal(p, ts);
 
-        // Phong base (matches donut)
-        vec3  light = normalize(vec3(1.0, 2.0, 1.5));
+        // --- Rotating light direction (v3) ---
+        vec3  light = normalize(vec3(sin(ts * 0.3), 2.0, cos(ts * 0.3)));
         float diff  = max(dot(n, light), 0.0);
         float spec  = pow(max(dot(reflect(-light, n), -rd), 0.0), 32.0);
         float amb   = 0.15;
@@ -119,24 +126,33 @@ void main() {
         float t_diff = diff * 0.7 + 0.3;
         vec3  base   = palette(t_diff) * (amb + diff);
 
-        // Fresnel rim: bright where surface faces away from camera
-        float rim = pow(1.0 - max(0.0, dot(n, -rd)), 3.0);
+        // --- Fresnel rim with latitudinal bands (v3) ---
+        float rim  = pow(1.0 - max(0.0, dot(n, -rd)), 3.0);
+        float band = 0.6 + 0.4 * sin(p.y * 8.0 - ts * 1.5);
+        rim *= band;
 
-        // Pulsed emissive veins
+        // --- Pulsed emissive veins (v3: zero-crossing contours) ---
         float vPulse = 0.5 + 0.5 * sin(ts * 1.5);
         float v      = veins(p, ts) * (0.4 + 0.6 * vPulse);
 
         col  = base;
         col += vec3(spec * 0.35);
-        col += palette(0.95) * rim * 1.2;   // rim takes hottest palette index
-        col += palette(0.75) * v * 0.9;     // veins take mid-bright index
+        col += palette(0.95) * rim * 1.2;
+        col += palette(0.75) * v * 0.9;
 
-        // Fog toward palette center (matches donut; barely fires at r=1)
+        // Fog toward palette center (barely fires at r=1, kept for consistency)
         float fog = smoothstep(3.0, 18.0, dist);
         col = mix(col, palette(0.0), fog);
     } else {
-        // Background: very dim palette center
-        col = palette(0.0) * 0.10;
+        // --- Atmospheric halo (v3) ---
+        // length(cross(ro, rd)) = perpendicular distance from origin to the ray
+        // (exact when rd is unit — which it is here).
+        float closestDist = length(cross(ro, rd));
+        float halo        = 1.0 / (1.0 + closestDist * closestDist * 1.5);
+        float haloPulse   = 0.8 + 0.2 * sin(ts * 1.0);
+
+        col  = palette(0.0) * 0.10;                    // dim background base
+        col += palette(0.9) * halo * 0.4 * haloPulse;  // soft outer glow
     }
 
     fragColor = vec4(col, 1.0);
