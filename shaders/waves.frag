@@ -35,6 +35,13 @@ const float OFFLINE_FLOOR    = 0.25;   // dimming factor for offline bands (0 = 
 const float OFFLINE_RATIO    = 0.4;    // fraction of bands that are offline (higher = more offline)
 const float OFFLINE_HASH     = 0.375;  // band-to-liveness hash multiplier; keep irrational-ish
 
+// Palette sampling
+const float PALETTE_HASH         = 0.618;  // band-to-palette-position hash (golden ratio)
+
+// Brightness clamps — applied AFTER liveness to guarantee visibility on all palettes
+const float MIN_TRACE_BRIGHTNESS = 0.08;   // per-channel floor; ensures dark palettes remain visible
+const float MAX_TRACE_BRIGHTNESS = 0.85;   // per-channel ceiling; prevents wash-out on bright palettes
+
 // Distance fog (exponential, retro-era)
 const float FOG_DENSITY      = 0.12;   // fog falloff rate per unit of z; higher = closer fog wall
 const float FOG_FLOOR        = 0.0;    // min fog factor (0 = fog fades to black, 1 = no fog)
@@ -84,19 +91,30 @@ void main() {
     // Raw palette coordinate (drifts with height, time, depth)
     float pc_raw = h * 0.15 + t * PALETTE_DRIFT + z * 0.01;
 
-    // Band index and quantized coordinate
+    // Band index
     float band_idx = floor(pc_raw * POSTERIZE);
-    float pc_quantized = band_idx / POSTERIZE;
+
+    // Palette coordinate — hash to scatter samples across the palette,
+    // guaranteeing visually-distinct colors appear simultaneously on screen.
+    // Sequential sampling (band_idx / POSTERIZE) sampled adjacent palette
+    // regions, which on segmented palettes (marsha, pride flags) could miss
+    // entire color regions. Golden-ratio hash spreads samples uniformly.
+    float pc_quantized = fract(band_idx * PALETTE_HASH);
 
     // Palette sample
-    vec3 col = palette(fract(pc_quantized));
+    vec3 col = palette(pc_quantized);
 
-    // Offline/online liveness — hashes band index to a binary dim/full factor.
-    // As palette coordinate drifts, each pixel cycles through different bands,
-    // so the offline/online pattern rotates through the scene over time.
+    // Offline/online liveness — unchanged
     float liveness = OFFLINE_FLOOR + (1.0 - OFFLINE_FLOOR)
                    * step(OFFLINE_RATIO, fract(band_idx * OFFLINE_HASH));
     col *= liveness;
+
+    // Brightness clamp — applied AFTER liveness so offline traces on
+    // dark palettes remain visible at the MIN floor. On midnight/other
+    // dark palettes, online and offline will converge toward the floor
+    // brightness; the palette's color character (hue) is preserved as
+    // long as any channel of the palette sample is above zero.
+    col = clamp(col, vec3(MIN_TRACE_BRIGHTNESS), vec3(MAX_TRACE_BRIGHTNESS));
 
     // Exponential distance fog — retro-era depth cue that also hides horizon aliasing
     // by crushing dynamic range where sub-pixel wave frequencies live.
