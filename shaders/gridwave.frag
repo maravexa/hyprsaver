@@ -42,9 +42,9 @@ void main() {
         depth + u_time * u_speed_scale * 2.0
     );
 
-    // Dual-axis warping — lateral sway + vertical undulation for 3D wave effect
-    grid_uv.x += sin(grid_uv.y * 0.3 + u_time * u_speed_scale * 0.5) * 0.25;
-    grid_uv.y += sin(grid_uv.x * 0.25 + u_time * u_speed_scale * 0.4) * 0.25;
+    // Dual-axis warping — lateral sway + vertical 3D wave undulation
+    grid_uv.x += sin(grid_uv.y * 0.3 + u_time * u_speed_scale * 0.5) * 0.55;
+    grid_uv.y += sin(grid_uv.y * 0.4 + u_time * u_speed_scale * 0.4) * 0.55;
 
     // Distance to nearest grid line in each axis.
     vec2 grid_dist = abs(fract(grid_uv) - 0.5);
@@ -54,9 +54,16 @@ void main() {
     float line_width = 0.03 + depth * 0.002;
     float line = smoothstep(line_width, line_width * 0.3, line_dist);
 
-    // Depth fade — lines fade to black approaching the horizon.
-    float fade = 1.0 - smoothstep(5.0, 25.0, depth);
-    line *= fade;
+    // Kill lines before they reach aliasing range.
+    // smoothstep(3.0, 12.0, depth) fades faster and earlier, hiding jitter zone
+    float fade = 1.0 - smoothstep(3.0, 12.0, depth);
+
+    // Procedural AA: when adjacent pixels sample wildly different grid cells,
+    // fwidth(grid_uv) is large. Clamp line brightness when this exceeds ~0.5 units.
+    vec2 grid_deriv = fwidth(grid_uv);
+    float aa_factor = 1.0 - smoothstep(0.3, 1.0, max(grid_deriv.x, grid_deriv.y));
+
+    line *= fade * aa_factor;
 
     // Depth-driven palette: near=vivid, far=black. Gamma 0.6 compresses
     // near range into vivid colors and stretches far into darker tones.
