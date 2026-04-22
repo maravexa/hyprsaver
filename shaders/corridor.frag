@@ -36,16 +36,22 @@ float scene(vec3 p) {
     return sdBox(cell_pos, vec3(0.8));
 }
 
-// Returns vec2(distance, hit_fraction): hit_fraction=1.0 on clean hit, 0.0 on horizon
+// Returns vec2(distance, hit_fraction): hit_fraction=1.0 on clean hit, 0.0 on miss,
+// fractional on near-miss for antialiased silhouettes against the black background.
 vec2 march(vec3 ro, vec3 rd) {
     float t = 0.05;
+    float best_d = 1000.0;
     for (int i = 0; i < 32; i++) {
         float d = scene(ro + rd * t);
+        best_d = min(best_d, d);
         if (d < 0.001) return vec2(t, 1.0);
-        if (t > 18.0)  return vec2(18.0, 0.0);
+        if (t > 18.0)  break;
         t += d;
     }
-    return vec2(t, 0.0);
+    // Soft hit: rays that got within 0.05 units at closest approach
+    // receive fractional hit values, producing antialiased silhouettes.
+    float hit = 1.0 - smoothstep(0.001, 0.05, best_d);
+    return vec2(t, hit);
 }
 
 void main() {
@@ -64,12 +70,12 @@ void main() {
     float dist = result.x;
     float hit  = result.y;
 
-    // Palette for cube hits, black for horizon/miss.
+    // Palette for cube hits, black for misses.
     // pow(., 0.6) compresses near-field into vivid palette range.
-    // mix with binary hit factor: hit=1.0 → cube_col, hit=0.0 → black.
+    // Multiply by soft hit: 1.0 = full color, 0.0 = black, fractional = antialiased edge.
     float t_palette = pow(clamp(dist / 18.0, 0.0, 1.0), 0.6);
     vec3 cube_col = palette(1.0 - t_palette);
-    vec3 col = mix(vec3(0.0), cube_col, hit);
+    vec3 col = cube_col * hit;
 
     fragColor = vec4(col, 1.0);
 }
