@@ -565,3 +565,57 @@ Baseline (waves): 16–18% max. Delta:
 - Pillar pixels (same color pipeline, additional screen area): ~+2–3%
 
 Estimated: **22–30% max, Medium tier**. Pending HawkPoint1 verification.
+
+---
+
+## temple — Pillar Fixes (Fixed Layout, Vertical Trace Pattern, No Haze on Pillars)
+
+Three separation-of-concerns fixes to `shaders/temple.frag`. No other files changed.
+
+### Fixed corridor layout
+
+`pillar_wpos()` previously placed pillars at fract-hashed x positions, which could
+land near 0 and produce centered pillars that filled the screen at close range.
+Replaced with a deterministic two-pair corridor layout:
+
+- Outer pair (indices 0/1): x = ±`PILLAR_X_OUTER` (3.5), phase 0
+- Inner pair (indices 2/3): x = ±`PILLAR_X_INNER` (1.0), phase `PILLAR_CYCLE_DEPTH * 0.5`
+
+Paired z-phase staggering means outer and inner pairs approach the viewer
+alternately, producing a clear architectural rhythm rather than chaotic
+one-at-a-time arrival.
+
+**Constants removed:** `PILLAR_RING_DENSITY`, `PILLAR_SCROLL_SPEED`, `PILLAR_UV_VARIATION`
+
+**Constants added:**
+- `PILLAR_X_INNER = 1.0` — inner pair x position (viewer walks between these)
+- `PILLAR_X_OUTER = 3.5` — outer pair x position (perspective framing)
+- `PILLAR_LINE_DENSITY = 1.0` — vertical line density on pillar surface
+
+### Vertical trace pattern
+
+`h_render` for pillar pixels was computed as `pillar_v * RING_DENSITY + t * SCROLL_SPEED + PILLAR_UV_VARIATION * tri(pillar_u * 2.0)`, producing horizontal scrolling rings — the wrong geometry for "vertical circuit traces."
+
+Replaced with `h_render = pillar_u * PILLAR_LINE_DENSITY`. No `pillar_v`, no `t` dependency: lines stay fixed on the pillar surface. Palette drift over time still cycles colors through the lines (circuit signal flow), but line positions don't move.
+
+### No haze on pillars
+
+Horizon haze (`smoothstep` on abs distance from horizon) is a surface-specific
+depth cue for floor/ceiling pixels where `z_surface → ∞` near the horizon.
+Applied to pillars, it produced a dark band across each pillar's vertical midpoint.
+
+Added `bool is_pillar = false` before the pillar loop; set to `true` inside the
+hit branch. Haze term: `fade = is_pillar ? 1.0 : smoothstep(HAZE_END, HAZE_START, abs_dist_h)`.
+
+Pillar depth dimming continues to be handled by existing distance fog (`exp(-z_render * FOG_DENSITY)`), which is the correct depth cue for a 3D vertical object.
+
+### Files changed
+
+- `shaders/temple.frag` — `pillar_wpos()` replaced; pillar hit-branch `h_render` formula replaced; `is_pillar` bool added; haze conditional on `is_pillar`
+
+### GPU cost
+
+Computationally neutral: same number of pillar checks; fixed x arithmetic replaces
+fract hash at identical ALU count; one-mul `h_render` replaces three-term sum;
+`is_pillar` bool select on haze is ~0 ops on RDNA wavefront execution. Expected
+util: **~17%, unchanged**.
