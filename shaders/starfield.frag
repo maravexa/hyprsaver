@@ -86,15 +86,30 @@ vec3 StarLayer(vec2 uv, float trans, float cycle_id, float layer_idx) {
 
         float n = Hash21(this_cell + cycle_id * 127.1);
 
-        if (n <= 0.40) {
-            vec2 star_pos = (Hash22(this_cell + cycle_id * 311.7) - 0.5) * 0.7;
+        // Compute star_pos up-front so the dead-zone check can use it.
+        vec2 star_pos = (Hash22(this_cell + cycle_id * 311.7) - 0.5) * 0.7;
+
+        // Spawn-time dead zone:
+        //
+        // The star's rotated-screen-space position is
+        //     uv_rot_star = (this_cell + 0.5 + star_pos - layer_idx * 31.416) / scale_now
+        // and |uv_rot_star| = |uv_star| (rotation preserves length from origin).
+        //
+        // At spawn (trans=0), scale_now = 20.0 (the first arg to mix() below).
+        // We reject stars whose spawn screen-radius is inside DEAD_ZONE_RADIUS,
+        // so no star ever traverses the center — they appear at the dead-zone
+        // boundary and fly outward past the viewer.
+        const float DEAD_ZONE_RADIUS = 0.12;
+        vec2  world_grid = this_cell + vec2(0.5) + star_pos - vec2(layer_idx * 31.416);
+        float spawn_screen_r = length(world_grid) / 20.0;
+        bool  in_dead_zone = spawn_screen_r < DEAD_ZONE_RADIUS;
+
+        if (n <= 0.40 && !in_dead_zone) {
             vec2 delta = gv - star_pos;
             float d2 = dot(delta, delta);
 
             float size_hash = fract(n * 345.67);
-            float base_cell = 0.013 + size_hash * 0.02;
-            const float MAX_SCREEN = 0.015;                 // cap at ~1.5% of screen height
-            float star_size = min(base_cell, MAX_SCREEN * scale_now);
+            float star_size = 0.013 + size_hash * 0.02;
 
             float att = 1.0 - smoothstep(star_size * 0.85, star_size, sqrt(d2));
 
@@ -148,21 +163,14 @@ void main() {
         // no pop is visible.
         float fade = smoothstep(0.0, 0.1, trans) * smoothstep(1.0, 0.92, trans);
 
-        // Bell brightness: peaks at mid-cycle (~trans=0.45) instead of at death.
-        // Prevents stars from being simultaneously largest and brightest at end-of-life.
-        float rise = smoothstep(0.0, 0.30, trans);
-        float fall = smoothstep(1.0, 0.60, trans);
-        float brightness = rise * fall;
+        // Depth-based brightness: layers at mid-depth are brightest
+        float brightness = trans * fade;
 
         col += StarLayer(uv, trans, cycle_id, i * NUM_LAYERS) * brightness;
     }
 
     // Gentle tone-map to handle star overlaps
     col = col / (col + 0.8);
-
-    // Vanishing point dead zone — MUST be last operation before fragColor
-    float center_fade = smoothstep(0.0, 0.10, length(uv));
-    col *= center_fade;
 
     fragColor = vec4(col, 1.0);
 }
