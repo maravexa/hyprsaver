@@ -1,0 +1,74 @@
+#version 320 es
+precision highp float;
+
+// ---------------------------------------------------------------------------
+// hyprsaver — corridor.frag
+//
+// Forward-flying raymarched tour of an infinite cube grid rendered as a
+// receding corridor tunnel. Palette maps hit distance directly — no lighting,
+// no normals, no per-cube logic. Rays that exhaust the march cap render as
+// the horizon color, baking the infinite-tunnel look into the shading model.
+// Lightweight GPU tier (<25% on HawkPoint1 at 1920×1200).
+// ---------------------------------------------------------------------------
+
+uniform float u_time;
+uniform vec2  u_resolution;
+uniform vec2  u_mouse;
+uniform int   u_frame;
+uniform float u_speed_scale;
+uniform float u_zoom_scale;
+
+// 2D rotation
+mat2 rot(float a) {
+    float c = cos(a), s = sin(a);
+    return mat2(c, s, -s, c);
+}
+
+// Axis-aligned box SDF
+float sdBox(vec3 p, vec3 b) {
+    vec3 q = abs(p) - b;
+    return length(max(q, 0.0)) + min(max(q.x, max(q.y, q.z)), 0.0);
+}
+
+// Infinite cube grid via space fold — half-extent 0.8, cell size 4.0
+float scene(vec3 p) {
+    vec3 cell_pos = mod(p - 2.0, 4.0) - 2.0;
+    return sdBox(cell_pos, vec3(0.8));
+}
+
+// Returns vec2(distance, hit_fraction): hit_fraction=1.0 on clean hit, 0.0 on horizon
+vec2 march(vec3 ro, vec3 rd) {
+    float t = 0.05;
+    for (int i = 0; i < 32; i++) {
+        float d = scene(ro + rd * t);
+        if (d < 0.001) return vec2(t, 1.0);
+        if (t > 25.0)  return vec2(25.0, 0.0);
+        t += d;
+    }
+    return vec2(t, 0.0);
+}
+
+void main() {
+    vec2 uv = (gl_FragCoord.xy - 0.5 * u_resolution.xy) / u_resolution.y;
+
+    vec3 ro = vec3(
+        2.0 + sin(u_time * u_speed_scale * 0.11) * 0.4,
+        2.0 + cos(u_time * u_speed_scale * 0.09) * 0.4,
+        u_time * u_speed_scale * 2.0
+    );
+    vec3 rd = normalize(vec3(uv, 1.5 / u_zoom_scale));
+    rd.xy = rot(sin(u_time * u_speed_scale * 0.05) * 0.3) * rd.xy;
+    rd.yz = rot(sin(u_time * u_speed_scale * 0.03) * 0.2) * rd.yz;
+
+    vec2 result = march(ro, rd);
+    float dist = result.x;
+
+    // Palette gradient is the entire shading model.
+    // pow(., 0.6) compresses near-field into vivid palette range and
+    // stretches far-field into horizon fog. palette(1.0-t) so near=vivid,
+    // far=palette(0.0) horizon — same convention as donut.
+    float t_palette = pow(clamp(dist / 25.0, 0.0, 1.0), 0.6);
+    vec3 col = palette(1.0 - t_palette);
+
+    fragColor = vec4(col, 1.0);
+}
