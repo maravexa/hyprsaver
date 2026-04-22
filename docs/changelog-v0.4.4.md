@@ -817,3 +817,52 @@ Each pillar now renders two faces:
 ### GPU cost
 
 Delta from round-3 baseline (~20–24%): +2% from 20 vs 12 pillars (partially offset by denser early-reject); +2% from side face test per pillar (1/z interpolation + rect test); ±0% from liveness inversion (same ALU class). **Expected util: 20–24%, Medium tier, unchanged from round 3**.
+
+---
+
+## temple — Pillar Round 5 (Side Face Vertical Lines + Caps)
+
+Two targeted changes to `shaders/temple.frag`. No other files changed except benchmark and changelog docs.
+
+### Side face pattern: horizontal rings → vertical lines
+
+**Problem:** The horizontal ring pattern (`h_render = z_here * SIDE_FACE_RING_DENSITY`) had two issues: (1) temporally unstable — as the pillar scrolls in z, `z_here` shifts per-pixel, so ring positions sweep continuously across the face; (2) reads as "pillar is wider on one side" rather than "two faces of a 3D column" — the narrow face width prevents perspective compression from being perceptible.
+
+**Fix:** Replace with `face_u * SIDE_FACE_LINE_DENSITY` where `face_u` is a face-local horizontal coordinate:
+
+```glsl
+float face_u = ((uv.x - sx_lo) / max(sx_hi - sx_lo, 1e-5)) * 2.0 - 1.0;
+h_render = mix(face_u * SIDE_FACE_LINE_DENSITY, PILLAR_CAP_H_VALUE, cap_zone);
+```
+
+`face_u` maps `[0, 1]` → `[-1, +1]` within the face's current screen-x bounds (`sx_lo`, `sx_hi`). Because both `uv.x` (fixed screen pixel) and `sx_lo`/`sx_hi` (face bounds that move with the pillar) shift together, the *ratio* `(uv.x - sx_lo) / (sx_hi - sx_lo)` is stable in face-local coordinates — a point on "the left third of the face" keeps the same `face_u` as the pillar approaches. Vertical lines hold their face-local position with no scanning.
+
+`SIDE_FACE_LINE_DENSITY = 0.5` matches `PILLAR_LINE_DENSITY = 0.5` on the front face, producing lines at identical face-local positions (`face_u ≈ 0, ±0.667`). Both faces show the same 3 vertical traces — maximally coherent "same column, two sides" reading.
+
+**Constant removed:** `SIDE_FACE_RING_DENSITY = 0.8`
+
+**Constant added:** `SIDE_FACE_LINE_DENSITY = 0.5`
+
+### Cap bars added to side face
+
+**Problem:** Round 4 omitted cap bars from the side face. Front face had solid bus-bar bands at top and bottom 10%; side face had none. Visual disconnect at pillar corners where front and side faces meet.
+
+**Fix:** The `cap_zone` computation was already present in the round-4 side face block (for `pillar_v`); it was not applied to `h_render`. Round 5 incorporates it via the same `mix()` used on the front face:
+
+```glsl
+float pillar_v = dist_h * z_here;
+float cap_zone = step(1.0 - PILLAR_CAP_WIDTH, abs(pillar_v));
+h_render = mix(face_u * SIDE_FACE_LINE_DENSITY, PILLAR_CAP_H_VALUE, cap_zone);
+```
+
+Because `pillar_v = dist_h * z_here` and the face top/bottom is at `dist_h = ±1/z_here`, the pillar_v at the face edge is exactly `±1.0` — same as front face. Cap zone triggers at `|pillar_v| > 0.9` (top/bottom 10%), matching front face proportions. Caps on the side face follow the curved top/bottom edges of the trapezoidal screen silhouette, reinforcing the 3D reading.
+
+### Files changed
+
+- `shaders/temple.frag` — constant block (`SIDE_FACE_RING_DENSITY` → `SIDE_FACE_LINE_DENSITY`); side face hit-branch: `face_u` computation added; `h_render` formula replaced; `mix()` with `cap_zone` applied
+- `docs/benchmark-v0.4.4.md` — Temple entry updated to reflect round 5
+- `docs/changelog-v0.4.4.md` — this entry
+
+### GPU cost
+
+Pattern change: 1 divide replaced by 1 divide (`face_u` normalize vs. `z_here * DENSITY` multiply) — same ALU class. Cap zone `mix`: already present in round 4 (no-op on `ring_h`); now operative — zero additional ops. **Expected util: ~20%, unchanged**.
