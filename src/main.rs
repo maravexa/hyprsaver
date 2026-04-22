@@ -532,15 +532,15 @@ fn shader_descriptions() -> std::collections::HashMap<&'static str, &'static str
     [
         (
             "planet",
-            "Raymarched planet sphere wrapped in aurora borealis bands — sine-wave latitude bands perturbed by noise",
+            "Raymarched planet with aurora-band latitudes",
         ),
         (
             "aurora",
-            "Overhead view of the aurora borealis — sinuous ribbon bands span the full sky with fBm shimmer, gaussian profiles and vertical ray striations",
+            "Aurora borealis ribbon bands over a night sky",
         ),
         (
             "bezier",
-            "Five animated cubic Bézier curves with slow-drifting control points and additive palette glow",
+            "Five animated Bézier curves",
         ),
         (
             "caustics",
@@ -548,11 +548,11 @@ fn shader_descriptions() -> std::collections::HashMap<&'static str, &'static str
         ),
         (
             "clouds",
-            "Slowly drifting procedural clouds over a palette-tinted sky (plain 5-octave fBm)",
+            "Drifting procedural clouds over a tinted sky",
         ),
         (
             "flames",
-            "fBm domain-warped fire — two-pass Quilez warping with abs(noise) turbulence",
+            "Domain-warped procedural fire",
         ),
         ("marble", "Curl-noise flow field with particle tracing"),
         (
@@ -561,11 +561,11 @@ fn shader_descriptions() -> std::collections::HashMap<&'static str, &'static str
         ),
         (
             "hypercube",
-            "4D tesseract rotating in two planes, projected to 2D with neon glow",
+            "4D tesseract projected to 2D with neon glow",
         ),
         (
             "fractaltrap",
-            "Julia set with orbit-trap coloring — tracks minimum distance to a circle trap, producing stained-glass / cellular patterns",
+            "Julia set with orbit-trap coloring",
         ),
         ("julia", "Julia set with animated constant"),
         ("kaleidoscope", "6-fold kaleidoscope with domain-warped FBM"),
@@ -576,20 +576,20 @@ fn shader_descriptions() -> std::collections::HashMap<&'static str, &'static str
         ),
         (
             "circuit",
-            "Brick-offset grid with hash-gated traces and gradient pulses — PCB / circuit network",
+            "Circuit board with gradient pulses along traces",
         ),
         (
             "oscilloscope",
-            "Realistic CRT oscilloscope — three animated waveform traces over a phosphor measurement grid with scanlines and vignette",
+            "CRT oscilloscope with animated waveform traces",
         ),
         ("plasma", "Classic plasma effect"),
         (
             "sonar",
-            "Multi-source wavefront interference with rotating radial sweep — sonar scope",
+            "Rotating sonar sweep with wavefront interference",
         ),
         (
             "shipburn",
-            "Burning Ship Julia — absolute-value folding before squaring produces angular, mirror-symmetric ship-silhouette shapes",
+            "Burning Ship Julia variant",
         ),
         ("donut", "Raymarched torus with Phong lighting"),
         ("snowfall", "Five-layer parallax snowfall"),
@@ -599,18 +599,21 @@ fn shader_descriptions() -> std::collections::HashMap<&'static str, &'static str
         ),
         (
             "terminal",
-            "Scrolling terminal output — block-glyph rows scroll upward with CRT scanlines, phosphor glow, and blinking cursor",
+            "Scrolling CRT terminal with phosphor glow",
         ),
         (
             "tesla",
-            "Tesla coil arcs — fractal-lightning between three electrodes with branching and a wandering endpoint",
+            "Tesla coil arcs with fractal-lightning branching",
         ),
         ("tunnel", "Infinite tunnel flythrough"),
         ("voronoi", "Animated Voronoi cells"),
         (
             "temple",
-            "Retro temple interior — floor + ceiling with triangle-wave lattice, 4 scrolling pillars with ring trace pattern, CRT scanlines",
+            "Retro temple corridor with scrolling pillars",
         ),
+        ("blob", "Lit alien orb with flowing emission veins"),
+        ("gridwave", "Warping neon grid, Tron/Outrun style"),
+        ("wormhole", "Curved tunnel flythrough"),
     ]
     .into_iter()
     .collect()
