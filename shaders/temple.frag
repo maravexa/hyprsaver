@@ -30,10 +30,14 @@ const int   NUM_PILLARS          = 4;
 const float PILLAR_RADIUS        = 0.3;    // world radius of pillar
 const float PILLAR_NEAR_CLIP     = 1.0;    // minimum visible depth
 const float PILLAR_CYCLE_DEPTH   = 24.0;   // scrolling cycle length
-const float PILLAR_RING_DENSITY  = 1.0;    // h units per unit of pillar_v; ~6-7 rings visible
-const float PILLAR_SCROLL_SPEED  = 0.3;    // ring animation speed
-const float PILLAR_COLOR_SHIFT   = 0.37;   // palette offset per pillar index
-const float PILLAR_UV_VARIATION  = 0.2;    // horizontal wobble amplitude
+const float PILLAR_COLOR_SHIFT    = 0.37;   // palette offset per pillar index
+
+// Pillar corridor layout — fixed x positions, no randomness
+const float PILLAR_X_INNER        = 1.0;   // inner pair (the ones we walk through)
+const float PILLAR_X_OUTER        = 3.5;   // outer pair (perspective framing)
+
+// Pillar trace pattern — vertical circuit lines, static on pillar surface
+const float PILLAR_LINE_DENSITY   = 1.0;   // linear h coefficient; ~7 vertical lines per pillar
 
 // ---------------------------------------------------------------------------
 // Isolines (unchanged)
@@ -84,15 +88,25 @@ float tri(float x) {
 }
 
 // ---------------------------------------------------------------------------
-// Pillar world position — evenly-spaced depths, hashed x, scrolling with time
+// Pillar world position — fixed corridor layout, scrolling in z.
+//
+// Layout: 2 pairs of pillars. Outer pair at ±PILLAR_X_OUTER, inner pair at
+// ±PILLAR_X_INNER. Pairs are phase-staggered in z by CYCLE/2 so the outer
+// and inner pairs approach/pass the viewer alternately.
+//
+// Indices:
+//   0 = outer left,  1 = outer right  (phase 0)
+//   2 = inner left,  3 = inner right  (phase CYCLE/2)
 // ---------------------------------------------------------------------------
-vec2 pillar_wpos(float fi, float t) {
-    // X position: pseudo-random in [-3, +3]. Fract-based, no sin.
-    float wx_p = (fract(fi * 0.7213 + 0.137) - 0.5) * 6.0;
+vec2 pillar_wpos(int i, float t) {
+    bool is_inner = i >= 2;
+    bool is_right = (i % 2) == 1;
 
-    // Z: evenly-spaced base depths, scroll toward viewer, wrap at cycle boundary
-    float wz_base = fi / float(NUM_PILLARS) * PILLAR_CYCLE_DEPTH;
-    float wz_p    = mod(wz_base - t * SCROLL_SPEED, PILLAR_CYCLE_DEPTH) + PILLAR_NEAR_CLIP;
+    float wx_mag = is_inner ? PILLAR_X_INNER : PILLAR_X_OUTER;
+    float wx_p   = is_right ? wx_mag : -wx_mag;
+
+    float phase = is_inner ? (PILLAR_CYCLE_DEPTH * 0.5) : 0.0;
+    float wz_p  = mod(phase - t * SCROLL_SPEED, PILLAR_CYCLE_DEPTH) + PILLAR_NEAR_CLIP;
 
     return vec2(wx_p, wz_p);
 }
@@ -125,11 +139,12 @@ void main() {
     float h_render     = h_surface;
     float z_render     = z_surface;
     float color_offset = 0.0;
+    bool  is_pillar    = false;
 
     // Pillar pass — check each pillar; closest one in front of the surface wins.
     float best_pillar_z = z_surface;  // must beat the surface depth to render
     for (int i = 0; i < NUM_PILLARS; i++) {
-        vec2  pos  = pillar_wpos(float(i), t);
+        vec2  pos  = pillar_wpos(i, t);
         float wz_p = pos.y;
 
         // Early reject: pillar further than current best candidate
@@ -146,17 +161,19 @@ void main() {
         if (abs(uv.x - sx) < sw && abs(dist_h) < y_extent) {
             best_pillar_z = wz_p;
 
-            // Pillar-local UV
             float pillar_u = (uv.x - sx) / sw;    // [-1, +1] across pillar
-            float pillar_v = dist_h * wz_p;       // [-1, +1] floor-edge to ceiling-edge
+            // pillar_v no longer used for pattern; kept as a comment for
+            // reference if vertical color variation is ever re-added.
 
-            // Pillar trace pattern: linear in v for regular horizontal rings,
-            // scrolling upward over time, plus subtle u-wobble.
-            h_render = pillar_v * PILLAR_RING_DENSITY
-                     + t * PILLAR_SCROLL_SPEED
-                     + PILLAR_UV_VARIATION * tri(pillar_u * 2.0);
+            // Vertical trace pattern — linear in pillar_u only.
+            // No t, no pillar_v: lines stay fixed on the pillar surface.
+            // Palette drift over time still cycles colors through the lines
+            // (circuit signal flow) but line positions don't move.
+            h_render = pillar_u * PILLAR_LINE_DENSITY;
+
             z_render = wz_p;
             color_offset = (float(i) + 1.0) * PILLAR_COLOR_SHIFT;
+            is_pillar = true;
         }
     }
 
@@ -185,8 +202,11 @@ void main() {
     // Exponential distance fog based on whatever we're rendering (surface or pillar)
     float fog = FOG_FLOOR + (1.0 - FOG_FLOOR) * exp(-z_render * FOG_DENSITY);
 
-    // Horizon haze — symmetric, fades both floor and ceiling toward the horizon line
-    float fade = smoothstep(HAZE_END, HAZE_START, abs_dist_h);
+    // Horizon haze applies to floor/ceiling only. Pillars are vertical objects
+    // that pass through the horizon at their midpoint — haze-fading them would
+    // produce a dark band across each pillar's vertical center. Skip haze when
+    // we're rendering a pillar.
+    float fade = is_pillar ? 1.0 : smoothstep(HAZE_END, HAZE_START, abs_dist_h);
 
     // CRT scanlines in screen space
     float scan = 1.0 - SCANLINE * step(0.5, fract(gl_FragCoord.y / SCANLINE_PERIOD));
