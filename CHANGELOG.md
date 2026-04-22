@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+
+## [0.4.4] - 2026-04-22
+
+### Added
+- **New shaders:** 7 new shaders spanning Lightweight and Medium tiers
+  - Wormhole: 22% (3D raymarched curved tunnel with TunnelCenter sin-wave displacement, PS1 palette quantize)
+  - Blob: 27% (sphere SDF + analytical sin warp, Phong via palette, Fresnel rim, atmospheric halo)
+  - Gridwave: 15% (2D screen-space Tron/Outrun grid with horizontal + vertical warping)
+  - Circuit: 44% (hex-adjacency PCB grid with gradient pulses along traces)
+  - Sonar: 25% (rotating sweep gates wavefront visibility, white emitter dots)
+  - Shipburn: 21% (Burning Ship Julia variant with julia.glsl-style coloring)
+  - Fractaltrap: 29% (three-point orbit-trap Julia with three-fold rotational symmetry)
+- **Pride palette pack:** 7 new gradient LUT palettes (achilles, sappho, marsha, cahun, mercury, frida, emily) + `[playlists.pride]` grouping in example config
+- **CLI — `render-gif` subcommand:** Headless shader→GIF rendering via EGL surfaceless + FBO capture. Defaults: 960×540, 20 fps, 9 s, 3 random palettes as hard-cut segments. Deterministic frame timing for reproducibility. Purpose: generate README showcase GIFs without screen recording.
+- **Persistent shuffle bag:** `$XDG_STATE_HOME/hyprsaver/shuffle.toml` backs `randomize_cycle_start()` for both palette and shader managers — each name returns once per bag cycle before repeats; cross-launch consecutive repeats eliminated
+- **New benchmarks documented:** Clouds (25%), Terminal (18%)
+- **Benchmark doc:** `docs/benchmark-v0.4.4.md`
+
+### Changed
+- **Starfield:** Spawn-time dead zone resolves "stars through viewer" artifact — closes v0.4.3 carry-forward. Util 43% → 49%
+- **Preview mode:** Now calls `randomize_cycle_start()` matching daemon behavior — fixes preview always starting on alphabetically-first palette (aurora)
+- **`--list-shaders` descriptions:** Concision pass across the full roster, filled missing entries for Blob, Gridwave, Wormhole
+
+### Removed
+- **Mandelbrot shader:** Unsuited to per-pixel iteration-count variance at animated zoom depth. Fractal slot filled by Shipburn and Fractaltrap. Users with `shader = "mandelbrot"` or mandelbrot in playlists should update config.
+- **Network shader:** Plexus/connected-node aesthetic is vertex-native; per-pixel O(n) iteration cannot reach parity with a proper vertex renderer. Replaced by Circuit and Sonar — both fragment-native. Users with `shader = "network"` or network in playlists should update config.
+
+
 ## [0.4.3] - 2026-04-16
 
 ### Changed
