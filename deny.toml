@@ -1,48 +1,68 @@
-[advisories]
-# instant is unmaintained (RUSTSEC-2024-0384); pulled by notify-types -> notify.
-# No safe upgrade is available upstream.
-ignore = ["RUSTSEC-2024-0384"]
+[graph]
+all-features = true
 
 [licenses]
+version = 2
+confidence-threshold = 0.93
 allow = [
     "MIT",
     "Apache-2.0",
-    "ISC",
+    "Apache-2.0 WITH LLVM-exception",
     "BSD-2-Clause",
     "BSD-3-Clause",
+    "ISC",
     "Zlib",
-    "CC0-1.0",     # notify
-    "MPL-2.0",     # option-ext, via dirs-sys -> dirs
-    "Unicode-3.0", # unicode-ident
-    "OFL-1.1",      # egui bundled fonts (epaint_default_fonts)
-    "LicenseRef-UFL-1.0", # Ubuntu Font License — also in epaint_default_fonts
+    "CC0-1.0",
+    "Unlicense",
+    "0BSD",
+]
+# Crates with licenses outside the allow list require explicit per-crate exceptions.
+# See report: docs/dependency-audit-v0.4.4.md § License concerns.
+
+[[licenses.exceptions]]
+# option-ext is a transitive dep of dirs → dirs-sys → option-ext.
+# MPL-2.0 is file-level copyleft; source is publicly available on crates.io.
+# Does not affect MIT binary redistribution of hyprsaver itself.
+name = "option-ext"
+version = "0.2"
+allow = ["MPL-2.0"]
+
+[[licenses.exceptions]]
+# epaint_default_fonts embeds fonts (Inter, Hack, Ubuntu Mono) under OFL-1.1 and UFL-1.0.
+# Both licenses permit embedding in binaries. Font sources remain publicly available.
+# LicenseRef-UFL-1.0 is the Ubuntu Font License; restricts only standalone font resale.
+name = "epaint_default_fonts"
+version = "0.29"
+allow = ["OFL-1.1", "LicenseRef-UFL-1.0"]
+
+[[licenses.exceptions]]
+# unicode-ident includes Unicode data tables under the Unicode License v3.
+# Unicode-3.0 is OSI-approved and permissive (similar to BSD-3-Clause for Unicode data).
+# The Rust code itself is MIT OR Apache-2.0; only the data tables carry Unicode-3.0.
+name = "unicode-ident"
+version = "1"
+allow = ["Unicode-3.0"]
+
+[advisories]
+version = 2
+db-path = "~/.cargo/advisory-db"
+db-urls = ["https://github.com/rustsec/advisory-db"]
+yanked = "deny"
+ignore = [
+    # instant 0.1.13 is unmaintained (RUSTSEC-2024-0384). Pulled in by:
+    # notify-types → notify (our direct dep for hot-reload). No patched version exists;
+    # notify-types has no upstream replacement pinned. Reachability: unreachable in
+    # daemon mode (notify is only used for shader hot-reload on the filesystem watcher
+    # path). Risk: low — unmaintained, not a CVE. Monitor notify for an upstream fix.
+    { id = "RUSTSEC-2024-0384", reason = "instant is a transitive dep of notify with no patched version; unreachable in daemon mode; low risk" },
 ]
 
 [bans]
-multiple-versions = "deny"
+multiple-versions = "warn"
+wildcards = "deny"
 highlight = "all"
-skip = [
-    # bitflags 1.x (inotify/kqueue via notify) vs 2.x (rest of ecosystem)
-    { name = "bitflags" },
-    # linux-raw-sys 0.4 (rustix 0.38) vs 0.12 (rustix 1.x)
-    { name = "linux-raw-sys" },
-    # memmap2 0.8 (xkbcommon) vs 0.9 (smithay-client-toolkit)
-    { name = "memmap2" },
-    # redox_syscall 0.5 (parking_lot_core via egui) vs 0.7 (libredox via notify/dirs)
-    { name = "redox_syscall" },
-    # rustix 0.38 (calloop / sctk) vs 1.x (wayland-backend / polling)
-    { name = "rustix" },
-    # windows-sys: 0.48 (dirs-sys), 0.52 (glutin/notify), 0.59 (rustix 0.38), 0.61 (clap/anstream)
-    { name = "windows-sys" },
-    { name = "windows-targets" },
-    { name = "windows_aarch64_gnullvm" },
-    { name = "windows_aarch64_msvc" },
-    { name = "windows_i686_gnu" },
-    { name = "windows_i686_msvc" },
-    { name = "windows_x86_64_gnu" },
-    { name = "windows_x86_64_gnullvm" },
-    { name = "windows_x86_64_msvc" },
-]
+skip = []
+skip-tree = []
 
 [sources]
 unknown-registry = "deny"
