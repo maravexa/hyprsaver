@@ -323,3 +323,69 @@ fragColor = col * liveness * lines * fog * fade * scan
 - `* fog` — per-pixel exponential depth attenuation
 - `* fade` — horizon haze (y-based smoothstep, kills above-horizon pixels)
 - `* scan` — CRT scanline overlay (screen-space, unaffected by fog)
+
+---
+
+## waves — Palette Hash + Brightness Clamps
+
+Two focused color-behavior tweaks to `shaders/waves.frag`. No other files changed.
+
+### Problem
+
+The shader previously passed palette colors through unchanged, so aesthetic
+quality depended entirely on palette character. Dark palettes (`midnight`)
+rendered near-black — traces invisible. Bright palettes (`marsha`, pride flags)
+washed out. Narrow-hue palettes that only span a small region of the gradient
+showed only 1–2 distinct colors simultaneously because sequential band
+indexing sampled adjacent palette regions.
+
+### Palette position hashing
+
+Previously the palette coordinate was `band_idx / POSTERIZE` — sequential
+sampling that clusters adjacent bands into adjacent palette regions. On
+segmented palettes (marsha pink/white/blue, pride flag colors), adjacent
+regions can all land in the same color block, producing a near-monochrome
+scene.
+
+Now: `fract(band_idx * PALETTE_HASH)` where `PALETTE_HASH = 0.618` (golden
+ratio). For any N consecutive `band_idx` values the hashes fill [0, 1] as
+uniformly as possible — optimal equidistribution for integer sequences. All
+flag colors (or palette regions) appear simultaneously on screen.
+
+`POSTERIZE` is retained unchanged as the quantization granularity (band width
+in `pc_raw` space). Its previous role as "palette cycle length" is superseded
+by the hash.
+
+**New constant:**
+- `PALETTE_HASH = 0.618` — golden-ratio hash; optimal irrational for equidistributed sequences
+
+### Brightness clamps
+
+Per-channel `clamp` applied **after** the liveness multiply:
+
+```glsl
+col = clamp(col, vec3(MIN_TRACE_BRIGHTNESS), vec3(MAX_TRACE_BRIGHTNESS));
+```
+
+Clamp order is deliberate: placing it after liveness means offline traces on
+dark palettes still reach the `MIN_TRACE_BRIGHTNESS` floor (offline × palette
+could be near zero on midnight; post-liveness clamp lifts it). Placing it
+before would leave offline traces at 0.08 × 0.25 = 0.02 (near-invisible). The
+tradeoff is that online/offline contrast weakens on very dark palettes — online
+and offline both converge toward the floor — but visibility wins over contrast.
+
+Per-channel clamp (not luminance) intentionally preserves simplicity: one
+`max` + one `min` per channel vs. `dot` + `divide` for luminance. The palette
+set has no pure primaries where hue-shift from per-channel clamping would be
+visible. If it becomes an issue on a specific palette, lower `MAX_TRACE_BRIGHTNESS`
+toward 1.0 rather than switching clamp type.
+
+**New constants:**
+- `MIN_TRACE_BRIGHTNESS = 0.08` — per-channel floor; dark palettes remain visible
+- `MAX_TRACE_BRIGHTNESS = 0.85` — per-channel ceiling; bright palettes don't wash out
+
+### GPU cost
+
+Hash: replaces one divide with one multiply — slight cost reduction. Clamp:
+~6 ALU ops (3× max + 3× min on RDNA; no branches). Expected delta ±1% from
+the 16% pre-tweak measurement. Updated benchmark estimate: 16–18% max.
