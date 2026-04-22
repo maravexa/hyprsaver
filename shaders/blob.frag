@@ -2,9 +2,9 @@
 precision highp float;
 
 // ---------------------------------------------------------------------------
-// hyprsaver — core.frag  (v0.4.4, v3)
+// hyprsaver — blob.frag  (v0.4.4)
 //
-// Lit alien-core orb with flowing energy emission.
+// Lit blob with flowing energy emission and atmospheric halo.
 //
 // Architecture (unchanged from v2):
 //   - Unit sphere SDF with small analytical domain warp (amp 0.08) so the
@@ -52,7 +52,7 @@ float warp(vec3 p, float ts) {
 float scene(vec3 p, float ts) {
     vec3  rp     = rotY(ts * 0.20) * p;
     float pulse  = 0.5 + 0.5 * sin(ts * 1.2);
-    float radius = 1.0 + pulse * 0.08;
+    float radius = 1.2 + pulse * 0.096;  // +20% base size, +20% fluctuation
     return length(rp) - radius + warp(rp, ts);
 }
 
