@@ -757,3 +757,63 @@ Governs both surface wave scroll (`wz = z + t * SCROLL_SPEED`) and pillar approa
 ### GPU cost
 
 Round 3 is cost-neutral: fewer isoline evaluations (3 lines vs ~7); one ternary select for `iso_width` (~1 ALU op); `SCROLL_SPEED` constant doubling is folded at compile time. **Expected util: 20–24%, unchanged**.
+
+---
+
+## temple — Pillar Round 4 (Density + Liveness Inversion + 3D Inner Side Face)
+
+Three changes to `shaders/temple.frag`. No other files changed except benchmark and changelog docs.
+
+### Density — 20 pillars (5 rows × 4 columns)
+
+`NUM_ROWS` increased from 3 to 5, bringing total visible pillars from 12 to 20. Row z-phases remain evenly distributed through `PILLAR_CYCLE_DEPTH`, so all 5 rows are visible simultaneously in the corridor. The denser grid produces a "corridor of columns" feel vs. the sparser 3-row layout. Early-reject (`wz_p + PILLAR_RADIUS >= best_pillar_z`) fires more aggressively with denser rows, partially offsetting the loop cost.
+
+### Liveness inversion — online brightens, offline raw
+
+Semantics flipped from all previous rounds:
+
+| Round | Offline | Online |
+|---|---|---|
+| 1–3 | raw palette × `OFFLINE_FLOOR` (dimmed) | raw palette (undimmed) |
+| 4 | raw palette (undimmed) | `mix(col, vec3(1.0), ONLINE_BRIGHTEN)` |
+
+**Why this reads better:** In rounds 1–3, `OFFLINE_FLOOR = 0.25` dimmed ~60% of bands to 25% brightness — on most palettes, the majority of the corridor was dark. The "online" (minority) bands were the only palette-colored pixels; the rest was near-black. With inversion, the quiescent corridor wire is the full palette color, and signal-carrying bands brighten toward white. Reads as "circuit lighting up" rather than "lights mostly off."
+
+**Why `mix` toward white, not multiplicative boost:** `col * (1.0 + BOOST)` pushes channels above 1.0 and the luminance-preserving ceiling clamp desaturates them. `mix(col, vec3(1.0), ONLINE_BRIGHTEN)` at `ONLINE_BRIGHTEN = 0.6` maps `(0.2, 0.2, 0.8)` → `(0.68, 0.68, 0.92)` — light blue, still visibly blue, no channel clip.
+
+**Constants removed:** `OFFLINE_FLOOR` — no longer meaningful.
+
+**Constants added:**
+- `ONLINE_BRIGHTEN = 0.6` — blend factor toward white for online bands.
+
+### 3D inner side face per pillar
+
+Each pillar now renders two faces:
+
+**Front face** (existing): screen-space rect at depth `wz_p`, vertical trace pattern `pillar_u * PILLAR_LINE_DENSITY`.
+
+**Inner side face** (new): the face on the corridor-centerline side of the pillar. For right-side pillars (`wx_p > 0`), this is the left face; for left-side pillars (`wx_p < 0`), this is the right face. The face spans world-z from `wz_p - PILLAR_RADIUS` (near corner) to `wz_p` (far corner) and projects to a screen-space quad between the two perspective-mapped x positions.
+
+**Perspective correctness:** Screen-space x maps to world-z via linear interpolation of `1/z` (inverse depth). This is the standard perspective-correct attribute interpolation: a world-space line projects to a screen-space segment where attributes interpolated linearly in `1/z` correspond to uniform world-space sampling. Horizontal rings in world-z appear at the correct non-uniform screen spacing (close rings wider, far rings narrower).
+
+**Pattern:** Side face uses `z_here * SIDE_FACE_RING_DENSITY` as `h_render` — horizontal rings fixed in world space. These rings parallax-scroll as the viewer advances, distinct from the front face's vertical static lines. Cap logic identical to front face.
+
+**Color offset:** `color_offset` for side face pixels adds `SIDE_FACE_COLOR_SHIFT = 0.19` on top of the pillar's own `(float(i) + 1.0) * PILLAR_COLOR_SHIFT`. The offset samples a slightly different palette region, making front and side faces subtly different in hue — emphasizing the "separate plane" reading.
+
+**Early reject:** Changed from `wz_p >= best_pillar_z` to `wz_p + PILLAR_RADIUS >= best_pillar_z` to conservatively account for the side face's near edge at `wz_p - PILLAR_RADIUS`.
+
+**Near-clip guard:** Side face test gated on `wz_near > PILLAR_NEAR_CLIP * 0.5`. Threshold below `PILLAR_NEAR_CLIP` keeps the side face visible as a pillar passes close — exactly when the parallax effect is most dramatic.
+
+**Constants added:**
+- `SIDE_FACE_RING_DENSITY = 0.8` — horizontal ring frequency per unit world-z.
+- `SIDE_FACE_COLOR_SHIFT = 0.19` — palette offset to distinguish side from front face.
+
+### Files changed
+
+- `shaders/temple.frag` — constant block; liveness section; pillar loop replaced with 2-face loop
+- `docs/benchmark-v0.4.4.md` — Temple entry and estimate note updated (expected util still 20–24%)
+- `docs/changelog-v0.4.4.md` — this entry
+
+### GPU cost
+
+Delta from round-3 baseline (~20–24%): +2% from 20 vs 12 pillars (partially offset by denser early-reject); +2% from side face test per pillar (1/z interpolation + rect test); ±0% from liveness inversion (same ALU class). **Expected util: 20–24%, Medium tier, unchanged from round 3**.

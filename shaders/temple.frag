@@ -31,14 +31,14 @@ const float PILLAR_NEAR_CLIP     = 1.0;    // minimum visible depth
 const float PILLAR_CYCLE_DEPTH   = 24.0;   // scrolling cycle length
 const float PILLAR_COLOR_SHIFT    = 0.37;   // palette offset per pillar index
 
-// Pillar corridor layout — 3 rows × 4 columns grid
+// Pillar corridor layout — 5 rows × 4 columns grid
 const float PILLAR_X_INNER        = 1.5;   // inner columns (±): wider central walkway
 const float PILLAR_X_OUTER        = 4.0;   // outer columns (±): pushed to edges
 
 // Pillar grid layout
 const int   NUM_PILLARS_PER_ROW  = 4;
-const int   NUM_ROWS             = 3;
-const int   NUM_PILLARS          = NUM_PILLARS_PER_ROW * NUM_ROWS;   // 12
+const int   NUM_ROWS             = 5;
+const int   NUM_PILLARS          = NUM_PILLARS_PER_ROW * NUM_ROWS;   // 20
 
 // Pillar trace pattern — vertical circuit lines, static on pillar surface
 const float PILLAR_LINE_DENSITY   = 0.5;   // linear h coefficient; 3 vertical lines per pillar (was 1.0 = ~7)
@@ -67,11 +67,15 @@ const float PALETTE_DRIFT        = 0.02;
 const float PALETTE_HASH         = 0.618;
 
 // ---------------------------------------------------------------------------
-// Offline/online (unchanged from color-tweaks-r2)
+// Offline/online (liveness inverted in round 4: online brightens, offline raw)
 // ---------------------------------------------------------------------------
-const float OFFLINE_FLOOR        = 0.25;
+const float ONLINE_BRIGHTEN      = 0.6;    // 0 = no change, 1 = online fully white
 const float OFFLINE_RATIO        = 0.4;
 const float OFFLINE_HASH         = 0.4142;
+
+// Side face horizontal trace pattern
+const float SIDE_FACE_RING_DENSITY = 0.8;  // horizontal rings per unit world-z on side face
+const float SIDE_FACE_COLOR_SHIFT  = 0.19; // palette offset for side face vs front face
 
 // ---------------------------------------------------------------------------
 // Brightness clamps (unchanged from color-tweaks-r2)
@@ -102,7 +106,7 @@ float tri(float x) {
 }
 
 // ---------------------------------------------------------------------------
-// Pillar world position — 3 rows × 4 columns grid, scrolling in z.
+// Pillar world position — 5 rows × 4 columns grid, scrolling in z.
 //
 // Row layout (4 pillars per row, evenly spread across corridor):
 //   col 0: outer left   (-PILLAR_X_OUTER)
@@ -161,42 +165,95 @@ void main() {
     float color_offset = 0.0;
     bool  is_pillar    = false;
 
-    // Pillar pass — check each pillar; closest one in front of the surface wins.
-    float best_pillar_z = z_surface;  // must beat the surface depth to render
+    // Pillar pass — 2 faces per pillar: front face and inner side face.
+    // Inner side face is the face on the corridor-axis side of the pillar,
+    // showing depth parallax as the viewer walks past.
+    float best_pillar_z = z_surface;
     for (int i = 0; i < NUM_PILLARS; i++) {
-        vec2  pos  = pillar_wpos(i, t);
-        float wz_p = pos.y;
+        vec2  pos    = pillar_wpos(i, t);
+        float wx_p   = pos.x;
+        float wz_p   = pos.y;
 
-        // Early reject: pillar further than current best candidate
-        if (wz_p >= best_pillar_z) { continue; }
+        // Early reject: pillar is entirely behind whatever we've already chosen
+        if (wz_p + PILLAR_RADIUS >= best_pillar_z) { continue; }
 
-        // Screen rect for this pillar at its depth
-        float sx       = 0.5 + pos.x / (wz_p * WAVE_STRETCH_X);
-        float sw       = PILLAR_RADIUS / (wz_p * WAVE_STRETCH_X);
-        float y_extent = 1.0 / wz_p;
+        // ---- Front face test (existing logic) ----
+        {
+            float sx       = 0.5 + wx_p / (wz_p * WAVE_STRETCH_X);
+            float sw       = PILLAR_RADIUS / (wz_p * WAVE_STRETCH_X);
+            float y_extent = 1.0 / wz_p;
 
-        // Containment test: rect in screen space. The +-y_extent matches the depth
-        // where z_surface == wz_p, so vertical edges are automatically flush with
-        // the floor/ceiling intersection line.
-        if (abs(uv.x - sx) < sw && abs(dist_h) < y_extent) {
-            best_pillar_z = wz_p;
+            if (abs(uv.x - sx) < sw && abs(dist_h) < y_extent && wz_p < best_pillar_z) {
+                best_pillar_z = wz_p;
 
-            float pillar_u = (uv.x - sx) / sw;
-            float pillar_v = dist_h * wz_p;        // [-1, +1]: floor edge to ceiling edge
+                float pillar_u = (uv.x - sx) / sw;
+                float pillar_v = dist_h * wz_p;
+                float cap_zone = step(1.0 - PILLAR_CAP_WIDTH, abs(pillar_v));
 
-            // Cap zone: top and bottom bands of the pillar.
-            // 1.0 inside cap, 0.0 outside.
-            float cap_zone = step(1.0 - PILLAR_CAP_WIDTH, abs(pillar_v));
+                h_render = mix(pillar_u * PILLAR_LINE_DENSITY,
+                               PILLAR_CAP_H_VALUE,
+                               cap_zone);
 
-            // h_render: vertical trace pattern (linear in u) outside cap;
-            // constant isoline-aligned value inside cap (solid horizontal bar).
-            h_render = mix(pillar_u * PILLAR_LINE_DENSITY,
-                           PILLAR_CAP_H_VALUE,
-                           cap_zone);
+                z_render     = wz_p;
+                color_offset = (float(i) + 1.0) * PILLAR_COLOR_SHIFT;
+                is_pillar    = true;
+            }
+        }
 
-            z_render     = wz_p;
-            color_offset = (float(i) + 1.0) * PILLAR_COLOR_SHIFT;
-            is_pillar    = true;
+        // ---- Inner side face test ----
+        // The inner face is on the corridor-axis side of the pillar.
+        // For wx_p > 0, inner side is at x = wx_p - PILLAR_RADIUS.
+        // For wx_p < 0, inner side is at x = wx_p + PILLAR_RADIUS.
+        // The side face extends in world-z from (wz_p - PILLAR_RADIUS) to wz_p,
+        // and projects as a screen-space quad between the near and far corners.
+        {
+            float inner_sign = wx_p < 0.0 ? 1.0 : -1.0;  // face faces toward center
+            float face_wx    = wx_p + inner_sign * PILLAR_RADIUS;  // world-x of inner edge
+            float wz_near    = wz_p - PILLAR_RADIUS;
+            float wz_far     = wz_p;
+
+            // Skip side face if near edge would be behind camera
+            if (wz_near > PILLAR_NEAR_CLIP * 0.5) {
+                // Near and far corner screen-x
+                float sx_near  = 0.5 + face_wx / (wz_near * WAVE_STRETCH_X);
+                float sx_far   = 0.5 + face_wx / (wz_far  * WAVE_STRETCH_X);
+
+                // The face spans [min(sx_near, sx_far), max(sx_near, sx_far)] on screen
+                float sx_lo    = min(sx_near, sx_far);
+                float sx_hi    = max(sx_near, sx_far);
+
+                // Interpolate world-z across the face for the current pixel.
+                // Linear 1/z interpolation maintains perspective correctness.
+                float face_t   = clamp((uv.x - sx_lo) / max(sx_hi - sx_lo, 1e-5), 0.0, 1.0);
+                bool  near_is_lo = sx_near < sx_far;
+                float inv_z_near = 1.0 / wz_near;
+                float inv_z_far  = 1.0 / wz_far;
+                float inv_z_here = near_is_lo
+                    ? mix(inv_z_near, inv_z_far,  face_t)
+                    : mix(inv_z_far,  inv_z_near, face_t);
+                float z_here     = 1.0 / inv_z_here;
+
+                // Y extent at this sub-pixel's depth
+                float y_extent_here = 1.0 / z_here;
+
+                if (uv.x >= sx_lo && uv.x <= sx_hi &&
+                    abs(dist_h) < y_extent_here &&
+                    z_here < best_pillar_z) {
+                    best_pillar_z = z_here;
+
+                    float pillar_v = dist_h * z_here;
+                    float cap_zone = step(1.0 - PILLAR_CAP_WIDTH, abs(pillar_v));
+
+                    // Side face: horizontal rings fixed in world-z → parallax scrolls
+                    float ring_h = z_here * SIDE_FACE_RING_DENSITY;
+                    h_render = mix(ring_h, PILLAR_CAP_H_VALUE, cap_zone);
+
+                    z_render     = z_here;
+                    color_offset = (float(i) + 1.0) * PILLAR_COLOR_SHIFT
+                                 + SIDE_FACE_COLOR_SHIFT;
+                    is_pillar    = true;
+                }
+            }
         }
     }
 
@@ -220,10 +277,12 @@ void main() {
     float pc_quantized = fract(band_idx * PALETTE_HASH);
     vec3  col          = palette(pc_quantized);
 
-    // Offline/online liveness
-    float liveness = OFFLINE_FLOOR + (1.0 - OFFLINE_FLOOR)
-                   * step(OFFLINE_RATIO, fract(band_idx * OFFLINE_HASH));
-    col *= liveness;
+    // Online/offline liveness (INVERTED SEMANTICS vs earlier rounds).
+    // Offline bands render as raw palette color (no dimming).
+    // Online bands blend toward white, reading as "signal active on this trace."
+    // liveness_bit is 0.0 for offline, 1.0 for online.
+    float liveness_bit = step(OFFLINE_RATIO, fract(band_idx * OFFLINE_HASH));
+    col = mix(col, vec3(1.0), ONLINE_BRIGHTEN * liveness_bit);
 
     // Brightness floor (per-channel — preserves hue above floor)
     col = max(col, vec3(MIN_TRACE_BRIGHTNESS));
