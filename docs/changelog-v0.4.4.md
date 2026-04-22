@@ -255,3 +255,71 @@ retro aesthetic comes from regularity, not noise.
   v0.5.0. Not built here.
 - Starfield center dead-zone (carry-forward from v0.4.3) remains the final
   open v0.4.4 task.
+
+---
+
+## waves — Offline-Band Mechanism + Distance Fog
+
+Two focused tweaks to `shaders/waves.frag`. No other files changed.
+
+### Offline/online band mechanism
+
+Previously, some palettes happened to produce bright-and-dark traces because
+they contained dark bands in their gradient. On palettes that don't, all traces
+rendered at uniform brightness and the retro "network trace" reading was lost.
+
+The mechanism is now built in: a deterministic per-band liveness hash controls
+whether each posterized band renders at full brightness ("online") or at a
+configurable floor brightness ("offline"). The hash is `fract(band_idx * 0.375)`
+compared against `OFFLINE_RATIO` via `step` — no branches, no trig, no noise.
+
+Because the palette coordinate drifts continuously (`pc_raw` includes `t *
+PALETTE_DRIFT`), the band_idx for any given pixel changes over time, so traces
+cycle between online and offline states as the wave field scrolls. The pattern
+is deterministic and globally coherent — all pixels in the same band share the
+same liveness.
+
+**New constants:**
+- `OFFLINE_FLOOR = 0.25` — offline band brightness floor (0 = black, 1 = no dimming)
+- `OFFLINE_RATIO = 0.4` — ~60% of bands online, ~40% offline
+- `OFFLINE_HASH = 0.375` — band-to-liveness multiplier (period 8 bands; avoid 0.5, 0.25)
+
+**Implementation change:** The single-step posterize (`floor(pc * POSTERIZE) / POSTERIZE`)
+is split into two steps so the integer `band_idx` is accessible for the hash.
+The quantized palette coordinate (`band_idx / POSTERIZE`) feeds the palette
+sample unchanged — on-band visual output is identical to before.
+
+### Exponential distance fog
+
+Retro-era depth cue: `fog = exp(-z * FOG_DENSITY)`. Multiplied onto the
+composed color before the horizon haze and scanline overlay.
+
+Primary purpose is aesthetic depth reinforcement. Secondary benefit: the
+near-horizon region (where sub-pixel wave frequencies produce shimmering
+aliases) is crushed toward black by the fog before the haze completes the
+fade — the shimmer becomes imperceptible before it would otherwise read as
+interference.
+
+Fog fades toward black (`FOG_FLOOR = 0.0`) because the sky is pure black;
+fog-to-black produces a seamless foreground → horizon → sky gradient. Scanlines
+are applied after fog, as they are a screen-space CRT overlay not subject to
+perspective depth.
+
+**New constants:**
+- `FOG_DENSITY = 0.12` — falloff rate per unit of z; `exp(-20 * 0.12) ≈ 0.09`
+- `FOG_FLOOR = 0.0` — full fog fades to black
+
+**GPU cost:** One `exp()` per pixel added. Expected delta +0–2% from pre-tweak
+baseline (~18–25%); new estimate ~18–27%. Still Lightweight tier.
+
+### Compose order (unchanged semantics, clarified structure)
+
+```
+fragColor = col * liveness * lines * fog * fade * scan
+```
+
+- `col * liveness` — posterized palette color with online/offline dimming
+- `* lines` — isoline mask (0 or 1 hard-step)
+- `* fog` — per-pixel exponential depth attenuation
+- `* fade` — horizon haze (y-based smoothstep, kills above-horizon pixels)
+- `* scan` — CRT scanline overlay (screen-space, unaffected by fog)
