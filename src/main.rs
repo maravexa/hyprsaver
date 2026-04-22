@@ -18,6 +18,7 @@ mod palette;
 mod preview;
 mod renderer;
 mod shaders;
+mod shuffle;
 mod wayland;
 
 use crate::config::{CliOverrides, Config};
