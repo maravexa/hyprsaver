@@ -25,16 +25,23 @@ void main() {
     vec2 uv = (gl_FragCoord.xy / u_resolution.xy) - 0.5;
     uv.x *= u_resolution.x / u_resolution.y;
 
-    // Sky (above horizon) is pure black — uniform branch, free on RDNA.
     float horizon = 0.05;
-    if (uv.y > -horizon) {
+
+    // Vertical wave: displace screen-Y before perspective projection.
+    // This actually moves the ground plane up and down (unlike perturbing the
+    // grid sampling coordinate, which only shifts which lines are drawn).
+    // Amplitude 0.08 is in screen-space units (screen height = 1.0).
+    float wave = sin(-uv.y * 3.0 + u_time * u_speed_scale * 0.4) * 0.08;
+    float warped_y = uv.y + wave;
+
+    // Sky check uses warped_y — horizon line now wavy, selling the 3D effect
+    if (warped_y > -horizon) {
         fragColor = vec4(0.0, 0.0, 0.0, 1.0);
         return;
     }
 
-    // Perspective foreshortening: 1/y maps screen rows to world-space depth.
-    // Pixels near the horizon have large depth; pixels at bottom have small depth.
-    float depth = 1.0 / (-uv.y - horizon);
+    // Perspective foreshortening on the warped Y
+    float depth = 1.0 / (-warped_y - horizon);
 
     // World-space grid coordinates: X converges with depth, Z scrolls forward.
     vec2 grid_uv = vec2(
@@ -42,9 +49,8 @@ void main() {
         depth + u_time * u_speed_scale * 2.0
     );
 
-    // Dual-axis warping — lateral sway + vertical 3D wave undulation
+    // Lateral sway warping; vertical wave handled by screen-Y displacement above
     grid_uv.x += sin(grid_uv.y * 0.3 + u_time * u_speed_scale * 0.5) * 0.55;
-    grid_uv.y += sin(grid_uv.y * 0.4 + u_time * u_speed_scale * 0.4) * 0.55;
 
     // Distance to nearest grid line in each axis.
     vec2 grid_dist = abs(fract(grid_uv) - 0.5);
