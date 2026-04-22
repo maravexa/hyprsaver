@@ -112,10 +112,10 @@ pub const BUILTIN_GRIDWAVE: &str = include_str!("../shaders/gridwave.frag");
 /// Lightweight GPU tier.
 pub const BUILTIN_WORMHOLE: &str = include_str!("../shaders/wormhole.frag");
 
-/// Retro 2D waves with a horizon perspective — flat-plane perspective inverse,
-/// triangle-wave field, hard-step isolines, posterized palette bands, CRT scanlines.
-/// No raymarching, no normals. Lightweight GPU tier.
-pub const BUILTIN_WAVES: &str = include_str!("../shaders/waves.frag");
+/// Retro temple interior — centered horizon, floor + ceiling with triangle-wave lattice,
+/// 4 scrolling pillars (screen-space rects) with ring trace pattern. No raymarching,
+/// no normals, no sin-hashing. Medium GPU tier.
+pub const BUILTIN_TEMPLE: &str = include_str!("../shaders/temple.frag");
 
 /// Lit blob with flowing energy emission and atmospheric halo — warped unit sphere SDF,
 /// 48-step march, finite-difference normals, Phong lighting. Lightweight GPU tier.
@@ -298,7 +298,7 @@ impl ShaderManager {
             ("tesla", BUILTIN_TESLA),
             ("tunnel", BUILTIN_TUNNEL),
             ("voronoi", BUILTIN_VORONOI),
-            ("waves", BUILTIN_WAVES),
+            ("temple", BUILTIN_TEMPLE),
             ("wormhole", BUILTIN_WORMHOLE),
             ("blob", BUILTIN_BLOB),
         ];
@@ -880,7 +880,7 @@ mod tests {
             "tesla",
             "tunnel",
             "voronoi",
-            "waves",
+            "temple",
             "wormhole",
         ] {
             assert!(

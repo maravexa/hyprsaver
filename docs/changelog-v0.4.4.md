@@ -473,3 +473,95 @@ inconsistent floor behavior.
 2× `max` + 1 `min` + 1 `divide` + 1 `mul` ≈ 4 ALU ops, replacing the prior
 6 ALU per-channel clamp (3× max + 3× min). Net slight reduction. Expected
 delta from 16–18% baseline: ±1%.
+
+---
+
+## waves → temple — Ceiling Mirroring and Scrolling Pillars
+
+`shaders/waves.frag` renamed to `shaders/temple.frag`. Shader body fully
+replaced. All other files updated to reflect the rename. Shader count unchanged
+(rename, not addition).
+
+### What changed
+
+**Renamed:** `waves` → `temple` across all source files and documentation.
+
+**Horizon recentered:** `HORIZON` moved from `0.68` to `0.5`. Floor takes the
+bottom half of the screen; ceiling takes the top half. Previously the horizon
+sat near the top third, leaving a narrow sky band.
+
+**Ceiling added:** Pixels above the horizon (`uv.y > HORIZON`) now render the
+same triangle-wave field as the floor, using mirrored perspective math:
+`z = 1 / (uv.y - HORIZON)`. A `CEILING_PHASE_OFFSET = 3.7` is added to the
+ceiling's `wz` so the ceiling pattern is visually distinct from the floor —
+not a mirror reflection.
+
+**Pillars added:** 4 scrolling pillars rendered as screen-space rectangles.
+Each pillar is placed at an evenly-spaced base depth with a fract-hashed x
+position (`fract(fi * 0.7213 + 0.137)`, no `sin`). Pillars scroll toward the
+viewer via `mod(wz_base - t * SCROLL_SPEED, PILLAR_CYCLE_DEPTH)` and wrap
+smoothly at `PILLAR_CYCLE_DEPTH = 24`. The pillar loop uses early `continue`
+to reject pillars further than the current nearest candidate; the initial
+threshold is `z_surface` so only pillars in front of the floor/ceiling render.
+
+**Pillar vertical extent:** Each pillar's screen-rect spans `±1/wz_p` from the
+horizon, which is exactly where `z_surface = wz_p`. This means pillar top/bottom
+edges coincide with the floor/ceiling surface at the same depth — no explicit
+z-clipping needed, no seam.
+
+**Pillar trace pattern:** Linear in `pillar_v` (world-height coordinate) produces
+regularly-spaced horizontal rings. A time term scrolls the rings; a `tri()`-based
+u-wobble adds subtle horizontal variation. This feeds into the same isoline
+detection as the floor/ceiling.
+
+**Unified color pipeline:** All three surface types (floor, ceiling, pillar) feed
+into the same `h_render → isoline → palette → liveness → clamp → fog → haze → scanline`
+pipeline. Pillars inject a per-pillar `color_offset` so each pillar samples a
+distinct palette region. The `+1` in `(float(i) + 1.0) * PILLAR_COLOR_SHIFT`
+ensures pillar 0 is offset from the surface (which has `color_offset = 0.0`).
+
+**Haze updated:** Previously computed as `1 - smoothstep(HORIZON - START, HORIZON - END, uv.y)`,
+which only faded the floor side. Now computed as `smoothstep(HAZE_END, HAZE_START, abs(uv.y - HORIZON))`,
+which symmetrically fades both floor and ceiling near the horizon.
+
+**Fog:** Now uses `z_render` (the depth of whichever surface — floor, ceiling, or
+pillar — is rendered at this pixel) rather than always the surface depth. Near
+pillars fog less; far pillars fog more. Correct depth-cue behavior.
+
+### Files changed
+
+- `shaders/waves.frag` → `shaders/temple.frag` (git mv; content fully replaced)
+- `src/shaders.rs` — `BUILTIN_WAVES` → `BUILTIN_TEMPLE`; `include_str!` path updated;
+  roster entry `("waves", …)` → `("temple", …)`; `test_builtin_names` list updated
+- `src/main.rs` — `shader_descriptions()` entry updated
+- `CLAUDE.md` — shader table row, roadmap entry, and new-shaders list updated
+- `README.md` — shader feature row updated; GPU tier lists updated (temple moves from
+  Lightweight to Medium tier due to pillar loop overhead)
+- `docs/benchmark-v0.4.4.md` — waves entry replaced with temple entry
+- `docs/changelog-v0.4.4.md` — this entry
+
+### New constants
+
+| Constant | Value | Purpose |
+|---|---|---|
+| `HORIZON` | `0.5` | Recentered (was 0.68) |
+| `CEILING_PHASE_OFFSET` | `3.7` | Ceiling wz offset to distinguish from floor |
+| `NUM_PILLARS` | `4` | Number of scrolling pillars |
+| `PILLAR_RADIUS` | `0.3` | World radius |
+| `PILLAR_NEAR_CLIP` | `1.0` | Minimum visible depth |
+| `PILLAR_CYCLE_DEPTH` | `24.0` | Wrap period for pillar scroll |
+| `PILLAR_RING_DENSITY` | `1.0` | Ring spacing along pillar length |
+| `PILLAR_SCROLL_SPEED` | `0.3` | Ring animation speed |
+| `PILLAR_COLOR_SHIFT` | `0.37` | Palette offset per pillar index |
+| `PILLAR_UV_VARIATION` | `0.2` | U-direction wobble amplitude |
+| `HAZE_START` | `0.08` | Now abs-distance from horizon (symmetric) |
+| `HAZE_END` | `0.02` | Now abs-distance from horizon (symmetric) |
+
+### GPU cost estimate
+
+Baseline (waves): 16–18% max. Delta:
+- Ceiling branch: ~+1% (shared math, single bool + float add)
+- Pillar loop (4 iterations, early reject): ~+5–10%
+- Pillar pixels (same color pipeline, additional screen area): ~+2–3%
+
+Estimated: **22–30% max, Medium tier**. Pending HawkPoint1 verification.
