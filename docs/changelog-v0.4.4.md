@@ -619,3 +619,86 @@ Computationally neutral: same number of pillar checks; fixed x arithmetic replac
 fract hash at identical ALU count; one-mul `h_render` replaces three-term sum;
 `is_pillar` bool select on haze is ~0 ops on RDNA wavefront execution. Expected
 util: **~17%, unchanged**.
+
+---
+
+## temple — Pillar Round 2 (3 rows × 4 columns, cap bars, static pillar colors)
+
+Three targeted improvements to `shaders/temple.frag`. No other files changed.
+
+### Flicker elimination — static pillar colors
+
+`pc_raw` previously included `t * PALETTE_DRIFT` unconditionally. For pillar pixels,
+every pixel of a given vertical line shares identical `pc_raw` (no per-pixel spatial
+variation in h or z along a pillar line), so every pixel in that line crosses palette
+band boundaries simultaneously — producing a whole-line palette flash perceived as
+flicker during approach.
+
+Added `PILLAR_DRIFT_SCALE = 0.0` constant and conditional drift term:
+
+```glsl
+float drift_mul          = is_pillar ? PILLAR_DRIFT_SCALE : 1.0;
+float drift_contribution = t * PALETTE_DRIFT * drift_mul;
+```
+
+Floor and ceiling are unaffected: surface pixels have per-pixel `h` and `z`
+variation, so band boundary crossings are spatially distributed rather than
+simultaneous. `drift_mul = 1.0` for surface pixels; `drift_mul = 0.0` for pillar
+pixels (default).
+
+Pillar color variety is preserved through `color_offset = (float(i) + 1.0) * PILLAR_COLOR_SHIFT`
+— 12 pillars simultaneously show 12 different palette positions. Spatial variety
+replaces temporal variety.
+
+### Pillar grid expansion — 3 rows × 4 columns (12 pillars)
+
+Replaced the 2-pair (4-pillar) layout with a 3-row × 4-column grid:
+
+| Constant | Old | New | Notes |
+|---|---|---|---|
+| `NUM_PILLARS` | `4` (literal) | `NUM_PILLARS_PER_ROW * NUM_ROWS = 12` | Derived |
+| `NUM_PILLARS_PER_ROW` | — | `4` | New |
+| `NUM_ROWS` | — | `3` | New |
+| `PILLAR_X_INNER` | `1.0` | `1.5` | Wider central walkway |
+| `PILLAR_X_OUTER` | `3.5` | `4.0` | Pushed further to screen edges |
+
+Column layout per row: outer-left (−4.0), inner-left (−1.5), inner-right (+1.5), outer-right (+4.0).
+
+Row z-phase: `float(row) * PILLAR_CYCLE_DEPTH / float(NUM_ROWS)`, distributing rows evenly through the scroll cycle. Three depth layers visible simultaneously.
+
+`pillar_wpos()` uses integer division + subtract (`col = i - row * NUM_PILLARS_PER_ROW`) rather than `%` for portability across GLSL ES drivers that may produce slower code for integer modulo in loops.
+
+### Cap bars — horizontal bus-bars at pillar top and bottom
+
+Each pillar now has a solid horizontal band at its top and bottom 10% (where it meets
+the ceiling and floor surfaces). This gives a visual anchor — pillars "land" on the
+floor and meet the ceiling, reading as an architectural connection.
+
+Implementation: `pillar_v = dist_h * wz_p` maps `[−1, +1]` across the pillar's
+vertical extent (floor edge to ceiling edge). The cap zone is detected with
+`step(1.0 - PILLAR_CAP_WIDTH, abs(pillar_v))`. Inside the cap, `h_render` is
+overridden to `PILLAR_CAP_H_VALUE = 0.0` (an isoline-aligned value, producing a
+solid lit bar). Outside the cap, `h_render` remains `pillar_u * PILLAR_LINE_DENSITY`
+as before. A `mix()` blends between the two based on `cap_zone`.
+
+`PILLAR_CAP_H_VALUE` must be `n / ISOLINE_COUNT` for integer `n`. `0.0` satisfies
+this (`0 × 3 = 0`). Non-aligned values (e.g., `0.5`) land between isolines and
+render as empty/black.
+
+New constants:
+- `PILLAR_CAP_WIDTH = 0.1` — 10% of pillar length at each end
+- `PILLAR_CAP_H_VALUE = 0.0` — isoline-aligned constant; cap renders as solid bar
+
+### Files changed
+
+- `shaders/temple.frag` — constant block; `pillar_wpos()` replaced; pillar hit-branch
+  updated with `pillar_v`, `cap_zone`, `mix`; `pc_raw` computation updated with
+  `drift_mul` and `drift_contribution`
+- `docs/benchmark-v0.4.4.md` — Temple entry updated: expected util 20–24% (up from 17%)
+- `docs/changelog-v0.4.4.md` — this entry
+
+### GPU cost
+
+Delta from 17% baseline: +3–5% from 3× pillar loop iterations (partially offset by
+early-reject on occluded rows); +0–1% from cap zone `step` + `mix`; −0.5% from
+removed drift multiply on pillar pixels. **Expected util: 20–24%, Medium tier**.
