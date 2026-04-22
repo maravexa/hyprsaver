@@ -389,3 +389,87 @@ toward 1.0 rather than switching clamp type.
 Hash: replaces one divide with one multiply — slight cost reduction. Clamp:
 ~6 ALU ops (3× max + 3× min on RDNA; no branches). Expected delta ±1% from
 the 16% pre-tweak measurement. Updated benchmark estimate: 16–18% max.
+
+---
+
+## waves — Hash Decorrelation + Luminance-Preserving Ceiling
+
+Two root-cause fixes to `shaders/waves.frag`. No other files changed.
+
+### Problem 1: Bright palettes wash out on per-channel MAX clamp
+
+Per-channel `clamp(col, MIN, MAX)` desaturates colors whose brightest channel
+exceeds `MAX_TRACE_BRIGHTNESS`. On marsha (pink/white/blue), pink became
+muted-grey-pink, white became pure grey, blue became muted blue — the saturation
+was being destroyed proportionally to how bright each color was.
+
+A luminance-preserving scale (`col *= MAX / max_channel` when `max_channel > MAX`)
+scales all three channels uniformly. The ratio between channels is preserved, so
+hue and saturation are preserved. White still goes grey (it has zero saturation
+by definition — unavoidable), but every non-white color retains its hue under
+the scale.
+
+### Problem 2: Online/offline color variety asymmetric (structural bias)
+
+`OFFLINE_HASH = 0.375 = 3/8` is rational, producing a strict period-8 cycle
+over integer `band_idx`. With `OFFLINE_RATIO = 0.4`, ~60% of bands are online.
+The online set in each period-8 block is a fixed subset: `band_idx mod 8 ∈ {2, 4, 5, 7}`.
+
+Evaluating `PALETTE_HASH = 0.618` at those exact online positions:
+
+```
+band_idx mod 8:      2     4     5     7
+palette position: .236  .472  .090  .326
+```
+
+Every online palette position is below 0.5. The offline positions land at
+`{0.0, 0.618, 0.854, 0.708, 0.944, 0.562}` — nearly all above 0.5. On
+segmented palettes (marsha: pink 0–0.33, white 0.33–0.67, blue 0.67–1.0),
+online bands are mathematically excluded from the blue region entirely.
+Consistently 2 online colors vs 3 offline colors — not random variance.
+
+**Fix:** `OFFLINE_HASH = 0.4142` (≈ √2 − 1, irrational). An irrational
+multiplier produces no period over integer `band_idx`, so the online subset
+is not a fixed mod-8 slice. Its intersection with `PALETTE_HASH` is no
+longer structurally biased; palette positions become uniformly distributed
+across both online and offline bands.
+
+`PALETTE_HASH` is not changed — the golden-ratio value `0.618` remains
+mathematically optimal for palette equidistribution.
+
+### Constant changes
+
+| Constant | Old | New | Reason |
+|---|---|---|---|
+| `OFFLINE_HASH` | `0.375` | `0.4142` | Break period-8 correlation with `PALETTE_HASH` |
+| `MAX_TRACE_BRIGHTNESS` | `0.85` | `0.70` | More aggressive ceiling, now safe because luminance-preserving scale no longer desaturates |
+
+### Implementation change (brightness ceiling)
+
+Replaced:
+```glsl
+col = clamp(col, vec3(MIN_TRACE_BRIGHTNESS), vec3(MAX_TRACE_BRIGHTNESS));
+```
+
+With:
+```glsl
+col = max(col, vec3(MIN_TRACE_BRIGHTNESS));
+float max_channel = max(max(col.r, col.g), col.b);
+col *= min(1.0, MAX_TRACE_BRIGHTNESS / max(max_channel, 1e-4));
+```
+
+MIN floor remains per-channel (intentional — preserves hue above floor, lifts
+dim colors to neutral grey below it; visibility over hue fidelity on dark
+palettes). MAX ceiling switches to luminance-preserving scale.
+
+MIN is applied before MAX so the max-channel computation sees post-floor values.
+On dim palettes where the floor raises channels, max-channel reflects the actual
+brightest visible channel after lifting — reversing the order would produce
+inconsistent floor behavior.
+
+### GPU cost
+
+`OFFLINE_HASH` constant change: zero GPU cost. Luminance-preserving ceiling:
+2× `max` + 1 `min` + 1 `divide` + 1 `mul` ≈ 4 ALU ops, replacing the prior
+6 ALU per-channel clamp (3× max + 3× min). Net slight reduction. Expected
+delta from 16–18% baseline: ±1%.
