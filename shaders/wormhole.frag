@@ -109,15 +109,11 @@ void main() {
     // ---------------------------------------------------------------------------
     vec3 p = ro + rd * t;
 
-    // Reconstruct tunnel-local coords at the hit point.
+    // Reconstruct tunnel-local z at the hit point.
     float z_local  = p.z - g_z_offset;
-    vec2  xy_local = p.xy - TunnelCenter(z_local);
-    float hit_angle = atan(xy_local.y, xy_local.x);
 
-    // Spiral palette bands: z rings skewed into spirals by angle.
-    // Angle multiplier is an integer (1.0) so the palette wraps seamlessly
-    // across the atan branch-cut at ±π — non-integer multipliers leave a seam.
-    float t_pal = fract(z_local * 0.15 + hit_angle / (2.0 * PI));
+    // z-dominant concentric rings: bands fly outward from vanishing point as time advances.
+    float t_pal = fract(z_local * 0.5);
     vec3 col = palette(t_pal);
 
     // Iteration-count rim: brightens pixels where the ray grazed the wall tangentially.
