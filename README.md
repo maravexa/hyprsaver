@@ -30,6 +30,46 @@ yay -S hyprsaver
 cargo install hyprsaver
 ```
 
+## Shader Previews
+
+<details>
+<summary>Click to expand shader gallery</summary>
+
+| Shader | Preview |
+|---|---|
+| **aurora** | ![aurora](media/hyprsaver-aurora-1776876924129355524.webp) |
+| **bezier** | ![bezier](media/hyprsaver-bezier-1776877016170425139.webp) |
+| **blob** | ![blob](media/hyprsaver-blob-1776877025344738918.webp) |
+| **caustics** | ![caustics](media/hyprsaver-caustics-1776877035977297783.webp) |
+| **circuit** | ![circuit](media/hyprsaver-circuit-1776877050800540258.webp) |
+| **clouds** | ![clouds](media/hyprsaver-clouds-1776877073137159195.webp) |
+| **donut** | ![donut](media/hyprsaver-donut-1776877103353365219.webp) |
+| **flames** | ![flames](media/hyprsaver-flames-1776876828668454111.webp) |
+| **fractaltrap** | ![fractaltrap](media/hyprsaver-fractaltrap-1776877123745558257.webp) |
+| **geometry** | ![geometry](media/hyprsaver-geometry-1776877141281941337.webp) |
+| **gridwave** | ![gridwave](media/hyprsaver-gridwave-1776877153376736385.webp) |
+| **hypercube** | ![hypercube](media/hyprsaver-hypercube-1776877236249283252.webp) |
+| **julia** | ![julia](media/hyprsaver-julia-1776877244906875608.webp) |
+| **kaleidoscope** | ![kaleidoscope](media/hyprsaver-kaleidoscope-1776877258538302311.webp) |
+| **lissajous** | ![lissajous](media/hyprsaver-lissajous-1776877273801917672.webp) |
+| **marble** | ![marble](media/hyprsaver-marble-1776877283945766417.webp) |
+| **matrix** | ![matrix](media/hyprsaver-matrix-1776877339961614830.webp) |
+| **oscilloscope** | ![oscilloscope](media/hyprsaver-oscilloscope-1776877395889537344.webp) |
+| **planet** | ![planet](media/hyprsaver-planet-1776877412923076516.webp) |
+| **plasma** | ![plasma](media/hyprsaver-plasma-1776877421177649649.webp) |
+| **shipburn** | ![shipburn](media/hyprsaver-shipburn-1776877432275507183.webp) |
+| **snowfall** | ![snowfall](media/hyprsaver-snowfall-1776877453498179564.webp) |
+| **sonar** | ![sonar](media/hyprsaver-sonar-1776877482722808467.webp) |
+| **starfield** | ![starfield](media/hyprsaver-starfield-1776877505129273767.webp) |
+| **temple** | ![temple](media/hyprsaver-temple-1776877533546623530.webp) |
+| **terminal** | ![terminal](media/hyprsaver-terminal-1776877563201651425.webp) |
+| **tesla** | ![tesla](media/hyprsaver-tesla-1776877593273784517.webp) |
+| **tunnel** | ![tunnel](media/hyprsaver-tunnel-1776877610120952856.webp) |
+| **voronoi** | ![voronoi](media/hyprsaver-voronoi-1776877650994621397.webp) |
+| **wormhole** | ![wormhole](media/hyprsaver-wormhole-1776877671419817068.webp) |
+
+</details>
+
 ## Manual Installation
 
 1. Build and install:
