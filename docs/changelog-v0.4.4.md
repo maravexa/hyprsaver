@@ -702,3 +702,58 @@ New constants:
 Delta from 17% baseline: +3–5% from 3× pillar loop iterations (partially offset by
 early-reject on occluded rows); +0–1% from cap zone `step` + `mix`; −0.5% from
 removed drift multiply on pillar pixels. **Expected util: 20–24%, Medium tier**.
+
+---
+
+## temple — Pillar Round 3 (Trace Density + Thickness + 2× Scroll)
+
+Three targeted changes to `shaders/temple.frag` to suppress spatial aliasing flicker on pillar vertical traces. No other files changed except benchmark and changelog docs.
+
+### Problem
+
+Remaining flicker on pillar traces is *spatial*, not temporal. As a pillar scrolls, `sx` and `sw` shift, which causes `pillar_u` for any fixed screen pixel to change over time. Thin lines (~1–4 pixels wide) sweep across pixels fast enough that each pixel alternates on/off visibly.
+
+### Changes
+
+**1. Reduced pillar line density (`PILLAR_LINE_DENSITY` 1.0 → 0.5)**
+
+Fewer lines per pillar means fewer on/off transitions per pixel per scroll cycle. At `K = 0.5`, `h_render = pillar_u * 0.5` ranges over `[−0.5, +0.5]`, yielding exactly three isolines at `h = 0, ±1/3` (pillar_u ≈ `0, ±0.667`). No lines at pillar edges (u = ±1) — clean pillar body with three interior traces.
+
+**2. Added `PILLAR_ISOLINE_WIDTH = 0.12` (surface `ISOLINE_WIDTH` unchanged at 0.06)**
+
+Each pillar trace now covers more pixels per scroll sweep; a given pixel spends more time inside a line as it passes. Isoline detection updated to select width by surface type:
+
+```glsl
+float iso_width = is_pillar ? PILLAR_ISOLINE_WIDTH : ISOLINE_WIDTH;
+float edge      = abs(fract(h_render * ISOLINE_COUNT) - 0.5);
+float lines     = step(0.5 - iso_width, edge);
+```
+
+Floor and ceiling isolines remain at `ISOLINE_WIDTH = 0.06` — the surface aesthetic is unchanged.
+
+**3. Doubled scroll speed (`SCROLL_SPEED` 0.4 → 0.8)**
+
+Governs both surface wave scroll (`wz = z + t * SCROLL_SPEED`) and pillar approach (`wz_p = mod(phase - t * SCROLL_SPEED, ...)`). Unified constant keeps pillars and surface waves synchronized. The corridor now has a "pacing" rather than "strolling" feel; a new pillar row approaches roughly every 10 s.
+
+### Constants changed
+
+| Constant | Old | New | Effect |
+|---|---|---|---|
+| `SCROLL_SPEED` | `0.4` | `0.8` | 2× corridor approach and wave drift speed |
+| `PILLAR_LINE_DENSITY` | `1.0` | `0.5` | 3 vertical lines per pillar (was ~7) |
+
+### Constants added
+
+| Constant | Value | Purpose |
+|---|---|---|
+| `PILLAR_ISOLINE_WIDTH` | `0.12` | Pillar-only isoline thickness; doubles surface width to suppress sweep-aliasing |
+
+### Files changed
+
+- `shaders/temple.frag` — constant block; isoline detection block
+- `docs/benchmark-v0.4.4.md` — Temple entry and estimate note updated
+- `docs/changelog-v0.4.4.md` — this entry
+
+### GPU cost
+
+Round 3 is cost-neutral: fewer isoline evaluations (3 lines vs ~7); one ternary select for `iso_width` (~1 ALU op); `SCROLL_SPEED` constant doubling is folded at compile time. **Expected util: 20–24%, unchanged**.
