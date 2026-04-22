@@ -99,7 +99,7 @@ vec3 StarLayer(vec2 uv, float trans, float cycle_id, float layer_idx) {
         // We reject stars whose spawn screen-radius is inside DEAD_ZONE_RADIUS,
         // so no star ever traverses the center — they appear at the dead-zone
         // boundary and fly outward past the viewer.
-        const float DEAD_ZONE_RADIUS = 0.12;
+        const float DEAD_ZONE_RADIUS = 0.06;
         vec2  world_grid = this_cell + vec2(0.5) + star_pos - vec2(layer_idx * 31.416);
         float spawn_screen_r = length(world_grid) / 20.0;
         bool  in_dead_zone = spawn_screen_r < DEAD_ZONE_RADIUS;
