@@ -14,8 +14,10 @@ use std::sync::Arc;
 
 mod config;
 mod cycle;
+mod headless_egl;
 mod palette;
 mod preview;
+mod render_gif;
 mod renderer;
 mod shaders;
 mod shuffle;
@@ -24,6 +26,14 @@ mod wayland;
 use crate::config::{CliOverrides, Config};
 use crate::palette::{GradientStop, PaletteEntry, PaletteManager};
 use crate::shaders::ShaderManager;
+
+/// Subcommands (optional). When absent, hyprsaver runs as a screensaver daemon.
+#[derive(clap::Subcommand, Debug)]
+enum Command {
+    /// Render a looping GIF of a shader for README showcases.
+    /// Uses headless EGL — no Wayland compositor required.
+    RenderGif(render_gif::RenderGifArgs),
+}
 
 /// hyprsaver -- Wayland-native fractal screensaver for Hyprland
 ///
@@ -132,6 +142,10 @@ struct Cli {
     /// Use with `--shader cycle --palette cycle` for full playlist control.
     #[arg(long, value_name = "NAME")]
     playlist: Option<String>,
+
+    /// Subcommand (e.g. `render-gif`). When absent, runs as a screensaver daemon.
+    #[command(subcommand)]
+    command: Option<Command>,
 }
 
 fn main() {
@@ -235,6 +249,12 @@ fn run() -> anyhow::Result<()> {
 
     // Validate and wire playlists into managers (Phases 2+3).
     validate_and_apply_playlists(&cfg, &mut shader_manager, &mut palette_manager);
+
+    // Dispatch render-gif before any Wayland init.
+    if let Some(Command::RenderGif(ref args)) = cli.command {
+        return render_gif::run(args, &shader_manager, &palette_manager)
+            .context("render-gif failed");
+    }
 
     if cli.preview {
         // Preview mode: windowed xdg-toplevel window, no PID file, no daemon check.
