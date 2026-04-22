@@ -102,10 +102,10 @@ pub const BUILTIN_SHIPBURN: &str = include_str!("../shaders/shipburn.frag");
 /// a stained-glass / cellular aesthetic distinct from every other fractal in the roster.
 pub const BUILTIN_FRACTALTRAP: &str = include_str!("../shaders/fractaltrap.frag");
 
-/// Forward-flying raymarcher through an infinite gyroid field. Inherently periodic smooth
-/// surface — no space-fold seams. Palette maps hit depth against pure black background.
-/// Medium GPU tier (~30–38% on HawkPoint1).
-pub const BUILTIN_LATTICE: &str = include_str!("../shaders/lattice.frag");
+/// Perspective-projected ground plane grid with scrolling forward motion and subtle wave
+/// warping — classic Tron/Outrun neon-vector aesthetic. Pure 2D screen-space math: one
+/// divide + one sin per pixel. No raymarching. Lightweight GPU tier (~14–20% on HawkPoint1).
+pub const BUILTIN_GRIDWAVE: &str = include_str!("../shaders/gridwave.frag");
 
 /// Curved wormhole tunnel with three spiral arms — 3D raymarcher flying through a static
 /// curved axis. Palette LUT spiral bands + distance fog. No normals, no lighting.
@@ -290,7 +290,7 @@ impl ShaderManager {
             ("sonar", BUILTIN_SONAR),
             ("plasma", BUILTIN_PLASMA),
             ("donut", BUILTIN_DONUT),
-            ("lattice", BUILTIN_LATTICE),
+            ("gridwave", BUILTIN_GRIDWAVE),
             ("shipburn", BUILTIN_SHIPBURN),
             ("snowfall", BUILTIN_SNOWFALL),
             ("starfield", BUILTIN_STARFIELD),
@@ -861,7 +861,7 @@ mod tests {
             "donut",
             "flames",
             "geometry",
-            "lattice",
+            "gridwave",
             "hypercube",
             "fractaltrap",
             "julia",
