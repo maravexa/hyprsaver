@@ -866,3 +866,74 @@ Because `pillar_v = dist_h * z_here` and the face top/bottom is at `dist_h = ±1
 ### GPU cost
 
 Pattern change: 1 divide replaced by 1 divide (`face_u` normalize vs. `z_here * DENSITY` multiply) — same ALU class. Cap zone `mix`: already present in round 4 (no-op on `ring_h`); now operative — zero additional ops. **Expected util: ~20%, unchanged**.
+
+---
+
+## temple — Pillar Round 6 (Structured Columns: Base / Shaft / Capital)
+
+Pivot from 3D side face approach to classical column silhouette. Side face removed entirely; each pillar split into three vertical zones with zone-dependent width and trace pattern.
+
+### Rationale
+
+The side face (rounds 4–5) is mathematically correct but doesn't sell 3D when the viewer zooms past — both faces have matching patterns at similar scales and the corner disappears visually at the scale of the screensaver. The silhouette change from a widened base and capital is a more reliable 3D cue: as a column approaches, the viewer sees the wider base and capital visually "wrap" around the narrower shaft. This works *with* the flat-projection constraint rather than against it.
+
+### Side face removed
+
+The inner side face block — including the 1/z interpolation, perspective-correct depth reconstruction, face-local `face_u` coordinate, and associated constants (`SIDE_FACE_LINE_DENSITY`, `SIDE_FACE_COLOR_SHIFT`) — is deleted entirely. The cap bars constants (`PILLAR_CAP_WIDTH`, `PILLAR_CAP_H_VALUE`) are also removed; base and capital zones subsume their role.
+
+**Constants removed:**
+- `SIDE_FACE_LINE_DENSITY = 0.5`
+- `SIDE_FACE_COLOR_SHIFT = 0.19`
+- `PILLAR_CAP_WIDTH = 0.1`
+- `PILLAR_CAP_H_VALUE = 0.0`
+
+### Structured column zones
+
+Each pillar is split into three vertical zones keyed on `pillar_v` (range `[-1, +1]`, floor edge to ceiling edge):
+
+| Zone | `pillar_v` range | Width | Pattern | Color offset |
+|---|---|---|---|---|
+| Base | `< -0.70` (bottom 15%) | `sw_shaft × 1.35` | horizontal bars + notch | `+0.19` |
+| Shaft | middle 70% | `sw_shaft` (unchanged) | vertical lines (unchanged) | `+0.0` |
+| Capital | `> +0.70` (top 15%) | `sw_shaft × 1.35` | horizontal bars | `+0.31` |
+| Bracket | top 10% of capital (`pillar_v > 0.90`) | `sw_shaft × 1.55` | (same capital bars, wider) | `+0.31` |
+
+The wide rect is tested per-zone after a single early-reject against the widest possible width (`max(sw_base, sw_bracket)`).
+
+**Base pattern:** `pillar_v * BASE_BAR_DENSITY + tri(pillar_u * 4.0) * BASE_NOTCH_AMPLITUDE` — horizontal bars with a small u-modulated notch variation. Density 6 produces ~2 bars within the 0.3-unit base zone (`0.3 × 6 = 1.8` band crossings).
+
+**Capital pattern:** `pillar_v * CAPITAL_BAR_DENSITY` — clean horizontal bars, no notch. Same density for architectural symmetry with base.
+
+**`pillar_u` normalization:** Always normalized against `sw_shaft` regardless of zone, so shaft vertical lines register at consistent face-local positions. In base/capital, `|pillar_u|` may exceed 1.0 (expected); the base notch modulates naturally across the full widened extent.
+
+**No `t` term in zone patterns:** Bars are static on the pillar surface. Palette drift still cycles hues over time without bar positions scrolling.
+
+### Constants added
+
+| Constant | Value | Purpose |
+|---|---|---|
+| `BASE_HEIGHT` | `0.15` | base zone: `pillar_v < -(1.0 - 0.30) = -0.70` |
+| `CAPITAL_HEIGHT` | `0.15` | capital zone: `pillar_v > +0.70` (mirror of base) |
+| `BASE_WIDTH_SCALE` | `1.35` | base is 1.35× shaft width |
+| `CAPITAL_WIDTH_SCALE` | `1.35` | capital mirrors base (classical entasis) |
+| `CAPITAL_BRACKET_SCALE` | `1.55` | bracket flare in top 10% of capital |
+| `CAPITAL_BRACKET_THRESH` | `0.90` | `pillar_v` threshold for bracket zone |
+| `BASE_BAR_DENSITY` | `6.0` | horizontal bar frequency in base |
+| `CAPITAL_BAR_DENSITY` | `6.0` | horizontal bar frequency in capital |
+| `BASE_NOTCH_AMPLITUDE` | `0.15` | u-direction notch modulation in base |
+| `BASE_COLOR_SHIFT` | `0.19` | palette shift for base zone |
+| `CAPITAL_COLOR_SHIFT` | `0.31` | palette shift for capital zone |
+
+### Early reject updated
+
+Changed from `wz_p + PILLAR_RADIUS >= best_pillar_z` (round 4–5, accounting for side face near edge at `wz_p - PILLAR_RADIUS`) back to `wz_p >= best_pillar_z`. With no side face, the pillar's nearest point is always at `wz_p`.
+
+### Files changed
+
+- `shaders/temple.frag` — constant block (cap/side-face constants removed; zone constants added); pillar loop replaced with single-face structured-column loop
+- `docs/benchmark-v0.4.4.md` — Temple entry updated to reflect round 6; estimate note added
+- `docs/changelog-v0.4.4.md` — this entry
+
+### GPU cost
+
+Side face removal: −2–3% (eliminates 1/z interpolation block, side face rect test, associated ALU). Zone logic: +1–2% (3 width scales, 1 max, widened rect test, 3-way zone bool chain, ternary bracket test, 3-branch pattern select). Net: ~−1% to −2% from round-5 baseline (~20%). **Expected util: ~18–22%**, lower than round 5.
