@@ -102,11 +102,10 @@ pub const BUILTIN_SHIPBURN: &str = include_str!("../shaders/shipburn.frag");
 /// a stained-glass / cellular aesthetic distinct from every other fractal in the roster.
 pub const BUILTIN_FRACTALTRAP: &str = include_str!("../shaders/fractaltrap.frag");
 
-/// Forward-flying raymarched corridor through an infinite cube grid. Space-fold via mod()
-/// produces repeating 4-unit cells. Palette maps hit distance directly — no lighting,
-/// no normals, no per-cube logic. Horizon rays unify with far hits at palette(0.0).
-/// Lightweight GPU tier (<25% on HawkPoint1).
-pub const BUILTIN_CORRIDOR: &str = include_str!("../shaders/corridor.frag");
+/// Forward-flying raymarcher through an infinite gyroid field. Inherently periodic smooth
+/// surface — no space-fold seams. Palette maps hit depth against pure black background.
+/// Medium GPU tier (~30–38% on HawkPoint1).
+pub const BUILTIN_LATTICE: &str = include_str!("../shaders/lattice.frag");
 
 /// Curved wormhole tunnel with three spiral arms — 3D raymarcher flying through a static
 /// curved axis. Palette LUT spiral bands + distance fog. No normals, no lighting.
@@ -291,7 +290,7 @@ impl ShaderManager {
             ("sonar", BUILTIN_SONAR),
             ("plasma", BUILTIN_PLASMA),
             ("donut", BUILTIN_DONUT),
-            ("corridor", BUILTIN_CORRIDOR),
+            ("lattice", BUILTIN_LATTICE),
             ("shipburn", BUILTIN_SHIPBURN),
             ("snowfall", BUILTIN_SNOWFALL),
             ("starfield", BUILTIN_STARFIELD),
@@ -862,7 +861,7 @@ mod tests {
             "donut",
             "flames",
             "geometry",
-            "corridor",
+            "lattice",
             "hypercube",
             "fractaltrap",
             "julia",
