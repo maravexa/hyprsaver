@@ -89,13 +89,14 @@ void main() {
 
     // Sphere march from camera origin along rd.
     float t = 0.0;
+    vec3 p = ro;
     int iter_count = 0;
     for (int i = 0; i < MAX_STEPS; i++) {
-        vec3 p = ro + rd * t;
         float d = Map(p);
         t += d;
+        p += d * rd;
         iter_count = i + 1;
-        if (d < HIT_EPS || t > MAX_DIST) break;
+        if (abs(d) < HIT_EPS) break;
     }
 
 #if DEBUG_ITER_COUNT
@@ -116,7 +117,7 @@ void main() {
     col += sqrt(float(iter_count)) * 0.005;
 
     // Distance fog fades the far wall to palette(0.0) — matches gridfly convention.
-    float fog = 1.0 - exp(-t * 0.025);
+    float fog = 1.0 - exp(-max(t, 0.0) * 0.025);
     col = mix(col, palette(0.0), fog);
 
     fragColor = vec4(col, 1.0);
