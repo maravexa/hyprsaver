@@ -89,7 +89,7 @@ const float PALETTE_HASH         = 0.618;
 // ---------------------------------------------------------------------------
 // Offline/online (liveness inverted in round 4: online brightens, offline raw)
 // ---------------------------------------------------------------------------
-const float ONLINE_BRIGHTEN      = 0.6;    // 0 = no change, 1 = online fully white
+const float ONLINE_BRIGHTEN      = 0.8;    // 0 = no change, 1 = online fully white
 const float OFFLINE_RATIO        = 0.4;
 const float OFFLINE_HASH         = 0.4142;
 
@@ -97,7 +97,7 @@ const float OFFLINE_HASH         = 0.4142;
 // Brightness clamps (unchanged from color-tweaks-r2)
 // ---------------------------------------------------------------------------
 const float MIN_TRACE_BRIGHTNESS = 0.08;
-const float MAX_TRACE_BRIGHTNESS = 0.70;
+const float MAX_TRACE_BRIGHTNESS = 0.95;
 
 // ---------------------------------------------------------------------------
 // Depth fog and horizon haze (updated to use abs distance)
