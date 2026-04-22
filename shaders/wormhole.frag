@@ -100,7 +100,7 @@ void main() {
     // ---------------------------------------------------------------------------
     // Shading — no normals, no lighting; palette IS the color.
     // ---------------------------------------------------------------------------
-    float phase = t * 0.1 - u_time * u_speed_scale * 0.7;
+    float phase = t * 0.1 + u_time * u_speed_scale * 0.7;
     float t_pal = fract(phase);
 
     // Gradient bands
