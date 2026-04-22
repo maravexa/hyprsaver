@@ -49,9 +49,9 @@ float march(vec3 ro, vec3 rd) {
     float t = 0.05;
     for (int i = 0; i < 48; i++) {
         float d = scene(ro + rd * t);
-        if (d < 0.002) return t;
+        if (d < 0.001) return t;
         if (t > 30.0)  break;
-        t += d * 0.7;
+        t += d;
     }
     return 30.0;
 }
@@ -76,9 +76,20 @@ void main() {
     vec3 col;
 
     if (dist < 30.0) {
-        float t_palette = 1.0 - clamp(dist / 25.0, 0.0, 1.0);
+        // Identify which cube was hit (cell ID in world space)
+        vec3 hit_pos = ro + rd * dist;
+        vec3 cell_id = floor((hit_pos + 2.0) / 4.0);
+
+        // Distance from camera to this cube's cell center in Z.
+        // All pixels hitting the same cube share the same cell_id.z, so they
+        // sample the same palette position — eliminating across-face banding.
+        float cube_dist = cell_id.z * 4.0 - ro.z;
+
+        // Palette: per-cube (constant across face)
+        float t_palette = 1.0 - clamp(cube_dist / 25.0, 0.0, 1.0);
         col = palette(t_palette);
 
+        // Fog: per-pixel (correct depth fade through scene)
         float fog = clamp(dist / 25.0, 0.0, 1.0);
         col = mix(col, palette(0.0), fog);
     } else {
