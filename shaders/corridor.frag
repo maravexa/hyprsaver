@@ -77,5 +77,13 @@ void main() {
     vec3 cube_col = palette(1.0 - t_palette);
     vec3 col = cube_col * hit;
 
+    // Screen-space silhouette darkening.
+    // fwidth(dist) = |dFdx(dist)| + |dFdy(dist)|, measures how rapidly hit
+    // distance changes between adjacent pixels. On flat faces fwidth is small
+    // (sub-pixel variation). At silhouettes it jumps by units as rays hit
+    // different cubes. Darken high-variance pixels to produce outlines.
+    float edge = smoothstep(0.5, 2.0, fwidth(dist));
+    col *= 1.0 - edge * 0.85;
+
     fragColor = vec4(col, 1.0);
 }
