@@ -117,9 +117,9 @@ pub const BUILTIN_WORMHOLE: &str = include_str!("../shaders/wormhole.frag");
 /// No raymarching, no normals. Lightweight GPU tier.
 pub const BUILTIN_WAVES: &str = include_str!("../shaders/waves.frag");
 
-/// Alien-core shell-only raymarcher — outer shell + inner core SDF, bi-planar
-/// 2D noise for lumpiness, 48-step march with pre-march deformation. Lightweight GPU tier.
-pub const BUILTIN_CORE: &str = include_str!("../shaders/core.frag");
+/// Lit blob with flowing energy emission and atmospheric halo — warped unit sphere SDF,
+/// 48-step march, finite-difference normals, Phong lighting. Lightweight GPU tier.
+pub const BUILTIN_BLOB: &str = include_str!("../shaders/blob.frag");
 
 // ---------------------------------------------------------------------------
 // Vertex shader for the fullscreen quad (triangle-strip, no VBO needed)
@@ -300,7 +300,7 @@ impl ShaderManager {
             ("voronoi", BUILTIN_VORONOI),
             ("waves", BUILTIN_WAVES),
             ("wormhole", BUILTIN_WORMHOLE),
-            ("core", BUILTIN_CORE),
+            ("blob", BUILTIN_BLOB),
         ];
         for (name, raw_const) in builtins {
             let raw = raw_const
@@ -857,7 +857,7 @@ mod tests {
             "caustics",
             "circuit",
             "clouds",
-            "core",
+            "blob",
             "donut",
             "flames",
             "geometry",
