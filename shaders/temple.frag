@@ -26,18 +26,31 @@ const float CEILING_PHASE_OFFSET = 3.7;    // wz shift so ceiling != mirror of f
 // ---------------------------------------------------------------------------
 // Pillars
 // ---------------------------------------------------------------------------
-const int   NUM_PILLARS          = 4;
 const float PILLAR_RADIUS        = 0.3;    // world radius of pillar
 const float PILLAR_NEAR_CLIP     = 1.0;    // minimum visible depth
 const float PILLAR_CYCLE_DEPTH   = 24.0;   // scrolling cycle length
 const float PILLAR_COLOR_SHIFT    = 0.37;   // palette offset per pillar index
 
-// Pillar corridor layout — fixed x positions, no randomness
-const float PILLAR_X_INNER        = 1.0;   // inner pair (the ones we walk through)
-const float PILLAR_X_OUTER        = 3.5;   // outer pair (perspective framing)
+// Pillar corridor layout — 3 rows × 4 columns grid
+const float PILLAR_X_INNER        = 1.5;   // inner columns (±): wider central walkway
+const float PILLAR_X_OUTER        = 4.0;   // outer columns (±): pushed to edges
+
+// Pillar grid layout
+const int   NUM_PILLARS_PER_ROW  = 4;
+const int   NUM_ROWS             = 3;
+const int   NUM_PILLARS          = NUM_PILLARS_PER_ROW * NUM_ROWS;   // 12
 
 // Pillar trace pattern — vertical circuit lines, static on pillar surface
 const float PILLAR_LINE_DENSITY   = 1.0;   // linear h coefficient; ~7 vertical lines per pillar
+
+// Pillar cap bars — horizontal bus-bars at top and bottom of each pillar
+const float PILLAR_CAP_WIDTH     = 0.1;   // fraction of pillar length (from each end) that is cap
+const float PILLAR_CAP_H_VALUE   = 0.0;   // h_render in cap zone; must be at an isoline
+                                          // (integer / ISOLINE_COUNT). 0.0 works; 0.333 also works.
+
+// Pillar temporal drift — default 0 makes pillar colors static and eliminates flicker.
+// Raise to 0.3-1.0 to re-enable color cycling on pillars (at cost of returning flicker).
+const float PILLAR_DRIFT_SCALE   = 0.0;
 
 // ---------------------------------------------------------------------------
 // Isolines (unchanged)
@@ -88,24 +101,30 @@ float tri(float x) {
 }
 
 // ---------------------------------------------------------------------------
-// Pillar world position — fixed corridor layout, scrolling in z.
+// Pillar world position — 3 rows × 4 columns grid, scrolling in z.
 //
-// Layout: 2 pairs of pillars. Outer pair at ±PILLAR_X_OUTER, inner pair at
-// ±PILLAR_X_INNER. Pairs are phase-staggered in z by CYCLE/2 so the outer
-// and inner pairs approach/pass the viewer alternately.
+// Row layout (4 pillars per row, evenly spread across corridor):
+//   col 0: outer left   (-PILLAR_X_OUTER)
+//   col 1: inner left   (-PILLAR_X_INNER)
+//   col 2: inner right  (+PILLAR_X_INNER)
+//   col 3: outer right  (+PILLAR_X_OUTER)
 //
-// Indices:
-//   0 = outer left,  1 = outer right  (phase 0)
-//   2 = inner left,  3 = inner right  (phase CYCLE/2)
+// Rows are phase-offset in z by CYCLE_DEPTH / NUM_ROWS, so at any moment
+// you see three depth layers of the corridor simultaneously.
 // ---------------------------------------------------------------------------
 vec2 pillar_wpos(int i, float t) {
-    bool is_inner = i >= 2;
-    bool is_right = (i % 2) == 1;
+    int row = i / NUM_PILLARS_PER_ROW;
+    int col = i - row * NUM_PILLARS_PER_ROW;  // `i % NUM_PILLARS_PER_ROW` without mod for portability
 
-    float wx_mag = is_inner ? PILLAR_X_INNER : PILLAR_X_OUTER;
-    float wx_p   = is_right ? wx_mag : -wx_mag;
+    // X position by column
+    float wx_p;
+    if      (col == 0) { wx_p = -PILLAR_X_OUTER; }
+    else if (col == 1) { wx_p = -PILLAR_X_INNER; }
+    else if (col == 2) { wx_p = +PILLAR_X_INNER; }
+    else               { wx_p = +PILLAR_X_OUTER; }
 
-    float phase = is_inner ? (PILLAR_CYCLE_DEPTH * 0.5) : 0.0;
+    // Z phase by row
+    float phase = float(row) * PILLAR_CYCLE_DEPTH / float(NUM_ROWS);
     float wz_p  = mod(phase - t * SCROLL_SPEED, PILLAR_CYCLE_DEPTH) + PILLAR_NEAR_CLIP;
 
     return vec2(wx_p, wz_p);
@@ -161,19 +180,22 @@ void main() {
         if (abs(uv.x - sx) < sw && abs(dist_h) < y_extent) {
             best_pillar_z = wz_p;
 
-            float pillar_u = (uv.x - sx) / sw;    // [-1, +1] across pillar
-            // pillar_v no longer used for pattern; kept as a comment for
-            // reference if vertical color variation is ever re-added.
+            float pillar_u = (uv.x - sx) / sw;
+            float pillar_v = dist_h * wz_p;        // [-1, +1]: floor edge to ceiling edge
 
-            // Vertical trace pattern — linear in pillar_u only.
-            // No t, no pillar_v: lines stay fixed on the pillar surface.
-            // Palette drift over time still cycles colors through the lines
-            // (circuit signal flow) but line positions don't move.
-            h_render = pillar_u * PILLAR_LINE_DENSITY;
+            // Cap zone: top and bottom bands of the pillar.
+            // 1.0 inside cap, 0.0 outside.
+            float cap_zone = step(1.0 - PILLAR_CAP_WIDTH, abs(pillar_v));
 
-            z_render = wz_p;
+            // h_render: vertical trace pattern (linear in u) outside cap;
+            // constant isoline-aligned value inside cap (solid horizontal bar).
+            h_render = mix(pillar_u * PILLAR_LINE_DENSITY,
+                           PILLAR_CAP_H_VALUE,
+                           cap_zone);
+
+            z_render     = wz_p;
             color_offset = (float(i) + 1.0) * PILLAR_COLOR_SHIFT;
-            is_pillar = true;
+            is_pillar    = true;
         }
     }
 
@@ -182,7 +204,15 @@ void main() {
     float lines = step(0.5 - ISOLINE_WIDTH, edge);
 
     // Palette sampling via band index hash
-    float pc_raw       = h_render * 0.15 + t * PALETTE_DRIFT + z_render * 0.01 + color_offset;
+    // Palette drift is removed for pillars (PILLAR_DRIFT_SCALE = 0 by default).
+    // This eliminates the "whole-vertical-line flashes palette band" flicker that
+    // occurs because every pixel of a pillar's vertical line shares identical pc_raw
+    // and thus crosses band boundaries simultaneously. Floor and ceiling are unaffected
+    // because they have per-pixel h/z variation and cross boundaries spatially.
+    float drift_mul          = is_pillar ? PILLAR_DRIFT_SCALE : 1.0;
+    float drift_contribution = t * PALETTE_DRIFT * drift_mul;
+
+    float pc_raw       = h_render * 0.15 + drift_contribution + z_render * 0.01 + color_offset;
     float band_idx     = floor(pc_raw * POSTERIZE);
     float pc_quantized = fract(band_idx * PALETTE_HASH);
     vec3  col          = palette(pc_quantized);
