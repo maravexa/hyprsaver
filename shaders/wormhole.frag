@@ -4,10 +4,11 @@ precision highp float;
 // ---------------------------------------------------------------------------
 // hyprsaver — wormhole.frag
 //
-// Curved wormhole tunnel with three spiral arms. 3D raymarcher flying through
-// a static curved axis (TunnelCenter). The curve is fixed in world space;
-// we fly through it by translating z. ≤50 march steps, no lighting, no normals.
-// Coloring is palette LUT spiral bands + distance fog. Lightweight GPU tier.
+// Curved wormhole tunnel. 3D raymarcher flying through a static curved axis
+// (TunnelCenter). The curve is fixed in world space; we fly through it by
+// translating z. ≤50 abs-step march iterations, no lighting, no normals.
+// Coloring is hybrid gradient bands + wireframe ring highlights + distance fog.
+// Lightweight GPU tier.
 // ---------------------------------------------------------------------------
 
 uniform float u_time;
@@ -17,15 +18,9 @@ uniform int   u_frame;
 uniform float u_speed_scale;
 uniform float u_zoom_scale;
 
-const float PI       = 3.14159265358979;
-const float ARMS     = 3.0;
 const int   MAX_STEPS = 50;
 const float MAX_DIST  = 80.0;
 const float HIT_EPS   = 0.002;
-
-// DEBUG: visualize raymarch iteration count as grayscale.
-// Set to 1 to see where the march burns budget. 0 for normal output.
-#define DEBUG_ITER_COUNT 1
 
 // Set once per frame in main(), read by Map(). Models forward flight by
 // translating the world backward rather than moving the camera.
@@ -52,8 +47,7 @@ vec2 TunnelCenter(float z) {
 float Map(vec3 pos) {
     pos.z -= g_z_offset;
     pos.xy -= TunnelCenter(pos.z);
-    float angle = atan(pos.y, pos.x) - pos.z * 0.25 + u_time * u_speed_scale * 3.7;
-    float r = sin(pos.z * 0.1) * 0.5 + 3.0 + sin(angle * ARMS) * 0.3;
+    float r = sin(pos.z * 0.1) * 0.5 + 3.0;
     return length(pos.xy) - r;
 }
 
@@ -87,37 +81,42 @@ void main() {
     uv /= u_zoom_scale;
     vec3 rd = normalize(uv.x * right + uv.y * upC + fwd);
 
-    // Sphere march from camera origin along rd.
+    // Abs-step sphere march: always steps forward by abs(d), guaranteeing
+    // monotonic t. Inside-the-tunnel abs(d) = distance to nearest wall, so
+    // rays converge in 5-15 iterations instead of 20-40. t > MAX_DIST escape
+    // catches near-axial rays in nearly-straight sections.
     float t = 0.0;
     vec3 p = ro;
     int iter_count = 0;
     for (int i = 0; i < MAX_STEPS; i++) {
         float d = Map(p);
-        t += d;
-        p += d * rd;
+        float step = abs(d);
+        t += step;
+        p += step * rd;
         iter_count = i + 1;
-        if (abs(d) < HIT_EPS) break;
+        if (step < HIT_EPS || t > MAX_DIST) break;
     }
-
-#if DEBUG_ITER_COUNT
-    float iter_frac = float(iter_count) / float(MAX_STEPS);
-    fragColor = vec4(vec3(iter_frac), 1.0);
-    return;
-#endif
 
     // ---------------------------------------------------------------------------
     // Shading — no normals, no lighting; palette IS the color.
     // ---------------------------------------------------------------------------
-    // Ray-distance rings: ~3 cycles across typical hit range (t ≈ 3..30+).
-    // Minus sign makes rings flow outward (growing t_pal over time = tunnel rush).
-    float t_pal = fract(t * 0.1 - u_time * u_speed_scale * 0.7);
+    float phase = t * 0.1 - u_time * u_speed_scale * 0.7;
+    float t_pal = fract(phase);
+
+    // Gradient bands
     vec3 col = palette(t_pal);
+
+    // Wireframe ring highlight — bright thin line at band boundaries (4% width)
+    float to_line = abs(t_pal - 0.5);
+    float ring_line = smoothstep(0.48, 0.5, to_line);
+    col += ring_line * vec3(0.4);
 
     // Iteration-count rim: brightens pixels where the ray grazed the wall tangentially.
     col += sqrt(float(iter_count)) * 0.005;
 
-    // Distance fog fades the far wall to palette(0.0) — matches gridfly convention.
-    float fog = 1.0 - exp(-max(t, 0.0) * 0.025);
+    // Distance fog fades the far wall to palette(0.0). t is monotonic-positive
+    // with abs-step march, so no max(t, 0.0) guard needed.
+    float fog = 1.0 - exp(-t * 0.025);
     col = mix(col, palette(0.0), fog);
 
     fragColor = vec4(col, 1.0);
