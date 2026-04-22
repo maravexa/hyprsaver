@@ -608,8 +608,8 @@ fn shader_descriptions() -> std::collections::HashMap<&'static str, &'static str
         ("tunnel", "Infinite tunnel flythrough"),
         ("voronoi", "Animated Voronoi cells"),
         (
-            "waves",
-            "Retro 2D waves with horizon perspective — triangle-wave field, hard-step isolines, posterized palette bands, CRT scanlines",
+            "temple",
+            "Retro temple interior — floor + ceiling with triangle-wave lattice, 4 scrolling pillars with ring trace pattern, CRT scanlines",
         ),
     ]
     .into_iter()
