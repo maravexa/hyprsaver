@@ -89,7 +89,7 @@ cargo build --release
 | terminal      | Scrolling build-log output with CRT scanlines and glow   |
 | oscilloscope  | Realistic CRT oscilloscope display with three animated waveform traces |
 | clouds        | Slowly drifting procedural fBm clouds over a tinted sky  |
-| waves         | Retro horizon — perspective-inverse triangle waves, posterized palette bands, hard-step isolines, CRT scanlines; no raymarch, no hashing |
+| temple        | Retro temple interior — centered horizon, floor + ceiling triangle-wave lattice, 4 scrolling pillars (screen-space rects) with ring trace pattern, CRT scanlines |
 | wormhole      | Curved-tunnel raymarch; z-dominant palette rings, angular contribution dropped |
 
 ## Playlist / Cycle System (v0.3.0)
@@ -152,7 +152,7 @@ Two additional uniforms are injected by `prepare_shader()` in `shaders.rs` for e
 - v0.4.1: 2 new shaders (oscilloscope, clouds), doc path updates, patch fixes. ✓ shipped
 - v0.4.2: Aurora rewrite, Flames shader, preview UI fixes, shader precision fixes, default playlists. ✓ shipped
 - v0.4.3: GPU optimization audit — all 7 Heavy-tier shaders optimized to Medium tier. ✓ shipped
-- v0.4.4: Mandelbrot removed (GPU architectural mismatch on df32 deep zoom); `network` → `circuit` + `sonar` pivot; new shaders `shipburn`, `fractaltrap`, `gridfly`, `waves`, `wormhole`; `ShuffleBag` randomizer extracted to `shuffle.rs`; pride palette pack + `pride` playlist. In flight — `Cargo.toml` still at `0.4.3`. ⟳ in progress
+- v0.4.4: Mandelbrot removed (GPU architectural mismatch on df32 deep zoom); `network` → `circuit` + `sonar` pivot; new shaders `shipburn`, `fractaltrap`, `gridfly`, `wormhole`; `waves` renamed to `temple` (ceiling + pillars added); `ShuffleBag` randomizer extracted to `shuffle.rs`; pride palette pack + `pride` playlist. In flight — `Cargo.toml` still at `0.4.3`. ⟳ in progress
 - v1.0.0: Stable config format, AUR/Nix packages, full Shadertoy uniform support, wgpu/Vulkan backend.
 
 ## v0.4.4 Status (in flight)
@@ -178,7 +178,7 @@ Authoritative change log: `docs/changelog-v0.4.4.md`. Benchmarks: `docs/benchmar
 - `gridfly` — corridor flight through a depth-gradient cube grid with edge borders.
 - `circuit` — brick-offset grid with hash-gated traces. 3×3 cell neighbourhood (9 cells, 27 edges); 20-entry node cache; Dave-Hoskins fract hash (no `sin()` hashing).
 - `sonar` — 6 Lissajous-path emitters, cosine ring waves, rotating sweep decays as `exp(-recency * 6.0)`; sweep multiplies the wave field rather than overpainting it.
-- `waves` — retro horizon; perspective-inverse `z = min(1/max(HORIZON - uv.y, 1e-3), Z_MAX)`; 3 triangle waves in perspective-mapped world coords; posterized palette + hard-step isolines + scanlines. No hashing. Lightweight tier (~18–25% GPU).
+- `temple` — retro temple interior; `waves` renamed and expanded with ceiling mirroring and 4 scrolling pillars. Centered horizon (0.5), floor + ceiling share triangle-wave lattice with phase offset; pillars are screen-space rects with ring trace pattern. Medium tier (~22–30% GPU).
 - `wormhole` — curved-tunnel raymarch (finally shipped; previously deferred to v0.5.0). Palette is z-dominant; angular contribution intentionally dropped.
 
 **Randomization (v0.4.4):**
