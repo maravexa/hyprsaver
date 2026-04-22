@@ -25,7 +25,7 @@ const float HIT_EPS   = 0.002;
 
 // DEBUG: visualize raymarch iteration count as grayscale.
 // Set to 1 to see where the march burns budget. 0 for normal output.
-#define DEBUG_ITER_COUNT 1
+#define DEBUG_ITER_COUNT 0
 
 // Set once per frame in main(), read by Map(). Models forward flight by
 // translating the world backward rather than moving the camera.
