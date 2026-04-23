@@ -8,7 +8,7 @@
 //! Requires no Wayland compositor — uses a headless EGL context.
 
 use std::io::Write as _;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use anyhow::Context as _;
@@ -276,7 +276,7 @@ fn render_shader_to_webp(
     fps: u64,
     duration: u64,
     quality: u8,
-    output_path: &PathBuf,
+    output_path: &Path,
 ) -> anyhow::Result<usize> {
     // Validate output directory.
     if let Some(parent) = output_path.parent() {
