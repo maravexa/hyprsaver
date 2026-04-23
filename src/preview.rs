@@ -755,7 +755,13 @@ impl PreviewState {
                     (1.0_f32, 1.0_f32),
                 ] {
                     let offset_pos = pos + egui::Vec2::new(dx * 2.0, dy * 2.0);
-                    painter.text(offset_pos, anchor, &fps_text, font.clone(), egui::Color32::BLACK);
+                    painter.text(
+                        offset_pos,
+                        anchor,
+                        &fps_text,
+                        font.clone(),
+                        egui::Color32::BLACK,
+                    );
                 }
                 painter.text(pos, anchor, &fps_text, font, egui::Color32::WHITE);
             }
