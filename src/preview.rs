@@ -2473,6 +2473,18 @@ fn draw_preview_tab(
                             .step_by(0.1f64)
                             .show_value(false),
                     );
+
+                    ui.add_space(4.0);
+                    if ui
+                        .add(
+                            egui::Button::new("⟳ Test Palette Transition")
+                                .min_size(egui::Vec2::new(avail_w - 12.0, 22.0)),
+                        )
+                        .on_hover_text("Preview a crossfade to the next palette")
+                        .clicked()
+                    {
+                        state.palette_editor.test_palette_transition_requested = true;
+                    }
                 });
 
             ui.add_space(10.0);
