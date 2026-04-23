@@ -79,17 +79,20 @@ float fbm_channel(vec2 p) {
     return 0.67 * vnoise2(p) + 0.33 * vnoise2(p * 2.0);
 }
 
-// ---------------------------------------------------------------------------
-// 3-octave fbm for atmospheric haze. Reverted from 5 octaves: visible wisp
-// character is determined by base frequency and domain warping, not octave
-// count. Higher octaves added brightness variance within wisps but didn't
-// help with shape character.
-// ---------------------------------------------------------------------------
+// Turbulence fbm for atmospheric mist. Classical Perlin turbulence:
+// signed noise `vnoise2(p) * 2.0 - 1.0` in range [-1, 1], then abs()
+// creates sharp valleys at zero-crossings. Accumulating octaves of
+// turbulence produces ridged, wispy features — fundamentally different
+// from smooth fbm's rolling-blob features.
+//
+// 3 octaves is sufficient. Higher octave counts did not produce visible
+// improvement in previous experiments and only add brightness variance
+// at sub-pixel scales.
 float fbm_haze(vec2 p) {
     float v = 0.0;
     float a = 0.5;
     for (int i = 0; i < 3; i++) {
-        v += a * vnoise2(p);
+        v += a * abs(vnoise2(p) * 2.0 - 1.0);
         p *= 2.0;
         a *= 0.5;
     }
@@ -228,29 +231,16 @@ void main() {
     // reasonable overshoot range before the final clamp.
     col += water_col * smoothstep(0.50, 0.75, w) * water_density * 0.5;
 
-    // Overhead atmospheric mist — domain-warped fbm at high base frequency.
+    // Overhead atmospheric mist — turbulence fbm with Beer's law composition.
     //
-    // Base frequency PUSHED 10.0 → 25.0 for fine-scale features (~4% of
-    // screen width). Time coefficient compensated (1.20 → 3.00) to preserve
-    // scroll rate:
+    // Base frequency PUSHED 10.0 → 25.0 for fine features (~4% of screen).
+    // Time coefficient compensated (1.20 → 3.00) to preserve scroll rate:
     //   Before: 1.20 / 10.0 = 0.12 screen heights per time unit
     //   After:  3.00 / 25.0 = 0.12 screen heights per time unit (identical)
-    vec2 overhead_base = vec2(uv.x * 25.0, uv.y * 25.0 + t * 3.00);
+    vec2 overhead_uv = vec2(uv.x * 25.0, uv.y * 25.0 + t * 3.00);
+    float overhead_raw = fbm_haze(overhead_uv);
 
-    // Domain warp: displace sample position by an fbm-derived vector.
-    // Canonical pattern from Inigo Quilez (iquilezles.org/articles/warp/).
-    // The offset vec2(5.2, 1.3) decorrelates x and y warp components so the
-    // warp vector isn't axis-aligned.
-    vec2 overhead_q = vec2(
-        fbm_haze(overhead_base),
-        fbm_haze(overhead_base + vec2(5.2, 1.3))
-    );
-
-    // Final sample at warped position. Warp strength 2.5: sufficient for
-    // clear wispy/flowing shape character without becoming chaotic at this
-    // base frequency.
-    float overhead_raw = fbm_haze(overhead_base + 2.5 * overhead_q);
-
+    // Envelopes unchanged.
     float overhead_h_dist = abs(uv.x - 0.5);
     float overhead_h_env = smoothstep(0.40, 0.30, overhead_h_dist);
 
@@ -258,34 +248,40 @@ void main() {
           smoothstep(0.0, 0.05, uv.y)
         * smoothstep(1.0, 0.90, uv.y);
 
-    // Single smoothstep — domain warping handles shape character; dual-
-    // threshold didn't help with the chunkiness problem.
-    float overhead_wisp = smoothstep(0.40, 0.60, overhead_raw);
+    // Wisp threshold RECALIBRATED for turbulence output distribution.
+    // Turbulence fbm output is biased toward low values (mean ~0.3 vs
+    // standard fbm's ~0.44) because abs-of-signed-noise spends more time
+    // near zero. Lower threshold selects the ridge-crest regions.
+    // Window narrowed (0.35, 0.45) — turbulence already produces sharp
+    // edges; tight smoothstep window preserves that sharpness.
+    float overhead_wisp = smoothstep(0.35, 0.45, overhead_raw);
 
     float overhead_density = overhead_wisp * overhead_h_env * overhead_v_env;
 
-    col = mix(col, palette(0.95), overhead_density * 0.70);
-
-    // Rising impact mist — domain-warped fbm, same pattern as overhead
-    // with plume-specific frequencies and envelopes.
+    // Beer's law exponential composition. Replaces mix() which produces
+    // linear blend. exp(-density * k) gives transmittance — fraction of
+    // water color that passes through the mist.
     //
-    // Base frequencies PUSHED 15.0 → 30.0 (x) and 7.5 → 15.0 (y). 2:1
-    // aspect ratio preserved (vertical elongation for plume shape). Time
-    // coefficient compensated (4.50 → 9.00) to preserve upward scroll rate:
+    // Absorption coefficient k = 3.0: at density=1.0, transmittance ≈ 0.05
+    // (water 5% visible through dense wisp). At density=0.5, transmittance
+    // ≈ 0.22 (water 22% visible). At density=0, transmittance = 1 (no
+    // attenuation). This nonlinear curve is what distinguishes fog from
+    // color wash.
+    float overhead_transmittance = exp(-overhead_density * 3.0);
+    col = col * overhead_transmittance
+        + palette(0.95) * (1.0 - overhead_transmittance);
+
+    // Rising impact mist — turbulence fbm with more aggressive Beer's law
+    // coefficient for near-total obscuration at plume core.
+    //
+    // Base frequencies PUSHED 15.0 → 30.0 (x), 7.5 → 15.0 (y). 2:1 aspect
+    // ratio preserved. Time coefficient compensated (4.50 → 9.00):
     //   Before: -4.50 / 7.5  = -0.60 screen heights per time unit
     //   After:  -9.00 / 15.0 = -0.60 screen heights per time unit (identical)
-    vec2 rising_base = vec2(uv.x * 30.0, uv.y * 15.0 - t * 9.00);
+    vec2 rising_uv = vec2(uv.x * 30.0, uv.y * 15.0 - t * 9.00);
+    float rising_raw = fbm_haze(rising_uv);
 
-    // Domain warp. Different offset (8.3, 2.8) from overhead (5.2, 1.3)
-    // so the two mist layers don't produce visually correlated patterns.
-    vec2 rising_q = vec2(
-        fbm_haze(rising_base),
-        fbm_haze(rising_base + vec2(8.3, 2.8))
-    );
-
-    // Final sample at warped position. Same warp strength 2.5 as overhead.
-    float rising_raw = fbm_haze(rising_base + 2.5 * rising_q);
-
+    // Envelopes unchanged.
     float rising_h_dist = abs(uv.x - 0.5);
     float rising_h_env = smoothstep(0.35, 0.25, rising_h_dist);
 
@@ -293,14 +289,20 @@ void main() {
           exp(-uv.y * 4.0)
         * (1.0 - smoothstep(0.40, 0.55, uv.y));
 
-    // Lower threshold than overhead (0.30 vs 0.40) so rising mist has
-    // higher coverage within its envelope — rising should dominate its
-    // impact zone, not sparsely populate it.
-    float rising_wisp = smoothstep(0.30, 0.50, rising_raw);
+    // Wisp threshold LOWER than overhead (0.30 vs 0.35) for higher coverage
+    // within rising envelope — rising should dominate its zone.
+    float rising_wisp = smoothstep(0.30, 0.40, rising_raw);
 
     float rising_density = rising_wisp * rising_h_env * rising_v_env;
 
-    col = mix(col, palette(0.95), rising_density * 0.85);
+    // Beer's law with higher absorption coefficient (4.5 vs 3.0). At peak
+    // density, transmittance ≈ exp(-4.5) = 0.011 — water 1% visible. This
+    // is the "near-total obscuration" desired at the impact zone where real
+    // waterfalls create dense spray that completely hides the water-ground
+    // transition.
+    float rising_transmittance = exp(-rising_density * 4.5);
+    col = col * rising_transmittance
+        + palette(0.95) * (1.0 - rising_transmittance);
 
     // Mist at the base (bottom 30%). Uniform early-out across most RDNA
     // wavefronts — saves fbm_mist on ~70% of pixels.
