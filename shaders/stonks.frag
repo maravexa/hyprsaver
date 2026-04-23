@@ -30,9 +30,10 @@ const float M_MAX =  0.95;
 void candleAt(float col_abs, out float o, out float c, out float h, out float l) {
     o = sin(col_abs * 0.55) * 1.1 + sin(col_abs * 0.13 + 1.7) * 0.55;
     c = sin((col_abs + 1.0) * 0.55) * 1.1 + sin((col_abs + 1.0) * 0.13 + 1.7) * 0.55;
-    float wick = sin(col_abs * 2.3 + 4.1) * 0.15;
-    h = max(o, c) + abs(wick) + 0.02;
-    l = min(o, c) - abs(wick) - 0.02;
+    float wick_top = max(0.0, sin(col_abs * 2.3 + 4.1) * 0.20);
+    float wick_bot = max(0.0, sin(col_abs * 1.9 + 7.7) * 0.20);
+    h = max(o, c) + wick_top;
+    l = min(o, c) - wick_bot;
 }
 
 float macd_at(float col_abs) {
