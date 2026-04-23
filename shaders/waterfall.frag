@@ -41,6 +41,35 @@ float vnoise2(vec2 p) {
     );
 }
 
+float hash3(vec3 p) {
+    return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453);
+}
+
+// 3D value noise — trilinear smoothstep interpolation across the 8
+// corners of the lattice cube containing p. Used by fbm_haze to produce
+// time-evolving noise where the z coordinate represents temporal
+// evolution: as z advances, features morph in place rather than
+// rigidly translating.
+float vnoise3(vec3 p) {
+    vec3 i = floor(p);
+    vec3 f = fract(p);
+    vec3 u = f * f * (3.0 - 2.0 * f);
+    return mix(
+        mix(
+            mix(hash3(i + vec3(0.0, 0.0, 0.0)),
+                hash3(i + vec3(1.0, 0.0, 0.0)), u.x),
+            mix(hash3(i + vec3(0.0, 1.0, 0.0)),
+                hash3(i + vec3(1.0, 1.0, 0.0)), u.x),
+            u.y),
+        mix(
+            mix(hash3(i + vec3(0.0, 0.0, 1.0)),
+                hash3(i + vec3(1.0, 0.0, 1.0)), u.x),
+            mix(hash3(i + vec3(0.0, 1.0, 1.0)),
+                hash3(i + vec3(1.0, 1.0, 1.0)), u.x),
+            u.y),
+        u.z);
+}
+
 // ---------------------------------------------------------------------------
 // 3-octave fbm for water — x-heavy sampling elsewhere gives vertical streaks
 // ---------------------------------------------------------------------------
@@ -79,21 +108,22 @@ float fbm_channel(vec2 p) {
     return 0.67 * vnoise2(p) + 0.33 * vnoise2(p * 2.0);
 }
 
-// Turbulence fbm for atmospheric mist. Classical Perlin turbulence:
-// signed noise `vnoise2(p) * 2.0 - 1.0` in range [-1, 1], then abs()
-// creates sharp valleys at zero-crossings. Accumulating octaves of
-// turbulence produces ridged, wispy features — fundamentally different
-// from smooth fbm's rolling-blob features.
+// Turbulence fbm with time-evolving 3D noise. Classical Perlin turbulence
+// math (abs of signed noise) preserved — sharp valleys / ridged features.
 //
-// 3 octaves is sufficient. Higher octave counts did not produce visible
-// improvement in previous experiments and only add brightness variance
-// at sub-pixel scales.
-float fbm_haze(vec2 p) {
+// Critical addition: p.z scales by 1.7 per octave while p.xy scales by
+// 2.0. This differential means fine-detail octaves evolve faster in
+// time than broad-shape octaves, mimicking real fluid turbulence where
+// small eddies dissipate faster than large structures. 1.7 is slightly
+// less than the spatial 2.0 factor — detail evolves meaningfully faster
+// than broad shapes but not so chaotically that it looks like noise.
+float fbm_haze(vec3 p) {
     float v = 0.0;
     float a = 0.5;
     for (int i = 0; i < 3; i++) {
-        v += a * abs(vnoise2(p) * 2.0 - 1.0);
-        p *= 2.0;
+        v += a * abs(vnoise3(p) * 2.0 - 1.0);
+        p.xy *= 2.0;
+        p.z *= 1.7;
         a *= 0.5;
     }
     return v;
@@ -232,13 +262,15 @@ void main() {
     col += water_col * smoothstep(0.50, 0.75, w) * water_density * 0.5;
 
     // Overhead atmospheric mist — turbulence fbm with Beer's law composition.
-    //
-    // Base frequency PUSHED 10.0 → 25.0 for fine features (~4% of screen).
-    // Time coefficient compensated (1.20 → 3.00) to preserve scroll rate:
-    //   Before: 1.20 / 10.0 = 0.12 screen heights per time unit
-    //   After:  3.00 / 25.0 = 0.12 screen heights per time unit (identical)
-    vec2 overhead_uv = vec2(uv.x * 25.0, uv.y * 25.0 + t * 3.00);
-    float overhead_raw = fbm_haze(overhead_uv);
+    // Spatial frequency 25.0 (0.12 screen-heights/time scroll rate).
+    // z = t * 0.5: base temporal evolution so features morph in place
+    // rather than rigidly translating with 2D time-translation.
+    vec3 overhead_p = vec3(
+        uv.x * 25.0,
+        uv.y * 25.0 + t * 3.00,
+        t * 0.5
+    );
+    float overhead_raw = fbm_haze(overhead_p);
 
     // Envelopes unchanged.
     float overhead_h_dist = abs(uv.x - 0.5);
@@ -273,13 +305,14 @@ void main() {
 
     // Rising impact mist — turbulence fbm with more aggressive Beer's law
     // coefficient for near-total obscuration at plume core.
-    //
-    // Base frequencies PUSHED 15.0 → 30.0 (x), 7.5 → 15.0 (y). 2:1 aspect
-    // ratio preserved. Time coefficient compensated (4.50 → 9.00):
-    //   Before: -4.50 / 7.5  = -0.60 screen heights per time unit
-    //   After:  -9.00 / 15.0 = -0.60 screen heights per time unit (identical)
-    vec2 rising_uv = vec2(uv.x * 30.0, uv.y * 15.0 - t * 9.00);
-    float rising_raw = fbm_haze(rising_uv);
+    // Spatial frequencies 30/15 (2:1 aspect), upward scroll -0.60 screen-heights/time.
+    // z = t * 1.0: evolves 2× faster than overhead — impact zones churn faster.
+    vec3 rising_p = vec3(
+        uv.x * 30.0,
+        uv.y * 15.0 - t * 9.00,
+        t * 1.0
+    );
+    float rising_raw = fbm_haze(rising_p);
 
     // Envelopes unchanged.
     float rising_h_dist = abs(uv.x - 0.5);
