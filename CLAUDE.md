@@ -56,6 +56,7 @@ cargo build --release
 - Built-in shaders: compiled into binary via `include_str!()`
 - Logs: stderr (journalctl if launched by hypridle)
 
+## Built-in Shaders (v0.4.4 — 30 total)
 ## Built-in Shaders (v0.4.5 — 31 total)
 
 `mandelbrot` was removed in v0.4.4 (GPU architectural mismatch on deep zoom — see v0.4.4 Status). Do NOT add it back. `network` was removed in the same cycle (plexus aesthetic is vertex-native, not fragment-native); `circuit` and `sonar` are its fragment-native replacements.
@@ -91,6 +92,7 @@ cargo build --release
 | clouds        | Slowly drifting procedural fBm clouds over a tinted sky  |
 | temple        | Retro temple interior — centered horizon, floor + ceiling triangle-wave lattice, 4 scrolling pillars (screen-space rects) with ring trace pattern, CRT scanlines |
 | wormhole      | Curved-tunnel raymarch; z-dominant palette rings, angular contribution dropped |
+| waterfall     | Stylized 2D waterfall with retro quantize-and-dither post                        |
 | gridwave      | Perspective-projected neon grid with scrolling forward motion — classic Tron/Outrun aesthetic |
 | blob          | Lit blob with flowing energy emission and atmospheric halo — warped sphere SDF, Phong lighting |
 | mobius        | Race along a twisted Möbius ribbon against the void — palette gradient flips after each full loop |
