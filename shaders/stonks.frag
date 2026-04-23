@@ -11,15 +11,15 @@ uniform int   u_frame;
 // Palette positions (fixed semantic mapping — palette change shifts colors but NOT roles):
 //   0.85 = bullish candle body
 //   0.15 = bearish candle body
-//   0.50 = MACD line + wicks (neutral)
+//   0.50 = MACD line (neutral)
 //   0.65 = signal line
 //   0.08 = grid lines
 
 const int   VISIBLE = 40;
 
-// Fixed price and MACD bounds (sine amplitude envelopes + ~12% margin)
-const float P_MIN = -1.65;
-const float P_MAX =  1.65;
+// Fixed price and MACD bounds (sine amplitude envelopes + ~10% margin)
+const float P_MIN = -2.0;
+const float P_MAX =  2.0;
 const float M_MIN = -0.95;
 const float M_MAX =  0.95;
 
@@ -28,8 +28,8 @@ const float M_MAX =  0.95;
 // Close of candle N == open of candle N+1 (continuity by construction).
 // ---------------------------------------------------------------------------
 void candleAt(float col_abs, out float o, out float c, out float h, out float l) {
-    o = sin(col_abs * 0.31) * 0.8 + sin(col_abs * 0.13 + 1.7) * 0.4;
-    c = sin((col_abs + 1.0) * 0.31) * 0.8 + sin((col_abs + 1.0) * 0.13 + 1.7) * 0.4;
+    o = sin(col_abs * 0.55) * 1.1 + sin(col_abs * 0.13 + 1.7) * 0.55;
+    c = sin((col_abs + 1.0) * 0.55) * 1.1 + sin((col_abs + 1.0) * 0.13 + 1.7) * 0.55;
     float wick = sin(col_abs * 2.3 + 4.1) * 0.15;
     h = max(o, c) + abs(wick) + 0.02;
     l = min(o, c) - abs(wick) - 0.02;
@@ -136,7 +136,8 @@ void main() {
         float body_hi = max(open_y, close_y);
         bool in_body_range = chart_uv_y >= body_lo && chart_uv_y <= body_hi;
         if (!in_body_range && chart_uv_y >= low_y && chart_uv_y <= high_y) {
-            col += palette(0.50) * 0.75;
+            float pal_t = bullish ? 0.85 : 0.15;
+            col += palette(pal_t) * 0.75;
         }
     }
 
