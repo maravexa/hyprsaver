@@ -40,7 +40,7 @@ const float ELEVATION      = 0.3;    // off-surface elevation (in rolled_up dire
 const float DIP_ANGLE      = 0.15;   // radians downward tilt toward strip (~8.6°)
 const float ROLL_SPEED     = 0.1;    // rad/sec slow camera roll around forward axis
 const float TAU            = 6.283185307;
-const float BANDS_PER_LOOP = 8.0;   // colour bands around the full 2π loop
+const float BANDS_PER_LOOP = 16.0;  // doubled to compensate for triangle-wrap halving cycle rate
 
 // ---------------------------------------------------------------------------
 // mobiusSDF — signed distance to the Möbius ribbon.
@@ -138,7 +138,8 @@ void main() {
         float v_hit = (rxy_h - R) * ch_h + p.z * sh_h;
 
         // Gradient along strip length (u axis) — bands run perpendicular to travel
-        float u_n = fract(th_h / TAU * BANDS_PER_LOOP + 0.5);
+        float _mob_raw = th_h / TAU * BANDS_PER_LOOP + 0.5;
+        float u_n = abs(fract(_mob_raw * 0.5) * 2.0 - 1.0);
         col = palette(u_n);
 
         // Soft edge darkening — ribbon looks like a solid ribbon, not a flat slab
