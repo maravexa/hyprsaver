@@ -80,16 +80,15 @@ float fbm_channel(vec2 p) {
 }
 
 // ---------------------------------------------------------------------------
-// 5-octave fbm for atmospheric haze. Matches clouds shader convention.
-// Added octaves (4, 5) operate at higher frequencies than the base —
-// with base sample coordinates at uv * 5.0, octave 5 operates at uv * 80.
-// That extra fine-scale detail is what differentiates "cloudy texture"
-// from "smooth blobs."
+// 3-octave fbm for atmospheric haze. Reverted from 5 octaves: visible wisp
+// character is determined by base frequency and domain warping, not octave
+// count. Higher octaves added brightness variance within wisps but didn't
+// help with shape character.
 // ---------------------------------------------------------------------------
 float fbm_haze(vec2 p) {
     float v = 0.0;
     float a = 0.5;
-    for (int i = 0; i < 5; i++) {
+    for (int i = 0; i < 3; i++) {
         v += a * vnoise2(p);
         p *= 2.0;
         a *= 0.5;
@@ -229,30 +228,29 @@ void main() {
     // reasonable overshoot range before the final clamp.
     col += water_col * smoothstep(0.50, 0.75, w) * water_density * 0.5;
 
-    // Overhead atmospheric mist — DUAL-SCALE FBM. Two fbm_haze calls at
-    // different frequencies combined additively with clamp, producing
-    // hierarchical wisp structure: big cloud shapes with fine wisp texture
-    // layered within them.
+    // Overhead atmospheric mist — domain-warped fbm at high base frequency.
     //
-    // Base frequency RAISED 5.0 → 10.0 for finer base wisps overall. Time
-    // coefficient compensated (0.60 → 1.20) to preserve scroll rate:
-    //   Before: 0.60 / 5.0  = 0.12 screen heights per time unit
-    //   After:  1.20 / 10.0 = 0.12 screen heights per time unit (identical)
-    vec2 overhead_uv_broad = vec2(uv.x * 10.0, uv.y * 10.0 + t * 1.20);
+    // Base frequency PUSHED 10.0 → 25.0 for fine-scale features (~4% of
+    // screen width). Time coefficient compensated (1.20 → 3.00) to preserve
+    // scroll rate:
+    //   Before: 1.20 / 10.0 = 0.12 screen heights per time unit
+    //   After:  3.00 / 25.0 = 0.12 screen heights per time unit (identical)
+    vec2 overhead_base = vec2(uv.x * 25.0, uv.y * 25.0 + t * 3.00);
 
-    // Fine-scale sample at 3× base frequency. Time coefficient scales
-    // proportionally (1.20 → 3.60) so both scales scroll at same visible
-    // rate. Offset added to decorrelate fine pattern from broad — without
-    // it, both fbm calls would produce identical output (same seed).
-    vec2 overhead_uv_fine = vec2(
-        uv.x * 30.0 + 17.0,
-        uv.y * 30.0 + t * 3.60 + 31.0
+    // Domain warp: displace sample position by an fbm-derived vector.
+    // Canonical pattern from Inigo Quilez (iquilezles.org/articles/warp/).
+    // The offset vec2(5.2, 1.3) decorrelates x and y warp components so the
+    // warp vector isn't axis-aligned.
+    vec2 overhead_q = vec2(
+        fbm_haze(overhead_base),
+        fbm_haze(overhead_base + vec2(5.2, 1.3))
     );
 
-    float overhead_broad_raw = fbm_haze(overhead_uv_broad);
-    float overhead_fine_raw  = fbm_haze(overhead_uv_fine);
+    // Final sample at warped position. Warp strength 2.5: sufficient for
+    // clear wispy/flowing shape character without becoming chaotic at this
+    // base frequency.
+    float overhead_raw = fbm_haze(overhead_base + 2.5 * overhead_q);
 
-    // Envelopes unchanged.
     float overhead_h_dist = abs(uv.x - 0.5);
     float overhead_h_env = smoothstep(0.40, 0.30, overhead_h_dist);
 
@@ -260,45 +258,34 @@ void main() {
           smoothstep(0.0, 0.05, uv.y)
         * smoothstep(1.0, 0.90, uv.y);
 
-    // Dual-scale wisp combination:
-    // - Broad wisp defines primary cloud shapes (main density contribution)
-    // - Fine wisp adds detail density on top (secondary contribution)
-    // Additive + clamp means full density is reachable by either high broad
-    // OR combined broad+fine — gives coverage and texture together.
-    float overhead_broad_wisp = smoothstep(0.40, 0.55, overhead_broad_raw);
-    float overhead_fine_wisp  = smoothstep(0.35, 0.50, overhead_fine_raw);
-    float overhead_wisp = clamp(
-        overhead_broad_wisp + overhead_fine_wisp * 0.5,
-        0.0, 1.0
-    );
+    // Single smoothstep — domain warping handles shape character; dual-
+    // threshold didn't help with the chunkiness problem.
+    float overhead_wisp = smoothstep(0.40, 0.60, overhead_raw);
 
     float overhead_density = overhead_wisp * overhead_h_env * overhead_v_env;
 
-    // Opacity RAISED 0.50 → 0.70. At peak density + full envelope, 70% of
-    // pixel color comes from mist. Water beneath is clearly obscured, not
-    // just tinted. This is "atmospheric veil" territory.
     col = mix(col, palette(0.95), overhead_density * 0.70);
 
-    // Rising impact mist — DUAL-SCALE FBM. Same pattern as overhead: two
-    // fbm_haze calls combined additively for hierarchical plume structure.
+    // Rising impact mist — domain-warped fbm, same pattern as overhead
+    // with plume-specific frequencies and envelopes.
     //
-    // Base frequencies RAISED (10.0, 5.0) → (15.0, 7.5). 2:1 aspect ratio
-    // preserved (vertical elongation for plume shape). Time coefficient
-    // compensated (3.0 → 4.50) to preserve upward scroll rate:
-    //   Before: -3.0 / 5.0 = -0.60 screen heights per time unit
-    //   After:  -4.50 / 7.5 = -0.60 screen heights per time unit (identical)
-    vec2 rising_uv_broad = vec2(uv.x * 15.0, uv.y * 7.5 - t * 4.50);
+    // Base frequencies PUSHED 15.0 → 30.0 (x) and 7.5 → 15.0 (y). 2:1
+    // aspect ratio preserved (vertical elongation for plume shape). Time
+    // coefficient compensated (4.50 → 9.00) to preserve upward scroll rate:
+    //   Before: -4.50 / 7.5  = -0.60 screen heights per time unit
+    //   After:  -9.00 / 15.0 = -0.60 screen heights per time unit (identical)
+    vec2 rising_base = vec2(uv.x * 30.0, uv.y * 15.0 - t * 9.00);
 
-    // Fine-scale sample at 3× base frequency, with offset for decorrelation.
-    vec2 rising_uv_fine = vec2(
-        uv.x * 45.0 + 13.0,
-        uv.y * 22.5 - t * 13.50 + 7.0
+    // Domain warp. Different offset (8.3, 2.8) from overhead (5.2, 1.3)
+    // so the two mist layers don't produce visually correlated patterns.
+    vec2 rising_q = vec2(
+        fbm_haze(rising_base),
+        fbm_haze(rising_base + vec2(8.3, 2.8))
     );
 
-    float rising_broad_raw = fbm_haze(rising_uv_broad);
-    float rising_fine_raw  = fbm_haze(rising_uv_fine);
+    // Final sample at warped position. Same warp strength 2.5 as overhead.
+    float rising_raw = fbm_haze(rising_base + 2.5 * rising_q);
 
-    // Envelopes unchanged.
     float rising_h_dist = abs(uv.x - 0.5);
     float rising_h_env = smoothstep(0.35, 0.25, rising_h_dist);
 
@@ -306,21 +293,13 @@ void main() {
           exp(-uv.y * 4.0)
         * (1.0 - smoothstep(0.40, 0.55, uv.y));
 
-    // Dual-scale wisp combination. Lower thresholds than overhead because
-    // rising mist should dominate its envelope zone, not sparsely populate it.
-    float rising_broad_wisp = smoothstep(0.30, 0.45, rising_broad_raw);
-    float rising_fine_wisp  = smoothstep(0.25, 0.40, rising_fine_raw);
-    float rising_wisp = clamp(
-        rising_broad_wisp + rising_fine_wisp * 0.6,
-        0.0, 1.0
-    );
+    // Lower threshold than overhead (0.30 vs 0.40) so rising mist has
+    // higher coverage within its envelope — rising should dominate its
+    // impact zone, not sparsely populate it.
+    float rising_wisp = smoothstep(0.30, 0.50, rising_raw);
 
     float rising_density = rising_wisp * rising_h_env * rising_v_env;
 
-    // Opacity RAISED 0.65 → 0.85. Near-opaque plume at core — water at
-    // impact zone is heavily obscured by rising mist. Matches real
-    // waterfall impact zones where crash mist fully hides the water-ground
-    // transition.
     col = mix(col, palette(0.95), rising_density * 0.85);
 
     // Mist at the base (bottom 30%). Uniform early-out across most RDNA
