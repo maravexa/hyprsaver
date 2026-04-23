@@ -80,15 +80,16 @@ float fbm_channel(vec2 p) {
 }
 
 // ---------------------------------------------------------------------------
-// 3-octave fbm for atmospheric haze — softer than fbm_water's 3-octave
-// streak fbm because it's used for low-frequency cloud shapes, not
-// high-frequency streak detail. Identical math; separate name for
-// semantic clarity.
+// 5-octave fbm for atmospheric haze. Matches clouds shader convention.
+// Added octaves (4, 5) operate at higher frequencies than the base —
+// with base sample coordinates at uv * 5.0, octave 5 operates at uv * 80.
+// That extra fine-scale detail is what differentiates "cloudy texture"
+// from "smooth blobs."
 // ---------------------------------------------------------------------------
 float fbm_haze(vec2 p) {
     float v = 0.0;
     float a = 0.5;
-    for (int i = 0; i < 3; i++) {
+    for (int i = 0; i < 5; i++) {
         v += a * vnoise2(p);
         p *= 2.0;
         a *= 0.5;
@@ -228,66 +229,51 @@ void main() {
     // reasonable overshoot range before the final clamp.
     col += water_col * smoothstep(0.50, 0.75, w) * water_density * 0.5;
 
-    // Overhead atmospheric mist — ambient haze around the full fall height.
-    // Sits additively over the water to soften local contrast (slight
-    // reduction in visual sharpness of streaks and tears; mimics atmospheric
-    // perspective).
-    //
-    // Horizontal envelope: water column (0.25 → 0.75, 50% of screen) plus
-    // 15% overshoot on each side (extends to 0.10 → 0.90, 80% of screen).
-    // Beyond the overshoot zone: zero density, preserving black corners.
-    //
-    // Drift: +t * 0.24 in y sample direction → scrolls downward at exactly
-    // half water speed (water is 0.24, haze is 0.24 * 0.5 = 0.12 screen
-    // heights / time unit). Slower drift matches physical reality that
-    // suspended vapor has lower fall velocity than droplets.
-    //
-    // Scale: 2.0 on both axes → large soft cloud shapes.
-    vec2 overhead_uv = vec2(uv.x * 2.0, uv.y * 2.0 + t * 0.24);
+    // Overhead atmospheric mist — sample frequencies RAISED from (2, 2) to
+    // (5, 5) for ~2.5× more visible wisp features per screen. Time coefficient
+    // COMPENSATED (0.24 → 0.60) to preserve scroll rate:
+    //   Before: 0.24 / 2.0 = 0.12 screen heights per time unit
+    //   After:  0.60 / 5.0 = 0.12 screen heights per time unit (identical)
+    vec2 overhead_uv = vec2(uv.x * 5.0, uv.y * 5.0 + t * 0.60);
     float overhead_raw = fbm_haze(overhead_uv);
 
-    // Horizontal envelope: 15% overshoot beyond column edges.
-    // Full strength inside [0.20, 0.80], fade zones out to [0.10, 0.90].
+    // Envelopes unchanged from previous iteration.
     float overhead_h_dist = abs(uv.x - 0.5);
     float overhead_h_env =
-          smoothstep(0.40, 0.30, overhead_h_dist);  // 0 beyond 40%, 1 inside 30%
+          smoothstep(0.40, 0.30, overhead_h_dist);
 
-    // Vertical envelope: mostly uniform with mild edge taper.
     float overhead_v_env =
-          smoothstep(0.0, 0.05, uv.y)             // fade in from bottom
-        * smoothstep(1.0, 0.90, uv.y);            // fade out at top
+          smoothstep(0.0, 0.05, uv.y)
+        * smoothstep(1.0, 0.90, uv.y);
 
-    // Wisp thresholding: carves distinct wispy regions with soft edges.
-    // Window (0.45, 0.60) gates roughly the upper 40% of noise values into
-    // full wisp, with soft edge fade below. Result: discrete cloud patches
-    // with clear sky between them, not uniform fog.
-    float overhead_wisp = smoothstep(0.45, 0.60, overhead_raw);
+    // Dual-threshold wisp structure. Two smoothstep bands on the same
+    // fbm output combined additively:
+    //   broad wisp → lower threshold, any "cloud" region (~top 40% of noise)
+    //   dense wisp → higher threshold, only thickest cloud pockets (~top 20%)
+    // Additive + clamp produces "big wisps with denser cores" — layered
+    // density that reads as hierarchical atmospheric structure.
+    float overhead_broad = smoothstep(0.40, 0.55, overhead_raw);
+    float overhead_dense = smoothstep(0.60, 0.75, overhead_raw);
+    float overhead_wisp  = clamp(overhead_broad + overhead_dense * 0.5,
+                                 0.0, 1.0);
+
     float overhead_density = overhead_wisp * overhead_h_env * overhead_v_env;
 
-    // Alpha-blend composition: mist partially obscures water beneath.
-    // Palette index 0.95 matches bottom-mist convention for consistent
-    // mist color across all palettes. Intensity 0.30 — higher than the
-    // former additive 0.20 because alpha-blend weights differently.
-    col = mix(col, palette(0.95), overhead_density * 0.30);
+    // Opacity RAISED (0.30 → 0.50) for stronger partial occlusion of
+    // water beneath. At peak density + full envelope, 50% of pixel color
+    // comes from mist, 50% from water — clearly visible obscuration.
+    col = mix(col, palette(0.95), overhead_density * 0.50);
 
-    // Rising impact mist — plume extending upward from the impact zone.
-    // Real waterfalls produce upward atmospheric turbulence from the
-    // impact creating a signature rising-plume silhouette.
-    //
-    // Horizontal envelope: water column plus 10% overshoot on each side
-    // (0.15 → 0.85). Tighter than overhead haze — rising mist is more
-    // concentrated around where the impact actually happens.
-    //
-    // Drift: -t * 1.8 in y sample direction → scrolls UPWARD. Rate 1.8/3.0
-    // = 0.6, so rising mist scrolls UP faster than water scrolls DOWN —
-    // kinetically active, visibly dynamic.
-    //
-    // Scale: x-freq 6.0, y-freq 3.0 → medium-scale wispy plumes, 2:1
-    // aspect taller-than-wide (matching upward motion).
-    vec2 rising_uv = vec2(uv.x * 6.0, uv.y * 3.0 - t * 1.8);
+    // Rising impact mist — sample frequencies RAISED from (6, 3) to (10, 5)
+    // for finer plume structure. Preserves 2:1 vertical-elongation aspect
+    // (10:5 = 2:1, matches old 6:3 = 2:1). Time coefficient COMPENSATED
+    // (1.8 → 3.0) to preserve upward scroll rate:
+    //   Before: -1.8 / 3.0 = -0.60 screen heights per time unit
+    //   After:  -3.0 / 5.0 = -0.60 screen heights per time unit (identical)
+    vec2 rising_uv = vec2(uv.x * 10.0, uv.y * 5.0 - t * 3.0);
     float rising_raw = fbm_haze(rising_uv);
 
-    // Horizontal envelope: tighter overshoot than overhead.
+    // Envelopes unchanged from previous iteration.
     float rising_h_dist = abs(uv.x - 0.5);
     float rising_h_env = smoothstep(0.35, 0.25, rising_h_dist);
 
@@ -295,18 +281,25 @@ void main() {
     // exp(-uv.y * 4.0): 1.0 at y=0, 0.37 at y=0.25, 0.14 at y=0.5, 0.02 at y=1.0.
     float rising_v_env =
           exp(-uv.y * 4.0)
-        * (1.0 - smoothstep(0.40, 0.55, uv.y));   // hard cutoff approaching mid-screen
+        * (1.0 - smoothstep(0.40, 0.55, uv.y));
 
-    // Wisp thresholding: lower window (0.35, 0.55) than overhead so rising
-    // mist has higher coverage within its envelope zone — the plume should
-    // be visibly present where the envelope allows, not occasional wisps.
-    float rising_wisp = smoothstep(0.35, 0.55, rising_raw);
+    // Dual-threshold wisp structure. Rising mist uses lower thresholds
+    // than overhead because rising IS the plume — it should dominate its
+    // envelope zone, not sparsely punctuate it.
+    //   broad wisp → (0.30, 0.45) → ~top 50% of noise values
+    //   dense wisp → (0.50, 0.65) → ~top 30% of noise values (denser cores)
+    float rising_broad = smoothstep(0.30, 0.45, rising_raw);
+    float rising_dense = smoothstep(0.50, 0.65, rising_raw);
+    float rising_wisp  = clamp(rising_broad + rising_dense * 0.5,
+                               0.0, 1.0);
+
     float rising_density = rising_wisp * rising_h_env * rising_v_env;
 
-    // Alpha-blend composition and palette index unification (0.92 → 0.95).
-    // Intensity 0.45 — higher than overhead (0.30) so rising reads as the
-    // dominant atmospheric effect at the impact zone.
-    col = mix(col, palette(0.95), rising_density * 0.45);
+    // Opacity RAISED (0.45 → 0.65) for near-opaque plume at core. At
+    // peak density + full envelope, 65% of pixel color is mist — water
+    // beneath is significantly obscured. This is the kinetic atmospheric
+    // dominant, it should feel dense.
+    col = mix(col, palette(0.95), rising_density * 0.65);
 
     // Mist at the base (bottom 30%). Uniform early-out across most RDNA
     // wavefronts — saves fbm_mist on ~70% of pixels.
