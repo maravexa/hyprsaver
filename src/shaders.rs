@@ -121,6 +121,10 @@ pub const BUILTIN_TEMPLE: &str = include_str!("../shaders/temple.frag");
 /// 48-step march, finite-difference normals, Phong lighting. Lightweight GPU tier.
 pub const BUILTIN_BLOB: &str = include_str!("../shaders/blob.frag");
 
+/// Artificial horizon instrument with gentle simulated flight motion — palette-driven sky
+/// and ground separated by a tilting horizon line, pitch ladder at 5° intervals, roll
+/// indicator arc with tick marks and pointer. Pure SDF geometry. Lightweight GPU tier.
+pub const BUILTIN_ATTITUDE: &str = include_str!("../shaders/attitude.frag");
 /// Procedural candlestick chart with MACD oscillator — scrolling OHLC candles, palette-sampled
 /// bull/bear colors, EMA-derived MACD + signal lines in the bottom pane. Lightweight GPU tier.
 pub const BUILTIN_STONKS: &str = include_str!("../shaders/stonks.frag");
@@ -308,6 +312,7 @@ impl ShaderManager {
             ("temple", BUILTIN_TEMPLE),
             ("wormhole", BUILTIN_WORMHOLE),
             ("blob", BUILTIN_BLOB),
+            ("attitude", BUILTIN_ATTITUDE),
             ("stonks", BUILTIN_STONKS),
             ("fireflies", BUILTIN_FIREFLIES),
         ];
@@ -891,6 +896,7 @@ mod tests {
             "voronoi",
             "temple",
             "wormhole",
+            "attitude",
             "stonks",
             "fireflies",
         ] {
