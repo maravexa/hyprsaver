@@ -121,6 +121,11 @@ pub const BUILTIN_TEMPLE: &str = include_str!("../shaders/temple.frag");
 /// 48-step march, finite-difference normals, Phong lighting. Lightweight GPU tier.
 pub const BUILTIN_BLOB: &str = include_str!("../shaders/blob.frag");
 
+/// Artificial horizon instrument with gentle simulated flight motion — palette-driven sky
+/// and ground separated by a tilting horizon line, pitch ladder at 5° intervals, roll
+/// indicator arc with tick marks and pointer. Pure SDF geometry. Lightweight GPU tier.
+pub const BUILTIN_ATTITUDE: &str = include_str!("../shaders/attitude.frag");
+
 // ---------------------------------------------------------------------------
 // Vertex shader for the fullscreen quad (triangle-strip, no VBO needed)
 // ---------------------------------------------------------------------------
@@ -301,6 +306,7 @@ impl ShaderManager {
             ("temple", BUILTIN_TEMPLE),
             ("wormhole", BUILTIN_WORMHOLE),
             ("blob", BUILTIN_BLOB),
+            ("attitude", BUILTIN_ATTITUDE),
         ];
         for (name, raw_const) in builtins {
             let raw = raw_const
@@ -844,7 +850,7 @@ mod tests {
 
     #[test]
     fn test_builtin_shader_count() {
-        assert_eq!(manager().list().len(), 30);
+        assert_eq!(manager().list().len(), 31);
     }
 
     #[test]
@@ -882,6 +888,7 @@ mod tests {
             "voronoi",
             "temple",
             "wormhole",
+            "attitude",
         ] {
             assert!(
                 names.contains(expected),
