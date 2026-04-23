@@ -499,21 +499,13 @@ pub fn builtin_gradient_palettes() -> Vec<(String, PaletteEntry)> {
             color: [0.357, 0.808, 0.980],
         }, // #5BCEFA
         GradientStop {
-            position: 0.25,
-            color: [0.961, 0.663, 0.722],
-        }, // #F5A9B8
-        GradientStop {
             position: 0.50,
             color: [1.000, 1.000, 1.000],
         }, // #FFFFFF
         GradientStop {
-            position: 0.75,
+            position: 1.00,
             color: [0.961, 0.663, 0.722],
         }, // #F5A9B8
-        GradientStop {
-            position: 1.00,
-            color: [0.357, 0.808, 0.980],
-        }, // #5BCEFA
     ])
     .unwrap_or_default();
 
