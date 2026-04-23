@@ -997,8 +997,15 @@ impl PreviewState {
         // using the current `palette_transition_speed` duration. Mirrors the
         // logic from wayland.rs: renderer.begin_transition uploads palette B,
         // then advance_transition() drives the blend each frame.
-        if bundle.state.palette_editor.test_palette_transition_requested {
-            bundle.state.palette_editor.test_palette_transition_requested = false;
+        if bundle
+            .state
+            .palette_editor
+            .test_palette_transition_requested
+        {
+            bundle
+                .state
+                .palette_editor
+                .test_palette_transition_requested = false;
             let mut palette_list: Vec<String> = self
                 .palette_manager
                 .list()
@@ -1016,7 +1023,8 @@ impl PreviewState {
                 let next_name = palette_list[next_idx as usize].clone();
                 let duration = bundle.state.palette_transition_speed;
                 let now = Instant::now();
-                self.palette_manager.transition_to(&next_name, duration, now);
+                self.palette_manager
+                    .transition_to(&next_name, duration, now);
                 if let Some(next_entry) = self.palette_manager.get(&next_name).cloned() {
                     if let Some(r) = self.renderer.as_mut() {
                         if duration > 0.0 {
