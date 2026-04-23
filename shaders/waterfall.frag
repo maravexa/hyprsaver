@@ -79,6 +79,23 @@ float fbm_channel(vec2 p) {
     return 0.67 * vnoise2(p) + 0.33 * vnoise2(p * 2.0);
 }
 
+// ---------------------------------------------------------------------------
+// 3-octave fbm for atmospheric haze — softer than fbm_water's 3-octave
+// streak fbm because it's used for low-frequency cloud shapes, not
+// high-frequency streak detail. Identical math; separate name for
+// semantic clarity.
+// ---------------------------------------------------------------------------
+float fbm_haze(vec2 p) {
+    float v = 0.0;
+    float a = 0.5;
+    for (int i = 0; i < 3; i++) {
+        v += a * vnoise2(p);
+        p *= 2.0;
+        a *= 0.5;
+    }
+    return v;
+}
+
 void main() {
     vec2 uv = gl_FragCoord.xy / u_resolution.xy;
     // uv.y = 0.0 at bottom, 1.0 at top
@@ -125,9 +142,11 @@ void main() {
     // Aspect ratio preserved at 50:6 — slit shape from previous iteration
     // was correct, only density was excessive.
     //
-    // Time coefficient preserved at 0.6 — scroll rate and parallax with
-    // streaks unchanged by this tuning.
-    vec2 tear_uv = vec2(uv.x * 50.0, uv.y * 6.0 + t * 0.6);
+    // Time coefficient RAISED (0.6 → 1.44) to match streak scroll rate.
+    // Screen-space scroll rate = t_coef / y_freq = 1.44 / 6.0 = 0.24, matching
+    // streaks at 1.68 / 7.0 = 0.24. Tears now travel WITH the water rather
+    // than appearing to lag behind it.
+    vec2 tear_uv = vec2(uv.x * 50.0, uv.y * 6.0 + t * 1.44);
     float tear = vnoise2(tear_uv);
     float tear_factor = smoothstep(0.05, 0.12, tear);
     water_density *= tear_factor;
@@ -208,6 +227,68 @@ void main() {
     // ~0.9 at peak w, so 0.5 extra on top keeps the total within a
     // reasonable overshoot range before the final clamp.
     col += water_col * smoothstep(0.50, 0.75, w) * water_density * 0.5;
+
+    // Overhead atmospheric mist — ambient haze around the full fall height.
+    // Sits additively over the water to soften local contrast (slight
+    // reduction in visual sharpness of streaks and tears; mimics atmospheric
+    // perspective).
+    //
+    // Horizontal envelope: water column (0.25 → 0.75, 50% of screen) plus
+    // 15% overshoot on each side (extends to 0.10 → 0.90, 80% of screen).
+    // Beyond the overshoot zone: zero density, preserving black corners.
+    //
+    // Drift: +t * 0.24 in y sample direction → scrolls downward at exactly
+    // half water speed (water is 0.24, haze is 0.24 * 0.5 = 0.12 screen
+    // heights / time unit). Slower drift matches physical reality that
+    // suspended vapor has lower fall velocity than droplets.
+    //
+    // Scale: 2.0 on both axes → large soft cloud shapes.
+    vec2 overhead_uv = vec2(uv.x * 2.0, uv.y * 2.0 + t * 0.24);
+    float overhead_raw = fbm_haze(overhead_uv);
+
+    // Horizontal envelope: 15% overshoot beyond column edges.
+    // Full strength inside [0.20, 0.80], fade zones out to [0.10, 0.90].
+    float overhead_h_dist = abs(uv.x - 0.5);
+    float overhead_h_env =
+          smoothstep(0.40, 0.30, overhead_h_dist);  // 0 beyond 40%, 1 inside 30%
+
+    // Vertical envelope: mostly uniform with mild edge taper.
+    float overhead_v_env =
+          smoothstep(0.0, 0.05, uv.y)             // fade in from bottom
+        * smoothstep(1.0, 0.90, uv.y);            // fade out at top
+
+    float overhead_density = overhead_raw * overhead_h_env * overhead_v_env;
+    col += palette(0.90) * overhead_density * 0.20;
+
+    // Rising impact mist — plume extending upward from the impact zone.
+    // Real waterfalls produce upward atmospheric turbulence from the
+    // impact creating a signature rising-plume silhouette.
+    //
+    // Horizontal envelope: water column plus 10% overshoot on each side
+    // (0.15 → 0.85). Tighter than overhead haze — rising mist is more
+    // concentrated around where the impact actually happens.
+    //
+    // Drift: -t * 1.8 in y sample direction → scrolls UPWARD. Rate 1.8/3.0
+    // = 0.6, so rising mist scrolls UP faster than water scrolls DOWN —
+    // kinetically active, visibly dynamic.
+    //
+    // Scale: x-freq 6.0, y-freq 3.0 → medium-scale wispy plumes, 2:1
+    // aspect taller-than-wide (matching upward motion).
+    vec2 rising_uv = vec2(uv.x * 6.0, uv.y * 3.0 - t * 1.8);
+    float rising_raw = fbm_haze(rising_uv);
+
+    // Horizontal envelope: tighter overshoot than overhead.
+    float rising_h_dist = abs(uv.x - 0.5);
+    float rising_h_env = smoothstep(0.35, 0.25, rising_h_dist);
+
+    // Vertical envelope: concentrated in lower half.
+    // exp(-uv.y * 4.0): 1.0 at y=0, 0.37 at y=0.25, 0.14 at y=0.5, 0.02 at y=1.0.
+    float rising_v_env =
+          exp(-uv.y * 4.0)
+        * (1.0 - smoothstep(0.40, 0.55, uv.y));   // hard cutoff approaching mid-screen
+
+    float rising_density = rising_raw * rising_h_env * rising_v_env;
+    col += palette(0.92) * rising_density * 0.35;
 
     // Mist at the base (bottom 30%). Uniform early-out across most RDNA
     // wavefronts — saves fbm_mist on ~70% of pixels.
