@@ -868,7 +868,7 @@ mod tests {
 
     #[test]
     fn test_builtin_shader_count() {
-        assert_eq!(manager().list().len(), 31);
+        assert_eq!(manager().list().len(), 35);
     }
 
     #[test]
