@@ -94,9 +94,11 @@ void main() {
     float roll_rad = u_time * ROLL_SPEED;
     vec3 rolled_up = cos(roll_rad) * snorm_cam + sin(roll_rad) * wdir_cam;
 
-    // Elevate camera off surface and tilt look direction slightly downward
-    vec3 ro          = strip_pos + ELEVATION * rolled_up;
-    vec3 cam_forward = normalize(tangent - DIP_ANGLE * rolled_up);
+    // Camera position: fixed offset along surface normal — independent of roll.
+    // cam_forward: dip toward strip using surface normal (strip is always
+    // below cam in world coords regardless of roll angle).
+    vec3 ro          = strip_pos + ELEVATION * snorm_cam;
+    vec3 cam_forward = normalize(tangent - DIP_ANGLE * snorm_cam);
 
     // Re-orthogonalize camera frame (prevents gimbal issues near roll ±90°)
     vec3 right   = normalize(cross(cam_forward, rolled_up));
