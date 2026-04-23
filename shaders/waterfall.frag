@@ -5,13 +5,16 @@ precision highp float;
 // hyprsaver — waterfall.frag
 //
 // Stylized 2D waterfall with retro quantize-and-dither post.
-// Solid black rock background fills the screen; central waterfall column
-// composites on top with soft noise-fringed edges. Water texture is a
-// plasma-inspired sum of four incommensurable-frequency sine layers biased
-// toward vertical flow, mapped through a [0.50, 0.85] palette slice. Mist
-// billows at the base from 2-octave fbm with upward drift, wider than the
-// water column so it spills onto the rocks. PS1-style Bayer dither +
-// color quantize post. Lightweight GPU tier (<30% util).
+// Rock is implicit — the base color is vec3(0.0) and water is added on top
+// as a density field (not a mask). A horizontal smoothstep envelope tapers
+// water density to zero at the column edges, so black rock shows through
+// with no border line to wiggle or feather. Water texture is 2-octave fbm
+// with deliberate x-heavy frequency bias (7.2:1) for pronounced vertical
+// streaks, mapped through a [0.50, 0.85] palette slice. Streak crests get
+// an additive highlight from the same fbm, thresholded. Mist billows at the
+// base from 2-octave fbm with upward drift, wider than the water column so
+// it spills onto the rocks. PS1-style Bayer dither + color quantize post.
+// Lightweight GPU tier (<30% util).
 // ---------------------------------------------------------------------------
 
 uniform float u_time;
@@ -22,20 +25,7 @@ uniform float u_speed_scale;
 uniform float u_zoom_scale;
 
 // ---------------------------------------------------------------------------
-// Hash + 1D value noise (used by rock edge wiggle)
-// ---------------------------------------------------------------------------
-float hash1(float n) {
-    return fract(sin(n) * 43758.5453123);
-}
-float vnoise1(float x) {
-    float i = floor(x);
-    float f = fract(x);
-    float u = f * f * (3.0 - 2.0 * f);
-    return mix(hash1(i), hash1(i + 1.0), u);
-}
-
-// ---------------------------------------------------------------------------
-// 2D value noise (used by mist fbm)
+// 2D value noise (used by both water and mist fbm)
 // ---------------------------------------------------------------------------
 float hash2(vec2 p) {
     return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
@@ -52,17 +42,18 @@ float vnoise2(vec2 p) {
 }
 
 // ---------------------------------------------------------------------------
-// 2-octave fbm for mist — cheap, soft
+// 2-octave fbm for water — x-heavy sampling elsewhere gives vertical streaks
 // ---------------------------------------------------------------------------
-float fbm_mist(vec2 p) {
+float fbm_water(vec2 p) {
     return 0.67 * vnoise2(p) + 0.33 * vnoise2(p * 2.0);
 }
 
 // ---------------------------------------------------------------------------
-// Plasma wave helper — sin remapped to [0, 1]
+// 2-octave fbm for mist — cheap, soft (same shape as fbm_water; kept
+// separate for readability)
 // ---------------------------------------------------------------------------
-float wave(float x) {
-    return sin(x) * 0.5 + 0.5;
+float fbm_mist(vec2 p) {
+    return 0.67 * vnoise2(p) + 0.33 * vnoise2(p * 2.0);
 }
 
 void main() {
@@ -70,60 +61,39 @@ void main() {
     // uv.y = 0.0 at bottom, 1.0 at top
     float t = u_time * u_speed_scale;
 
-    // Layer 1: solid black rock. Shape is implicit (absence of water).
+    // Water density envelope: solid core in x ∈ [0.25, 0.75] (50% of screen),
+    // smooth falloff to zero at x ∈ [0.10, 0.90]. No alpha mask — where
+    // density is zero, black rock shows through by default.
+    float water_density = 1.0 - smoothstep(0.25, 0.40, abs(uv.x - 0.5));
+
+    // Anisotropic water texture: x-freq 18.0, y-freq 2.5 → 7.2:1 → noise
+    // features are short along x and long along y, producing vertical
+    // streaks. `+ t * 0.6` in y sample direction translates the pattern
+    // downward on screen under the uv.y=0-at-bottom convention.
+    vec2 water_uv = vec2(uv.x * 18.0, uv.y * 2.5 + t * 0.6);
+    float w = fbm_water(water_uv);
+
+    // Gradient through the [0.50, 0.85] palette slice.
+    vec3 water_col = palette(mix(0.50, 0.85, w));
+
+    // Streak-crest highlight: reuse w (no extra noise cost); only the top
+    // ~20% of fbm values contribute.
+    float highlight = smoothstep(0.65, 0.85, w);
+
+    // Additive composition: rock is implicit (vec3(0.0)); water and
+    // highlight are scaled by water_density so they fade to zero at the
+    // column edges with no visible border.
     vec3 col = vec3(0.0);
+    col += water_col * water_density;
+    col += palette(0.95) * highlight * water_density * 0.4;
 
-    // Layer 2: waterfall column, nominally uv.x in [0.30, 0.70].
-    float edge_wiggle_l = 0.03 * (vnoise1(uv.y * 8.0)        * 2.0 - 1.0);
-    float edge_wiggle_r = 0.03 * (vnoise1(uv.y * 8.0 + 37.0) * 2.0 - 1.0);
-    float left_edge  = 0.30 + edge_wiggle_l;
-    float right_edge = 0.70 + edge_wiggle_r;
-    float feather    = 0.02;
-
-    float water_alpha =
-          smoothstep(left_edge  - feather, left_edge  + feather, uv.x)
-        * (1.0 - smoothstep(right_edge - feather, right_edge + feather, uv.x));
-
-    // Plasma-inspired water texture — four layers of axis-aligned sines
-    // with incommensurable frequencies. Vertical layers dominate; time
-    // terms on vertical layers are `+t` so bands advance downward on
-    // screen (uv.y=0 at bottom convention).
-    //
-    // v1: broad vertical bands, moderate speed
-    float v1 = wave(uv.y *  7.3                + t * 2.1);
-    // v2: finer vertical bands, faster — incommensurable with v1
-    float v2 = wave(uv.y * 13.7                + t * 2.9);
-    // v3: diagonal streaks — adds angled cross-structure to the flow
-    float v3 = wave(uv.x *  5.1 + uv.y * 11.4  + t * 2.4);
-    // v4: slow horizontal ripple — prevents pure-stripe appearance.
-    //     Small t coefficient: horizontal flow in a vertical waterfall
-    //     must be subtle, or it looks like rain sheeting sideways.
-    float v4 = wave(uv.x *  4.6                - t * 0.7);
-
-    float plasma = (v1 + v2 + v3 + v4) * 0.25;
-
-    // Harmonic detail — one extra sine at 2× wrap, cheap fine breakup.
-    float detail = wave(plasma * 6.2832 * 2.0 + t * 0.5) * 0.15;
-    plasma = clamp(plasma + detail, 0.0, 1.0);
-
-    // Gradient through [0.50, 0.85] palette slice (no palette rotation —
-    // water should keep one mood of color, not chromatic-cycle).
-    vec3 water_col = palette(mix(0.50, 0.85, plasma));
-
-    // Brightness modulation — subtle shimmer on wave crests.
-    // Range [0.64, 1.00]; plasma's original ±0.3 was too dramatic for water.
-    float brightness = 0.82 + 0.18 * sin(plasma * 6.28318 * 3.0 + t * 0.5);
-    water_col *= brightness;
-
-    col = mix(col, water_col, water_alpha);
-
-    // Layer 3: mist at the base (bottom 30%). Uniform early-out across
-    // most RDNA wavefronts — saves fbm_mist on ~70% of pixels.
+    // Mist at the base (bottom 30%). Uniform early-out across most RDNA
+    // wavefronts — saves fbm_mist on ~70% of pixels.
     if (uv.y < 0.30) {
         float x_dist = abs(uv.x - 0.5);
 
-        // Horizontal envelope: extends past the water edges, spills onto rock
-        float mist_half_width = 0.35 - uv.y * 0.3;
+        // Horizontal envelope: extends past the wider water column onto rock
+        float mist_half_width = 0.45 - uv.y * 0.4;
         float horizontal = 1.0 - smoothstep(0.0, mist_half_width, x_dist);
 
         // Vertical envelope: strong at base, decays upward
