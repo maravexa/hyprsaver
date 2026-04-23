@@ -71,12 +71,11 @@ float fbm_mist(vec2 p) {
 }
 
 // ---------------------------------------------------------------------------
-// 2-octave fbm for the gap field — produces sheet tears. Independent
-// noise seed from hue and streak fields (different hash2 output by way
-// of different sample coordinates) so gaps don't correlate with color
-// bands or streak structure.
+// 2-octave fbm for the channel field — defines vertical stream structure.
+// Separate function from fbm_hue/fbm_mist for semantic clarity, identical
+// math.
 // ---------------------------------------------------------------------------
-float fbm_gap(vec2 p) {
+float fbm_channel(vec2 p) {
     return 0.67 * vnoise2(p) + 0.33 * vnoise2(p * 2.0);
 }
 
@@ -90,26 +89,30 @@ void main() {
     // density is zero, black rock shows through by default.
     float water_density = 1.0 - smoothstep(0.25, 0.40, abs(uv.x - 0.5));
 
-    // Gap field — large-scale tears in the water sheet. 2-octave fbm at a
-    // frequency that produces ~2-3 visible gaps across the column at any
-    // moment. Drifts downward between streak speed (0.6) and hue speed
-    // (0.25), so gaps feel like persistent openings that move with the
-    // water rather than particles or frozen rips.
-    //   x-freq 5.0  → ~2-3 gap features across column width
-    //   y-freq 4.0  → gaps are taller than wide (sheet-tear shape, not holes)
-    //   t * 0.45    → intermediate drift; between hue and streak rates
-    vec2 gap_uv = vec2(uv.x * 5.0, uv.y * 4.0 + t * 0.45);
-    float gap_raw = fbm_gap(gap_uv);
+    // Channel field — vertical streams that slowly drift laterally.
+    // The key asymmetry is x-freq >> y-freq: heavy x-variation with low
+    // y-variation means noise features extend up and down the screen. That
+    // produces vertical channels, not blobs.
+    //
+    // Lateral drift comes from adding t to the x coordinate (not the y
+    // coordinate as the streak fbm does). A given x-column stays a stream
+    // for several seconds as the lateral drift slowly carries the channel
+    // pattern sideways, then transitions to rock, then back.
+    //
+    //   x-freq 4.0    → ~2–3 wide channels across column at any moment
+    //   y-freq 0.5    → channels persist vertically (8× less y-variation
+    //                    than x → features are ~8× taller than wide)
+    //   t * 0.08 on x → slow lateral drift, ~12 s cycle; long enough that
+    //                    channels feel persistent, short enough that the
+    //                    pattern visibly evolves over a viewing session
+    vec2 channel_uv = vec2(uv.x * 4.0 + t * 0.08, uv.y * 0.5);
+    float channel = fbm_channel(channel_uv);
 
-    // Narrow smoothstep window (0.40 → 0.55) gives near-binary gap/water
-    // transitions with antialiased edges. Widening this window (e.g., to
-    // 0.30 → 0.60) would give softer wispy gap edges.
-    float gap_factor = smoothstep(0.40, 0.55, gap_raw);
-
-    // Modulate water_density: inside a gap, density goes to zero, which
-    // zeros out both streaks and highlights in the composition below.
-    // Mist is a separate additive layer and continues to render through.
-    water_density *= gap_factor;
+    // Narrow smoothstep window gives near-binary channel/rock transitions
+    // with antialiased edges — hard-enough to read as distinct streams, soft
+    // enough to avoid alias shimmer under the quantize post.
+    float channel_factor = smoothstep(0.35, 0.55, channel);
+    water_density *= channel_factor;
 
     // Hue field — low frequency, slow downward drift. Decouples color from
     // streak structure so multi-color bands show across the falls regardless
@@ -128,6 +131,27 @@ void main() {
     // Streak texture — high frequency, fast downward flow. Drives brightness.
     vec2 water_uv = vec2(uv.x * 18.0, uv.y * 2.5 + t * 0.6);
     float w = fbm_water(water_uv);
+
+    // Within-stream pulse — single-octave low-frequency sample that scrolls
+    // with the water. Provides broad intensity variation at a scale larger
+    // than individual streaks but smaller than the channel field, so each
+    // stream visibly waxes and wanes in brightness as water flows past.
+    //
+    // Kept as a bare vnoise2 call (not an fbm) to hold cost to a single
+    // noise sample — the variation we want here is slow and smooth, no
+    // need for multi-octave detail.
+    //
+    //   x-freq 9.0  → half the streak x-freq; broad pulse regions span
+    //                  multiple streaks
+    //   y-freq 1.5  → half the streak y-freq base; pulse regions are tall
+    //   t * 0.5     → scrolls with water (slightly slower than streaks at
+    //                  0.6; gives parallax)
+    vec2 pulse_uv = vec2(uv.x * 9.0, uv.y * 1.5 + t * 0.5);
+    float pulse = vnoise2(pulse_uv);
+
+    // Apply to water_density. Floor at 0.6 so streams never fully extinguish
+    // from pulse alone — full extinction is the channel field's job.
+    water_density *= mix(0.6, 1.0, pulse);
 
     // Base water color: hue from palette, brightness modulated by streaks.
     // mix(0.5, 1.0, w) keeps dimmest streaks at 50% brightness so deep water
