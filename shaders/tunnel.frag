@@ -66,7 +66,7 @@ void main() {
     // ---------------------------------------------------------------------------
     // Colour
     // ---------------------------------------------------------------------------
-    float col_t = fract(pattern + depth * 0.05 + t * 0.04);
+    float col_t = abs(fract(pattern + depth * 0.05 + t * 0.04) * 2.0 - 1.0);
     vec3  col   = palette(col_t);
 
     // Distance fog: bright at the vanishing point, dark at the edges.
@@ -78,7 +78,7 @@ void main() {
 
     // Subtle centre glow.
     float glow = exp(-dist * 8.0) * 0.6;
-    col += palette(fract(t * 0.08)) * glow;
+    col += palette(abs(fract(t * 0.08) * 2.0 - 1.0)) * glow;
 
     fragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
 }

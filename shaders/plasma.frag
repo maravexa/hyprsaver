@@ -54,7 +54,7 @@ void main() {
     plasma = clamp(plasma + detail, 0.0, 1.0);
 
     // Slow global palette rotation.
-    float palette_t = fract(plasma + t * 0.06);
+    float palette_t = abs(fract(plasma + t * 0.06) * 2.0 - 1.0);
     vec3 col = palette(palette_t);
 
     // Brightness modulation: brighter near the wave crests.
