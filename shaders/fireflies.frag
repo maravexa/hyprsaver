@@ -28,9 +28,10 @@ uniform int   u_frame;
 // Constants
 // ---------------------------------------------------------------------------
 
-const vec2  GRID      = vec2(20.0, 12.0);
-const float FALLOFF_K = 120.0;   // Gaussian width in squared cell-space units
-const float TAU       = 6.283185307;
+const vec2  GRID               = vec2(20.0, 12.0);
+const float FALLOFF_K          = 120.0;   // Gaussian width in squared cell-space units
+const float TAU                = 6.283185307;
+const float PALETTE_DRIFT_SPEED = 0.05;   // full palette cycle per firefly every ~20 s
 
 // ---------------------------------------------------------------------------
 // Hash — Dave Hoskins style, no sin()
@@ -53,14 +54,15 @@ void main() {
     vec2 cell_frac = fract(cell);
 
     float t = u_time * u_speed_scale;
-    float intensity = 0.0;
+    vec3 color_accum = vec3(0.0);
 
     for (int dy = -1; dy <= 1; dy++) {
         for (int dx = -1; dx <= 1; dx++) {
             vec2 nid = cell_id + vec2(float(dx), float(dy));
 
-            float h  = hash21(nid);
-            float h2 = hash21(nid + vec2(17.3, 5.7));
+            float h         = hash21(nid);
+            float h2        = hash21(nid + vec2(17.3, 5.7));
+            float h_palette = hash21(nid + vec2(17.3, 31.7));
 
             // Lissajous wander — amplitude capped at ±0.35 so firefly stays
             // within the 9-cell neighbourhood and never pops at boundaries.
@@ -80,10 +82,14 @@ void main() {
                 t * (0.3 + 0.5 * h) + h * TAU
             ));
 
-            intensity += pulse * exp(-r2 * FALLOFF_K);
+            // Per-firefly palette color that slowly drifts; h_palette offsets
+            // each firefly to a different starting phase so neighbors differ.
+            float palette_pos = fract(h + u_time * PALETTE_DRIFT_SPEED + h_palette);
+            vec3 firefly_color = palette(palette_pos);
+
+            color_accum += firefly_color * pulse * exp(-r2 * FALLOFF_K);
         }
     }
 
-    float clamped = clamp(intensity, 0.0, 1.0);
-    fragColor = vec4(palette(clamped), 1.0);
+    fragColor = vec4(color_accum, 1.0);
 }
