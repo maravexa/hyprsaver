@@ -575,7 +575,26 @@ fn shader_descriptions() -> std::collections::HashMap<&'static str, &'static str
         ("blob", "Lit alien orb with flowing emission veins"),
         ("gridwave", "Warping neon grid, Tron/Outrun style"),
         ("wormhole", "Curved tunnel flythrough"),
-        ("stonks", "Procedural candlestick chart with MACD oscillator"),
+        (
+            "waterfall",
+            "Stylized 2D waterfall with Bayer dither post-processing",
+        ),
+        (
+            "mobius",
+            "Race along a twisted Möbius ribbon — palette gradient flips after each loop",
+        ),
+        (
+            "attitude",
+            "Artificial horizon instrument with simulated flight motion",
+        ),
+        (
+            "fireflies",
+            "Warm glowing wanderers drifting across a dark field",
+        ),
+        (
+            "stonks",
+            "Procedural candlestick chart with MACD oscillator",
+        ),
     ]
     .into_iter()
     .collect()
