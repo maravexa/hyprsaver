@@ -125,6 +125,20 @@ pub const BUILTIN_BLOB: &str = include_str!("../shaders/blob.frag");
 /// downward-scrolling 3-octave fbm, bottom mist overlay, and PS1-style Bayer dither + quantize.
 /// Lightweight GPU tier (<30% util).
 pub const BUILTIN_WATERFALL: &str = include_str!("../shaders/waterfall.frag");
+/// Race along a twisted Möbius ribbon against the void — 48-step abs-step raymarcher,
+/// local torus-frame SDF, camera rides the center line. Palette gradient across ribbon
+/// width flips after each full 2π loop (Möbius half-twist). Medium GPU tier.
+pub const BUILTIN_MOBIUS: &str = include_str!("../shaders/mobius.frag");
+/// Artificial horizon instrument with gentle simulated flight motion — palette-driven sky
+/// and ground separated by a tilting horizon line, pitch ladder at 5° intervals, roll
+/// indicator arc with tick marks and pointer. Pure SDF geometry. Lightweight GPU tier.
+pub const BUILTIN_ATTITUDE: &str = include_str!("../shaders/attitude.frag");
+/// Procedural candlestick chart with MACD oscillator — scrolling OHLC candles, palette-sampled
+/// bull/bear colors, EMA-derived MACD + signal lines in the bottom pane. Lightweight GPU tier.
+pub const BUILTIN_STONKS: &str = include_str!("../shaders/stonks.frag");
+/// Warm glowing wanderers drifting across a dark field — 20×12 cell grid, one firefly per cell,
+/// 9-cell Gaussian neighbourhood sum, per-cell Lissajous wander, brightness pulse. Lightweight tier.
+pub const BUILTIN_FIREFLIES: &str = include_str!("../shaders/fireflies.frag");
 
 // ---------------------------------------------------------------------------
 // Vertex shader for the fullscreen quad (triangle-strip, no VBO needed)
@@ -307,6 +321,10 @@ impl ShaderManager {
             ("wormhole", BUILTIN_WORMHOLE),
             ("blob", BUILTIN_BLOB),
             ("waterfall", BUILTIN_WATERFALL),
+            ("mobius", BUILTIN_MOBIUS),
+            ("attitude", BUILTIN_ATTITUDE),
+            ("stonks", BUILTIN_STONKS),
+            ("fireflies", BUILTIN_FIREFLIES),
         ];
         for (name, raw_const) in builtins {
             let raw = raw_const
@@ -889,6 +907,10 @@ mod tests {
             "temple",
             "wormhole",
             "waterfall",
+            "mobius",
+            "attitude",
+            "stonks",
+            "fireflies",
         ] {
             assert!(
                 names.contains(expected),

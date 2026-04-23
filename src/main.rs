@@ -575,6 +575,7 @@ fn shader_descriptions() -> std::collections::HashMap<&'static str, &'static str
         ("blob", "Lit alien orb with flowing emission veins"),
         ("gridwave", "Warping neon grid, Tron/Outrun style"),
         ("wormhole", "Curved tunnel flythrough"),
+        ("stonks", "Procedural candlestick chart with MACD oscillator"),
     ]
     .into_iter()
     .collect()
