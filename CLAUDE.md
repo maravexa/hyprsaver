@@ -91,6 +91,9 @@ cargo build --release
 | clouds        | Slowly drifting procedural fBm clouds over a tinted sky  |
 | temple        | Retro temple interior — centered horizon, floor + ceiling triangle-wave lattice, 4 scrolling pillars (screen-space rects) with ring trace pattern, CRT scanlines |
 | wormhole      | Curved-tunnel raymarch; z-dominant palette rings, angular contribution dropped |
+| gridwave      | Perspective-projected neon grid with scrolling forward motion — classic Tron/Outrun aesthetic |
+| blob          | Lit blob with flowing energy emission and atmospheric halo — warped sphere SDF, Phong lighting |
+| mobius        | Race along a twisted Möbius ribbon against the void — palette gradient flips after each full loop |
 | stonks        | Procedural candlestick chart with MACD oscillator; palette-sampled bull/bear colors |
 
 ## Playlist / Cycle System (v0.3.0)

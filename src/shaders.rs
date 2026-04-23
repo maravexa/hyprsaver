@@ -121,6 +121,10 @@ pub const BUILTIN_TEMPLE: &str = include_str!("../shaders/temple.frag");
 /// 48-step march, finite-difference normals, Phong lighting. Lightweight GPU tier.
 pub const BUILTIN_BLOB: &str = include_str!("../shaders/blob.frag");
 
+/// Race along a twisted Möbius ribbon against the void — 48-step abs-step raymarcher,
+/// local torus-frame SDF, camera rides the center line. Palette gradient across ribbon
+/// width flips after each full 2π loop (Möbius half-twist). Medium GPU tier.
+pub const BUILTIN_MOBIUS: &str = include_str!("../shaders/mobius.frag");
 /// Artificial horizon instrument with gentle simulated flight motion — palette-driven sky
 /// and ground separated by a tilting horizon line, pitch ladder at 5° intervals, roll
 /// indicator arc with tick marks and pointer. Pure SDF geometry. Lightweight GPU tier.
@@ -312,6 +316,7 @@ impl ShaderManager {
             ("temple", BUILTIN_TEMPLE),
             ("wormhole", BUILTIN_WORMHOLE),
             ("blob", BUILTIN_BLOB),
+            ("mobius", BUILTIN_MOBIUS),
             ("attitude", BUILTIN_ATTITUDE),
             ("stonks", BUILTIN_STONKS),
             ("fireflies", BUILTIN_FIREFLIES),
@@ -896,6 +901,7 @@ mod tests {
             "voronoi",
             "temple",
             "wormhole",
+            "mobius",
             "attitude",
             "stonks",
             "fireflies",
