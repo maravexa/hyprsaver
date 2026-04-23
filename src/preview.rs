@@ -2224,7 +2224,7 @@ fn draw_panel(
 /// Paints `colors.len()` vertical strips side-by-side across a 50 px wide rect
 /// allocated at the current cursor position. When `colors` is `None` (palette
 /// not found in the map) nothing is allocated so the row degrades gracefully.
-fn draw_palette_swatch(ui: &mut egui::Ui, colors: Option<&Vec<egui::Color32>>) {
+fn draw_palette_swatch(ui: &mut egui::Ui, colors: Option<&[egui::Color32]>) {
     let Some(colors) = colors else { return };
     let text_h = ui.text_style_height(&egui::TextStyle::Body);
     let swatch_w = 50.0;
@@ -2253,7 +2253,7 @@ fn draw_palette_swatch(ui: &mut egui::Ui, colors: Option<&Vec<egui::Color32>>) {
 fn draw_palette_swatch_in_rect(
     painter: &egui::Painter,
     rect: egui::Rect,
-    colors: Option<&Vec<egui::Color32>>,
+    colors: Option<&[egui::Color32]>,
 ) {
     let Some(colors) = colors else { return };
     if colors.is_empty() {
@@ -2321,7 +2321,7 @@ fn palette_combo_rows(
         draw_palette_swatch_in_rect(
             ui.painter(),
             swatch_rect,
-            palette_gradients.get(name.as_str()),
+            palette_gradients.get(name.as_str()).map(Vec::as_slice),
         );
         if response.clicked() {
             *selected = name.clone();

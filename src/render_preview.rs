@@ -218,8 +218,8 @@ pub fn run(
 
         let palette_list = resolve_palette_list(
             shader_name,
-            &args.palette,
-            &cycle_palette_names,
+            args.palette.as_deref(),
+            cycle_palette_names.as_deref(),
             &all_palette_names,
             seed,
         );
@@ -393,16 +393,16 @@ fn render_shader_to_webp(
 /// 3. FNV-1a hash of `shader_name + seed` → deterministic pick from all palettes
 fn resolve_palette_list(
     shader_name: &str,
-    single_palette: &Option<String>,
-    cycle_palettes: &Option<Vec<String>>,
+    single_palette: Option<&str>,
+    cycle_palettes: Option<&[String]>,
     all_palette_names: &[String],
     seed: u64,
 ) -> Vec<String> {
-    if let Some(ref names) = cycle_palettes {
-        return names.clone();
+    if let Some(names) = cycle_palettes {
+        return names.to_vec();
     }
-    if let Some(ref name) = single_palette {
-        return vec![name.clone()];
+    if let Some(name) = single_palette {
+        return vec![name.to_string()];
     }
     if all_palette_names.is_empty() {
         return Vec::new();
