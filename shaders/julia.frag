@@ -65,7 +65,7 @@ void main() {
     if (n == 0.0) {
         // Interior: dark with subtle orbit-trap glow.
         float glow = exp(-trap * 4.0) * 0.4;
-        vec3 interior = palette(fract(t * 0.03)) * glow;
+        vec3 interior = palette(abs(fract(t * 0.03) * 2.0 - 1.0)) * glow;
         fragColor = vec4(interior, 1.0);
         return;
     }
@@ -73,9 +73,9 @@ void main() {
     float t_col = n / float(max_iter);
 
     // Two-layer coloring: boundary striping + orbit trap shimmer.
-    vec3 col_boundary = palette(fract(t_col * 3.0 + t * 0.05));
+    vec3 col_boundary = palette(abs(fract(t_col * 3.0 + t * 0.05) * 2.0 - 1.0));
     float trap_glow   = exp(-trap * 6.0);
-    vec3 col_trap     = palette(fract(t * 0.07 + 0.5)) * trap_glow;
+    vec3 col_trap     = palette(abs(fract(t * 0.07 + 0.5) * 2.0 - 1.0)) * trap_glow;
 
     vec3 col = mix(col_boundary, col_trap, 0.35);
     col *= pow(t_col, 0.5) * 1.6;
