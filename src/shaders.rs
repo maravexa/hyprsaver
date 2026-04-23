@@ -121,6 +121,11 @@ pub const BUILTIN_TEMPLE: &str = include_str!("../shaders/temple.frag");
 /// 48-step march, finite-difference normals, Phong lighting. Lightweight GPU tier.
 pub const BUILTIN_BLOB: &str = include_str!("../shaders/blob.frag");
 
+/// Race along a twisted Möbius ribbon against the void — 48-step abs-step raymarcher,
+/// local torus-frame SDF, camera rides the center line. Palette gradient across ribbon
+/// width flips after each full 2π loop (Möbius half-twist). Medium GPU tier.
+pub const BUILTIN_MOBIUS: &str = include_str!("../shaders/mobius.frag");
+
 // ---------------------------------------------------------------------------
 // Vertex shader for the fullscreen quad (triangle-strip, no VBO needed)
 // ---------------------------------------------------------------------------
@@ -301,6 +306,7 @@ impl ShaderManager {
             ("temple", BUILTIN_TEMPLE),
             ("wormhole", BUILTIN_WORMHOLE),
             ("blob", BUILTIN_BLOB),
+            ("mobius", BUILTIN_MOBIUS),
         ];
         for (name, raw_const) in builtins {
             let raw = raw_const
@@ -844,7 +850,7 @@ mod tests {
 
     #[test]
     fn test_builtin_shader_count() {
-        assert_eq!(manager().list().len(), 30);
+        assert_eq!(manager().list().len(), 31);
     }
 
     #[test]
@@ -882,6 +888,7 @@ mod tests {
             "voronoi",
             "temple",
             "wormhole",
+            "mobius",
         ] {
             assert!(
                 names.contains(expected),
