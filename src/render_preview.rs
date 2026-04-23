@@ -264,6 +264,7 @@ pub fn run(
 // Single-shader render → animated WebP
 // ---------------------------------------------------------------------------
 
+#[allow(clippy::too_many_arguments)]
 fn render_shader_to_webp(
     shader_name: &str,
     shader_manager: &ShaderManager,
