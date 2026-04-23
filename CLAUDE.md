@@ -94,6 +94,7 @@ cargo build --release
 | gridwave      | Perspective-projected neon grid with scrolling forward motion — classic Tron/Outrun aesthetic |
 | blob          | Lit blob with flowing energy emission and atmospheric halo — warped sphere SDF, Phong lighting |
 | mobius        | Race along a twisted Möbius ribbon against the void — palette gradient flips after each full loop |
+| stonks        | Procedural candlestick chart with MACD oscillator; palette-sampled bull/bear colors |
 
 ## Playlist / Cycle System (v0.3.0)
 
