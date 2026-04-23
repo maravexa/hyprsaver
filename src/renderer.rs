@@ -1385,10 +1385,10 @@ impl Renderer {
     ///
     /// The FBO must already be allocated at `resolution` pixels.
     /// Does **not** flip the buffer vertically — the caller is responsible
-    /// (OpenGL origin is bottom-left; GIF expects top-left).
+    /// (OpenGL origin is bottom-left; callers are responsible for flipping).
     /// Does not increment the internal frame counter or modify any other state.
     ///
-    /// Used by the `render-gif` subcommand to capture frames deterministically
+    /// Used by the `render-preview` subcommand to capture frames deterministically
     /// without wall-clock time. The Wayland path is unaffected — it continues
     /// to call [`Renderer::render`].
     pub fn render_and_capture(
