@@ -18,8 +18,8 @@ uniform int   u_frame;
 const int   VISIBLE = 40;
 
 // Fixed price and MACD bounds (sine amplitude envelopes + ~10% margin)
-const float P_MIN = -2.0;
-const float P_MAX =  2.0;
+const float P_MIN = -2.5;
+const float P_MAX =  2.5;
 const float M_MIN = -0.95;
 const float M_MAX =  0.95;
 
@@ -28,10 +28,23 @@ const float M_MAX =  0.95;
 // Close of candle N == open of candle N+1 (continuity by construction).
 // ---------------------------------------------------------------------------
 void candleAt(float col_abs, out float o, out float c, out float h, out float l) {
-    o = sin(col_abs * 0.55) * 1.1 + sin(col_abs * 0.13 + 1.7) * 0.55;
-    c = sin((col_abs + 1.0) * 0.55) * 1.1 + sin((col_abs + 1.0) * 0.13 + 1.7) * 0.55;
-    float wick_top = max(0.0, sin(col_abs * 2.3 + 4.1) * 0.20);
-    float wick_bot = max(0.0, sin(col_abs * 1.9 + 7.7) * 0.20);
+    float amp_mod = 0.6 + sin(col_abs * 0.04) * 0.4;   // slow envelope, range 0.2..1.0
+
+    float noise_o = (sin(col_abs * 0.55) * 1.1
+                  +  sin(col_abs * 0.13 + 1.7) * 0.55
+                  +  sin(col_abs * 0.037 + 3.1) * 0.6
+                  +  sin(col_abs * 1.73 + 0.4) * 0.20) * amp_mod;
+
+    float noise_c = (sin((col_abs + 1.0) * 0.55) * 1.1
+                  +  sin((col_abs + 1.0) * 0.13 + 1.7) * 0.55
+                  +  sin((col_abs + 1.0) * 0.037 + 3.1) * 0.6
+                  +  sin((col_abs + 1.0) * 1.73 + 0.4) * 0.20) * amp_mod;
+
+    o = noise_o;
+    c = noise_c;
+
+    float wick_top = max(0.0, sin(col_abs * 2.3 + 4.1) * 0.20 * amp_mod);
+    float wick_bot = max(0.0, sin(col_abs * 1.9 + 7.7) * 0.20 * amp_mod);
     h = max(o, c) + wick_top;
     l = min(o, c) - wick_bot;
 }
