@@ -113,20 +113,19 @@ void main() {
     // vertical gaps between them, not a continuous sheet with brightness
     // variation. This mechanism produces the strand structure directly.
     //
-    //   x-freq 35.0 → features ~2x narrower than streaks (streak x-freq
-    //                  is 18.0) so tears fall between streak strands
-    //   y-freq 8.0  → tears are vertically elongated (slit-shaped, not
-    //                  circular); 35:8 aspect ratio ≈ 4:1 tall:wide
-    //   t * 0.6     → scrolls at streak speed so tears move with the
-    //                  water, not independently
-    vec2 tear_uv = vec2(uv.x * 35.0, uv.y * 8.0 + t * 0.6);
+    // Tear shape TIGHTENED: x-freq raised (35→50), y-freq lowered (8→6).
+    // New aspect ratio 50:6 ≈ 8.3:1 tall:wide, up from 4.4:1. Features are
+    // narrow and tall — slits, not blobs.
+    //
+    // Tear density REDUCED: threshold window (0.15, 0.30) → (0.10, 0.20).
+    // Only ~10% of pixels become full tears (down from ~15-20%). The sheet
+    // reads as a sheet with strand structure, not a perforated surface.
+    //
+    // Time coefficient preserved at 0.6 — scroll rate and parallax with
+    // streaks unchanged by this tuning.
+    vec2 tear_uv = vec2(uv.x * 50.0, uv.y * 6.0 + t * 0.6);
     float tear = vnoise2(tear_uv);
-
-    // Threshold window (0.15, 0.30): ~15% of pixels become tears (values
-    // below 0.15 fully gap, 0.15–0.30 antialiased edge). Narrow enough
-    // that tears are visible as structure, sparse enough that the sheet
-    // doesn't disintegrate.
-    float tear_factor = smoothstep(0.15, 0.30, tear);
+    float tear_factor = smoothstep(0.10, 0.20, tear);
     water_density *= tear_factor;
 
     // Hue field — y-freq SLASHED (2.0 → 0.5) so color varies almost
@@ -146,7 +145,17 @@ void main() {
     float palette_t = clamp(hue * 1.2 - 0.1, 0.0, 1.0);
 
     // Streak texture — high frequency, fast downward flow. Drives brightness.
-    vec2 water_uv = vec2(uv.x * 18.0, uv.y * 2.5 + t * 0.6);
+    //
+    // Streak y-freq RAISED (2.5 → 4.5). New streak aspect ratio 18:4.5 = 4:1
+    // instead of 7.2:1 — streaks now have visible horizontal structure
+    // across stream width, not just vertical elongation that disappears
+    // into stream shape.
+    //
+    // Time coefficient COMPENSATED (0.6 → 1.08) to preserve current scroll
+    // rate. Screen-space scroll rate = t_coef / y_freq:
+    //   Before: 0.6 / 2.5  = 0.24 screen heights per time unit
+    //   After:  1.08 / 4.5 = 0.24 screen heights per time unit (identical)
+    vec2 water_uv = vec2(uv.x * 18.0, uv.y * 4.5 + t * 1.08);
     float w = fbm_water(water_uv);
 
     // Within-stream pulse — single-octave low-frequency sample that scrolls
@@ -170,14 +179,16 @@ void main() {
     // from pulse alone — full extinction is the channel field's job.
     water_density *= mix(0.6, 1.0, pulse);
 
-    // Streak contrast EXTENDED: mix(0.5, 1.0, w) → mix(0.15, 1.0, w).
-    // Dim streak regions now go to 15% palette intensity instead of 50%,
-    // giving ~6.7:1 brightness variation between dim and bright streaks
-    // instead of 2:1. Streaks become the dominant visual signal again.
-    // Dim streaks don't reveal rock beneath — density is still governed
-    // by channel/pulse/envelope; this only affects brightness of the
-    // already-watery pixels.
-    vec3 water_col = palette(palette_t) * mix(0.15, 1.0, w);
+    // Dim-streak floor DROPPED (0.15 → 0.05). New contrast range 20:1, up
+    // from 6.7:1. Dim streak regions are now near-black while bright
+    // regions reach full palette intensity. This makes streak structure
+    // unambiguous — you can see discrete bright streaks against dark
+    // surrounding water, rather than subtle brightness variation.
+    //
+    // Dim pixels stay "water" (density is unchanged); they're just very
+    // dark water. Rock-vs-water distinction remains the responsibility of
+    // the channel and tear fields.
+    vec3 water_col = palette(palette_t) * mix(0.05, 1.0, w);
 
     // Additive composition: rock is implicit (vec3(0.0)); water and
     // highlight are scaled by water_density so they fade to zero at the
