@@ -5,11 +5,13 @@ precision highp float;
 // hyprsaver — mobius.frag
 //
 // Race along a twisted Möbius ribbon against the void.
-// Camera rides the strip at v=0, elevated slightly in the surface-normal
-// direction, looking forward along the ring. The half-twist manifests as
-// a palette-gradient flip after each full 2π loop — the signature Möbius
-// property. Background is pure black vec3(0.0): intentional aesthetic
-// exception, not palette-derived.
+// Camera is elevated above the strip's surface normal, looking slightly
+// down so the ribbon occupies the lower portion of the frame.  A slow
+// secondary roll (ROLL_SPEED rad/sec) rotates the camera around the
+// forward axis, adding visual variety on top of the natural half-twist
+// rhythm.  The half-twist flips the palette gradient after each full 2π
+// loop — the signature Möbius property.  Background is pure black
+// vec3(0.0): intentional aesthetic exception, not palette-derived.
 //
 // SDF uses a local torus-frame decomposition:
 //   theta = atan(p.y, p.x) gives the nearest u parameter.
@@ -33,9 +35,10 @@ const float MIN_STEP       = 0.001;
 const float R              = 1.5;    // major radius of ring
 const float W              = 0.3;    // ribbon half-width
 const float THICKNESS      = 0.018;  // SDF ribbon thickness (half)
-const float SPEED          = 0.4;    // radians / sec camera advance
-const float LOOK_AHEAD     = 0.7;    // radians ahead for look-at target
-const float ELEV           = 0.15;   // elevation above surface in surf-normal dir
+const float SPEED          = 1.2;    // radians / sec camera advance (3× v2)
+const float ELEVATION      = 0.3;    // off-surface elevation (in rolled_up direction)
+const float DIP_ANGLE      = 0.15;   // radians downward tilt toward strip (~8.6°)
+const float ROLL_SPEED     = 0.1;    // rad/sec slow camera roll around forward axis
 const float TAU            = 6.283185307;
 const float BANDS_PER_LOOP = 8.0;   // colour bands around the full 2π loop
 
@@ -63,37 +66,46 @@ void main() {
     float u_cam = u_time * u_speed_scale * SPEED;
 
     // ---------------------------------------------------------------------------
-    // Camera: rides the center line (v=0) elevated by ELEV in the surface normal.
-    // surf_normal = cross(∂P/∂u, ∂P/∂v)|_{v=0}
-    //             = (cos(u)·sin(u/2),  sin(u)·sin(u/2),  −cos(u/2))
-    // wdir (ribbon width direction):
-    //             = (cos(u/2)·cos(u),  cos(u/2)·sin(u),  sin(u/2))
-    // wdir ⊥ ring tangent always, so cross(fwd, wdir) is safe as up-hint.
+    // Camera: elevated above the surface, looking slightly down, with a slow
+    // secondary roll around the forward axis.
+    //
+    // Surface frame at u_cam, v=0:
+    //   tangent   = dP/du|_{v=0} = (−sin u, cos u, 0)  (unit)
+    //   wdir_cam  = dP/dv|_{v=0} = (cos(u/2)·cos u, cos(u/2)·sin u, sin(u/2))
+    //               — ribbon width / binormal direction
+    //   snorm_cam = surface normal = (cos u·sin(u/2), sin u·sin(u/2), −cos(u/2))
+    //
+    // Roll rotates the (snorm_cam, wdir_cam) plane around the tangent axis,
+    // so rolled_up sweeps from normal → binormal → −normal → −binormal over
+    // one full roll cycle.  DIP_ANGLE tilts the look direction downward so the
+    // strip sits in the lower portion of the frame at roll=0.
     // ---------------------------------------------------------------------------
     float ch_cam = cos(u_cam * 0.5);
     float sh_cam = sin(u_cam * 0.5);
     float cu     = cos(u_cam);
     float su     = sin(u_cam);
 
-    vec3 strip_pos  = vec3(R * cu, R * su, 0.0);
-    vec3 wdir_cam   = vec3(ch_cam * cu, ch_cam * su,  sh_cam);
-    vec3 snorm_cam  = vec3(cu * sh_cam, su * sh_cam, -ch_cam);
+    vec3 strip_pos = vec3(R * cu, R * su, 0.0);
+    vec3 wdir_cam  = vec3(ch_cam * cu, ch_cam * su,  sh_cam);  // binormal
+    vec3 snorm_cam = vec3(cu * sh_cam, su * sh_cam, -ch_cam);  // surface normal
+    vec3 tangent   = vec3(-su, cu, 0.0);                        // ring tangent (unit)
 
-    vec3 ro = strip_pos + ELEV * snorm_cam;
+    // Slow roll: rotate camera's up vector around the forward (tangent) axis
+    float roll_rad = u_time * ROLL_SPEED;
+    vec3 rolled_up = cos(roll_rad) * snorm_cam + sin(roll_rad) * wdir_cam;
 
-    // Look-ahead target on center circle
-    float u_look = u_cam + LOOK_AHEAD;
-    vec3 ta = vec3(R * cos(u_look), R * sin(u_look), 0.0);
+    // Elevate camera off surface and tilt look direction slightly downward
+    vec3 ro          = strip_pos + ELEVATION * rolled_up;
+    vec3 cam_forward = normalize(tangent - DIP_ANGLE * rolled_up);
 
-    // Orthonormal view basis
-    vec3 fwd    = normalize(ta - ro);
-    vec3 right  = normalize(cross(fwd, wdir_cam));
-    vec3 cam_up = cross(right, fwd);   // recomputed for clean ortho basis
+    // Re-orthogonalize camera frame (prevents gimbal issues near roll ±90°)
+    vec3 right   = normalize(cross(cam_forward, rolled_up));
+    vec3 cam_up  = normalize(cross(right, cam_forward));
 
     // Ray direction from NDC
     vec2 uv = (gl_FragCoord.xy - 0.5 * u_resolution.xy) / u_resolution.y;
     uv /= u_zoom_scale;
-    vec3 rd = normalize(uv.x * right + uv.y * cam_up + fwd);
+    vec3 rd = normalize(uv.x * right + uv.y * cam_up + cam_forward);
 
     // ---------------------------------------------------------------------------
     // Abs-step sphere march — monotonic progress regardless of d sign.
