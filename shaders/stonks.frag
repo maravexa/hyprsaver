@@ -20,28 +20,77 @@ const int   VISIBLE = 40;
 // Fixed price and MACD bounds (sine amplitude envelopes + ~10% margin)
 const float P_MIN = -2.0;
 const float P_MAX =  2.0;
-const float M_MIN = -0.95;
-const float M_MAX =  0.95;
+const float M_MIN = -1.0;
+const float M_MAX =  1.0;
+
+// ---------------------------------------------------------------------------
+// Phase-based trend and volatility (block hashing, O(1) per pixel)
+// ---------------------------------------------------------------------------
+float hash11(float n) {
+    return fract(sin(n * 127.1) * 43758.5453);
+}
+
+const float BLOCK_LEN    = 9.0;
+const int   TREND_BLOCKS = 12;
+
+void phaseAt(float col_abs, out float trend_dir, out float vol_mult) {
+    float block = floor(col_abs / BLOCK_LEN);
+    float h_t   = hash11(block * 1.13);
+    float h_v   = hash11(block * 2.71 + 17.0);
+    trend_dir   = floor(h_t * 3.0) - 1.0;           // -1, 0, +1
+    vol_mult    = 0.3 + floor(h_v * 3.0) * 0.35;    // 0.3, 0.65, 1.0
+}
+
+float cumulativeTrend(float col_abs) {
+    float block    = floor(col_abs / BLOCK_LEN);
+    float in_block = col_abs - block * BLOCK_LEN;
+    float sum      = 0.0;
+    for (int i = 1; i < TREND_BLOCKS; i++) {
+        float b  = block - float(i);
+        float h  = hash11(b * 1.13);
+        float td = floor(h * 3.0) - 1.0;
+        // Fade out oldest blocks in window to prevent pan jumps at window edge
+        float w  = 1.0 - smoothstep(float(TREND_BLOCKS) - 3.0, float(TREND_BLOCKS), float(i));
+        sum += td * 0.08 * BLOCK_LEN * w;
+    }
+    float h_curr  = hash11(block * 1.13);
+    float td_curr = floor(h_curr * 3.0) - 1.0;
+    sum += td_curr * 0.08 * in_block;
+    return sum;
+}
 
 // ---------------------------------------------------------------------------
 // O(1) candle data — direct sine evaluation, no per-pixel loops.
 // Close of candle N == open of candle N+1 (continuity by construction).
 // ---------------------------------------------------------------------------
 void candleAt(float col_abs, out float o, out float c, out float h, out float l) {
-    o = sin(col_abs * 0.55) * 1.1 + sin(col_abs * 0.13 + 1.7) * 0.55;
-    c = sin((col_abs + 1.0) * 0.55) * 1.1 + sin((col_abs + 1.0) * 0.13 + 1.7) * 0.55;
-    float wick_top = max(0.0, sin(col_abs * 2.3 + 4.1) * 0.20);
-    float wick_bot = max(0.0, sin(col_abs * 1.9 + 7.7) * 0.20);
+    float trend_dir, vol_mult;
+    phaseAt(col_abs, trend_dir, vol_mult);
+
+    float noise_o = sin(col_abs * 0.55) * 1.1 + sin(col_abs * 0.13 + 1.7) * 0.55;
+    float noise_c = sin((col_abs + 1.0) * 0.55) * 1.1 + sin((col_abs + 1.0) * 0.13 + 1.7) * 0.55;
+
+    float trend_base = cumulativeTrend(col_abs);
+
+    o = noise_o * vol_mult + trend_base;
+    c = noise_c * vol_mult + trend_base + trend_dir * 0.08;
+
+    float wick_top = max(0.0, sin(col_abs * 2.3 + 4.1) * 0.20 * vol_mult);
+    float wick_bot = max(0.0, sin(col_abs * 1.9 + 7.7) * 0.20 * vol_mult);
     h = max(o, c) + wick_top;
     l = min(o, c) - wick_bot;
 }
 
 float macd_at(float col_abs) {
-    return sin(col_abs * 0.22) * 0.5 + sin(col_abs * 0.09 + 2.3) * 0.3;
+    float trend_dir, vol_mult;
+    phaseAt(col_abs, trend_dir, vol_mult);
+    return (sin(col_abs * 0.22) * 0.5 + sin(col_abs * 0.09 + 2.3) * 0.3) * vol_mult + trend_dir * 0.15;
 }
 
 float signal_at(float col_abs) {
-    return sin(col_abs * 0.18) * 0.45 + sin(col_abs * 0.07 + 2.1) * 0.28;
+    float trend_dir, vol_mult;
+    phaseAt(col_abs, trend_dir, vol_mult);
+    return (sin(col_abs * 0.18) * 0.45 + sin(col_abs * 0.07 + 2.1) * 0.28) * vol_mult + trend_dir * 0.13;
 }
 
 // ---------------------------------------------------------------------------
@@ -77,6 +126,14 @@ void main() {
     // Fetch O(1) candle data
     float o, c, h, l;
     candleAt(col_abs, o, c, h, l);
+
+    // Viewport pan: follow cumulative trend so chart drifts with bull/bear phases
+    float pan_y = cumulativeTrend(scroll_int + float(VISIBLE) * 0.5) * 0.7;
+    o -= pan_y;
+    c -= pan_y;
+    h -= pan_y;
+    l -= pan_y;
+
     bool bullish = c >= o;
 
     float p_range = P_MAX - P_MIN;
