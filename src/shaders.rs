@@ -121,6 +121,10 @@ pub const BUILTIN_TEMPLE: &str = include_str!("../shaders/temple.frag");
 /// 48-step march, finite-difference normals, Phong lighting. Lightweight GPU tier.
 pub const BUILTIN_BLOB: &str = include_str!("../shaders/blob.frag");
 
+/// Procedural candlestick chart with MACD oscillator — scrolling OHLC candles, palette-sampled
+/// bull/bear colors, EMA-derived MACD + signal lines in the bottom pane. Lightweight GPU tier.
+pub const BUILTIN_STONKS: &str = include_str!("../shaders/stonks.frag");
+
 // ---------------------------------------------------------------------------
 // Vertex shader for the fullscreen quad (triangle-strip, no VBO needed)
 // ---------------------------------------------------------------------------
@@ -301,6 +305,7 @@ impl ShaderManager {
             ("temple", BUILTIN_TEMPLE),
             ("wormhole", BUILTIN_WORMHOLE),
             ("blob", BUILTIN_BLOB),
+            ("stonks", BUILTIN_STONKS),
         ];
         for (name, raw_const) in builtins {
             let raw = raw_const
@@ -844,7 +849,7 @@ mod tests {
 
     #[test]
     fn test_builtin_shader_count() {
-        assert_eq!(manager().list().len(), 30);
+        assert_eq!(manager().list().len(), 31);
     }
 
     #[test]
@@ -882,6 +887,7 @@ mod tests {
             "voronoi",
             "temple",
             "wormhole",
+            "stonks",
         ] {
             assert!(
                 names.contains(expected),
