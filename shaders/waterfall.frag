@@ -89,44 +89,61 @@ void main() {
     // density is zero, black rock shows through by default.
     float water_density = 1.0 - smoothstep(0.25, 0.40, abs(uv.x - 0.5));
 
-    // Channel field — vertical streams that slowly drift laterally.
-    // The key asymmetry is x-freq >> y-freq: heavy x-variation with low
-    // y-variation means noise features extend up and down the screen. That
-    // produces vertical channels, not blobs.
+    // Channel field — DOUBLED x-freq (4.0 → 8.0) produces ~4–6 channels
+    // across the column instead of 2. Drift rate halved (0.08 → 0.04) to
+    // keep lateral migration visually similar despite higher x-freq; at
+    // 8.0 x-freq, a drift of 0.08 would race channels sideways too fast.
     //
-    // Lateral drift comes from adding t to the x coordinate (not the y
-    // coordinate as the streak fbm does). A given x-column stays a stream
-    // for several seconds as the lateral drift slowly carries the channel
-    // pattern sideways, then transitions to rock, then back.
-    //
-    //   x-freq 4.0    → ~2–3 wide channels across column at any moment
-    //   y-freq 0.5    → channels persist vertically (8× less y-variation
-    //                    than x → features are ~8× taller than wide)
-    //   t * 0.08 on x → slow lateral drift, ~12 s cycle; long enough that
-    //                    channels feel persistent, short enough that the
-    //                    pattern visibly evolves over a viewing session
-    vec2 channel_uv = vec2(uv.x * 4.0 + t * 0.08, uv.y * 0.5);
+    // Smoothstep window NARROWED (0.35, 0.55) → (0.35, 0.45). The narrower
+    // window makes channel edges near-binary instead of soft-feathered, so
+    // "stream" pixels reach full density instead of stopping at ~75%. That
+    // in turn lets streak contrast read properly within streams.
+    vec2 channel_uv = vec2(uv.x * 8.0 + t * 0.04, uv.y * 0.5);
     float channel = fbm_channel(channel_uv);
-
-    // Narrow smoothstep window gives near-binary channel/rock transitions
-    // with antialiased edges — hard-enough to read as distinct streams, soft
-    // enough to avoid alias shimmer under the quantize post.
-    float channel_factor = smoothstep(0.35, 0.55, channel);
+    float channel_factor = smoothstep(0.35, 0.45, channel);
     water_density *= channel_factor;
 
-    // Hue field — low frequency, slow downward drift. Decouples color from
-    // streak structure so multi-color bands show across the falls regardless
-    // of where the streaks are.
-    //   x-freq 2.5  → ~3 color bands visible across the column width
-    //   y-freq 2.0  → ~2 bands visible vertically at once
-    //   t * 0.25    → slow downward drift; ~2.4x slower than streaks for parallax
-    vec2 hue_uv = vec2(uv.x * 2.5, uv.y * 2.0 + t * 0.25);
-    float hue = fbm_hue(hue_uv);
+    // Streak-tearing — high-frequency gap field carving narrow slits
+    // BETWEEN individual water strands within a stream. This is distinct
+    // from the channel field (which defines stream vs. rock at the scale
+    // of whole streams); tearing operates at the scale of individual
+    // strands of water within a stream.
+    //
+    // Real wide waterfalls look like many discrete strands with narrow
+    // vertical gaps between them, not a continuous sheet with brightness
+    // variation. This mechanism produces the strand structure directly.
+    //
+    //   x-freq 35.0 → features ~2x narrower than streaks (streak x-freq
+    //                  is 18.0) so tears fall between streak strands
+    //   y-freq 8.0  → tears are vertically elongated (slit-shaped, not
+    //                  circular); 35:8 aspect ratio ≈ 4:1 tall:wide
+    //   t * 0.6     → scrolls at streak speed so tears move with the
+    //                  water, not independently
+    vec2 tear_uv = vec2(uv.x * 35.0, uv.y * 8.0 + t * 0.6);
+    float tear = vnoise2(tear_uv);
 
-    // Stretch noise-clustered output toward palette edges.
-    // fbm output lives roughly in [0.15, 0.85]; this remaps to [0, 1] with
-    // clamping, so ~30% of pixels hit pure palette endpoints.
-    float palette_t = clamp(hue * 1.5 - 0.25, 0.0, 1.0);
+    // Threshold window (0.15, 0.30): ~15% of pixels become tears (values
+    // below 0.15 fully gap, 0.15–0.30 antialiased edge). Narrow enough
+    // that tears are visible as structure, sparse enough that the sheet
+    // doesn't disintegrate.
+    float tear_factor = smoothstep(0.15, 0.30, tear);
+    water_density *= tear_factor;
+
+    // Hue field — y-freq SLASHED (2.0 → 0.5) so color varies almost
+    // exclusively across x, not y. Each stream is now mostly a single
+    // color top-to-bottom, matching how real water reads (water itself is
+    // not rainbow-laddered; only lighting and depth shift color).
+    //
+    // x-freq slightly reduced (2.5 → 2.0) for broader color regions across
+    // the column: 1–2 dominant color zones instead of 2–3.
+    //
+    // Palette stretch MODERATED (1.5 * hue - 0.25) → (1.2 * hue - 0.1).
+    // Effective palette slice ~[0.08, 0.92] instead of [0, 1]. Still wide
+    // enough for multi-color bands, but extreme palette endpoints (which
+    // dominate via saturation on rainbow) are excluded.
+    vec2 hue_uv = vec2(uv.x * 2.0, uv.y * 0.5 + t * 0.25);
+    float hue = fbm_hue(hue_uv);
+    float palette_t = clamp(hue * 1.2 - 0.1, 0.0, 1.0);
 
     // Streak texture — high frequency, fast downward flow. Drives brightness.
     vec2 water_uv = vec2(uv.x * 18.0, uv.y * 2.5 + t * 0.6);
@@ -153,10 +170,14 @@ void main() {
     // from pulse alone — full extinction is the channel field's job.
     water_density *= mix(0.6, 1.0, pulse);
 
-    // Base water color: hue from palette, brightness modulated by streaks.
-    // mix(0.5, 1.0, w) keeps dimmest streaks at 50% brightness so deep water
-    // stays visible (not black) while bright streaks reach full intensity.
-    vec3 water_col = palette(palette_t) * mix(0.5, 1.0, w);
+    // Streak contrast EXTENDED: mix(0.5, 1.0, w) → mix(0.15, 1.0, w).
+    // Dim streak regions now go to 15% palette intensity instead of 50%,
+    // giving ~6.7:1 brightness variation between dim and bright streaks
+    // instead of 2:1. Streaks become the dominant visual signal again.
+    // Dim streaks don't reveal rock beneath — density is still governed
+    // by channel/pulse/envelope; this only affects brightness of the
+    // already-watery pixels.
+    vec3 water_col = palette(palette_t) * mix(0.15, 1.0, w);
 
     // Additive composition: rock is implicit (vec3(0.0)); water and
     // highlight are scaled by water_density so they fade to zero at the
@@ -164,10 +185,15 @@ void main() {
     vec3 col = vec3(0.0);
     col += water_col * water_density;
 
-    // Highlights: brighten the base hue rather than adding palette(0.95).
-    // This keeps highlights chromatically consistent with the water they're
-    // highlighting — no foreign-color splash when hue is far from 0.95.
-    col += water_col * smoothstep(0.65, 0.85, w) * water_density * 0.8;
+    // Highlight threshold LOWERED (0.65, 0.85) → (0.50, 0.75). A 3-octave
+    // fbm rarely reaches 0.85; the old threshold triggered in roughly the
+    // top 8% of fbm values, making highlights uncommon. New threshold
+    // triggers in roughly the top 30%, so crests are visible frequently.
+    //
+    // Multiplier REDUCED (0.8 → 0.5) — base streak brightness now reaches
+    // ~0.9 at peak w, so 0.5 extra on top keeps the total within a
+    // reasonable overshoot range before the final clamp.
+    col += water_col * smoothstep(0.50, 0.75, w) * water_density * 0.5;
 
     // Mist at the base (bottom 30%). Uniform early-out across most RDNA
     // wavefronts — saves fbm_mist on ~70% of pixels.
