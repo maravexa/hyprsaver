@@ -121,6 +121,11 @@ pub const BUILTIN_TEMPLE: &str = include_str!("../shaders/temple.frag");
 /// 48-step march, finite-difference normals, Phong lighting. Lightweight GPU tier.
 pub const BUILTIN_BLOB: &str = include_str!("../shaders/blob.frag");
 
+/// Stylized 2D waterfall — three vertical bands (dark rock | fbm water | dark rock) with
+/// downward-scrolling 3-octave fbm, bottom mist overlay, and PS1-style Bayer dither + quantize.
+/// Lightweight GPU tier (<30% util).
+pub const BUILTIN_WATERFALL: &str = include_str!("../shaders/waterfall.frag");
+
 // ---------------------------------------------------------------------------
 // Vertex shader for the fullscreen quad (triangle-strip, no VBO needed)
 // ---------------------------------------------------------------------------
@@ -301,6 +306,7 @@ impl ShaderManager {
             ("temple", BUILTIN_TEMPLE),
             ("wormhole", BUILTIN_WORMHOLE),
             ("blob", BUILTIN_BLOB),
+            ("waterfall", BUILTIN_WATERFALL),
         ];
         for (name, raw_const) in builtins {
             let raw = raw_const
@@ -844,7 +850,7 @@ mod tests {
 
     #[test]
     fn test_builtin_shader_count() {
-        assert_eq!(manager().list().len(), 30);
+        assert_eq!(manager().list().len(), 31);
     }
 
     #[test]
@@ -882,6 +888,7 @@ mod tests {
             "voronoi",
             "temple",
             "wormhole",
+            "waterfall",
         ] {
             assert!(
                 names.contains(expected),
