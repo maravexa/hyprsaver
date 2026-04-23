@@ -183,7 +183,11 @@ pub fn run(
     };
 
     // Collect all palette names for deterministic selection fallback.
-    let all_palette_names: Vec<String> = palette_manager.list().iter().map(|s| s.to_string()).collect();
+    let all_palette_names: Vec<String> = palette_manager
+        .list()
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
 
     // Initialise headless EGL and renderer once; reuse across all shaders.
     let (gl, _egl_ctx) =
@@ -277,10 +281,7 @@ fn render_shader_to_webp(
     // Validate output directory.
     if let Some(parent) = output_path.parent() {
         if !parent.as_os_str().is_empty() && !parent.exists() {
-            anyhow::bail!(
-                "output directory '{}' does not exist",
-                parent.display()
-            );
+            anyhow::bail!("output directory '{}' does not exist", parent.display());
         }
     }
 
@@ -508,9 +509,7 @@ fn parse_resolution(s: &str) -> anyhow::Result<(u32, u32)> {
     let (ws, hs) = s
         .split_once('x')
         .or_else(|| s.split_once('X'))
-        .ok_or_else(|| {
-            anyhow::anyhow!("invalid resolution '{s}'; expected WxH, e.g. '480x270'")
-        })?;
+        .ok_or_else(|| anyhow::anyhow!("invalid resolution '{s}'; expected WxH, e.g. '480x270'"))?;
     let w: u32 = ws
         .trim()
         .parse()
