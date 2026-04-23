@@ -8,7 +8,7 @@
 //! Requires no Wayland compositor — uses a headless EGL context.
 
 use std::io::Write as _;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use anyhow::Context as _;
@@ -183,7 +183,11 @@ pub fn run(
     };
 
     // Collect all palette names for deterministic selection fallback.
-    let all_palette_names: Vec<String> = palette_manager.list().iter().map(|s| s.to_string()).collect();
+    let all_palette_names: Vec<String> = palette_manager
+        .list()
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
 
     // Initialise headless EGL and renderer once; reuse across all shaders.
     let (gl, _egl_ctx) =
@@ -214,8 +218,8 @@ pub fn run(
 
         let palette_list = resolve_palette_list(
             shader_name,
-            &args.palette,
-            &cycle_palette_names,
+            args.palette.as_deref(),
+            cycle_palette_names.as_deref(),
             &all_palette_names,
             seed,
         );
@@ -260,6 +264,7 @@ pub fn run(
 // Single-shader render → animated WebP
 // ---------------------------------------------------------------------------
 
+#[allow(clippy::too_many_arguments)]
 fn render_shader_to_webp(
     shader_name: &str,
     shader_manager: &ShaderManager,
@@ -272,15 +277,12 @@ fn render_shader_to_webp(
     fps: u64,
     duration: u64,
     quality: u8,
-    output_path: &PathBuf,
+    output_path: &Path,
 ) -> anyhow::Result<usize> {
     // Validate output directory.
     if let Some(parent) = output_path.parent() {
         if !parent.as_os_str().is_empty() && !parent.exists() {
-            anyhow::bail!(
-                "output directory '{}' does not exist",
-                parent.display()
-            );
+            anyhow::bail!("output directory '{}' does not exist", parent.display());
         }
     }
 
@@ -392,16 +394,16 @@ fn render_shader_to_webp(
 /// 3. FNV-1a hash of `shader_name + seed` → deterministic pick from all palettes
 fn resolve_palette_list(
     shader_name: &str,
-    single_palette: &Option<String>,
-    cycle_palettes: &Option<Vec<String>>,
+    single_palette: Option<&str>,
+    cycle_palettes: Option<&[String]>,
     all_palette_names: &[String],
     seed: u64,
 ) -> Vec<String> {
-    if let Some(ref names) = cycle_palettes {
-        return names.clone();
+    if let Some(names) = cycle_palettes {
+        return names.to_vec();
     }
-    if let Some(ref name) = single_palette {
-        return vec![name.clone()];
+    if let Some(name) = single_palette {
+        return vec![name.to_string()];
     }
     if all_palette_names.is_empty() {
         return Vec::new();
@@ -508,9 +510,7 @@ fn parse_resolution(s: &str) -> anyhow::Result<(u32, u32)> {
     let (ws, hs) = s
         .split_once('x')
         .or_else(|| s.split_once('X'))
-        .ok_or_else(|| {
-            anyhow::anyhow!("invalid resolution '{s}'; expected WxH, e.g. '480x270'")
-        })?;
+        .ok_or_else(|| anyhow::anyhow!("invalid resolution '{s}'; expected WxH, e.g. '480x270'"))?;
     let w: u32 = ws
         .trim()
         .parse()
