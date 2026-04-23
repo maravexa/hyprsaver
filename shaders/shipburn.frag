@@ -67,9 +67,9 @@ void main() {
 
     // Two-layer julia-style palette cycling
     // col_boundary cycles 3x across palette, drifts with time
-    vec3 col_boundary = palette(fract(t_thick * 3.0 + u_time * 0.075));
+    vec3 col_boundary = palette(abs(fract(t_thick * 3.0 + u_time * 0.075) * 2.0 - 1.0));
     // col_shimmer cycles 2x, offset in palette space by 0.3, drifts at different rate
-    vec3 col_shimmer  = palette(fract(t_thick * 2.0 + u_time * 0.105 + 0.3));
+    vec3 col_shimmer  = palette(abs(fract(t_thick * 2.0 + u_time * 0.105 + 0.3) * 2.0 - 1.0));
 
     // Blend — boundary dominant, shimmer adds within-line color variation
     vec3 col = mix(col_boundary, col_shimmer, 0.35);
