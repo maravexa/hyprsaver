@@ -42,9 +42,23 @@ float vnoise2(vec2 p) {
 }
 
 // ---------------------------------------------------------------------------
-// 2-octave fbm for water — x-heavy sampling elsewhere gives vertical streaks
+// 3-octave fbm for water — x-heavy sampling elsewhere gives vertical streaks
 // ---------------------------------------------------------------------------
 float fbm_water(vec2 p) {
+    float v = 0.0;
+    float a = 0.5;
+    for (int i = 0; i < 3; i++) {
+        v += a * vnoise2(p);
+        p *= 2.0;
+        a *= 0.5;
+    }
+    return v;
+}
+
+// ---------------------------------------------------------------------------
+// 2-octave fbm for the hue field — slow, large-scale color variation
+// ---------------------------------------------------------------------------
+float fbm_hue(vec2 p) {
     return 0.67 * vnoise2(p) + 0.33 * vnoise2(p * 2.0);
 }
 
@@ -66,26 +80,39 @@ void main() {
     // density is zero, black rock shows through by default.
     float water_density = 1.0 - smoothstep(0.25, 0.40, abs(uv.x - 0.5));
 
-    // Anisotropic water texture: x-freq 18.0, y-freq 2.5 → 7.2:1 → noise
-    // features are short along x and long along y, producing vertical
-    // streaks. `+ t * 0.6` in y sample direction translates the pattern
-    // downward on screen under the uv.y=0-at-bottom convention.
+    // Hue field — low frequency, slow downward drift. Decouples color from
+    // streak structure so multi-color bands show across the falls regardless
+    // of where the streaks are.
+    //   x-freq 2.5  → ~3 color bands visible across the column width
+    //   y-freq 2.0  → ~2 bands visible vertically at once
+    //   t * 0.25    → slow downward drift; ~2.4x slower than streaks for parallax
+    vec2 hue_uv = vec2(uv.x * 2.5, uv.y * 2.0 + t * 0.25);
+    float hue = fbm_hue(hue_uv);
+
+    // Stretch noise-clustered output toward palette edges.
+    // fbm output lives roughly in [0.15, 0.85]; this remaps to [0, 1] with
+    // clamping, so ~30% of pixels hit pure palette endpoints.
+    float palette_t = clamp(hue * 1.5 - 0.25, 0.0, 1.0);
+
+    // Streak texture — high frequency, fast downward flow. Drives brightness.
     vec2 water_uv = vec2(uv.x * 18.0, uv.y * 2.5 + t * 0.6);
     float w = fbm_water(water_uv);
 
-    // Gradient through the [0.50, 0.85] palette slice.
-    vec3 water_col = palette(mix(0.50, 0.85, w));
-
-    // Streak-crest highlight: reuse w (no extra noise cost); only the top
-    // ~20% of fbm values contribute.
-    float highlight = smoothstep(0.65, 0.85, w);
+    // Base water color: hue from palette, brightness modulated by streaks.
+    // mix(0.5, 1.0, w) keeps dimmest streaks at 50% brightness so deep water
+    // stays visible (not black) while bright streaks reach full intensity.
+    vec3 water_col = palette(palette_t) * mix(0.5, 1.0, w);
 
     // Additive composition: rock is implicit (vec3(0.0)); water and
     // highlight are scaled by water_density so they fade to zero at the
     // column edges with no visible border.
     vec3 col = vec3(0.0);
     col += water_col * water_density;
-    col += palette(0.95) * highlight * water_density * 0.4;
+
+    // Highlights: brighten the base hue rather than adding palette(0.95).
+    // This keeps highlights chromatically consistent with the water they're
+    // highlighting — no foreign-color splash when hue is far from 0.95.
+    col += water_col * smoothstep(0.65, 0.85, w) * water_density * 0.8;
 
     // Mist at the base (bottom 30%). Uniform early-out across most RDNA
     // wavefronts — saves fbm_mist on ~70% of pixels.
