@@ -70,6 +70,16 @@ float fbm_mist(vec2 p) {
     return 0.67 * vnoise2(p) + 0.33 * vnoise2(p * 2.0);
 }
 
+// ---------------------------------------------------------------------------
+// 2-octave fbm for the gap field — produces sheet tears. Independent
+// noise seed from hue and streak fields (different hash2 output by way
+// of different sample coordinates) so gaps don't correlate with color
+// bands or streak structure.
+// ---------------------------------------------------------------------------
+float fbm_gap(vec2 p) {
+    return 0.67 * vnoise2(p) + 0.33 * vnoise2(p * 2.0);
+}
+
 void main() {
     vec2 uv = gl_FragCoord.xy / u_resolution.xy;
     // uv.y = 0.0 at bottom, 1.0 at top
@@ -79,6 +89,27 @@ void main() {
     // smooth falloff to zero at x ∈ [0.10, 0.90]. No alpha mask — where
     // density is zero, black rock shows through by default.
     float water_density = 1.0 - smoothstep(0.25, 0.40, abs(uv.x - 0.5));
+
+    // Gap field — large-scale tears in the water sheet. 2-octave fbm at a
+    // frequency that produces ~2-3 visible gaps across the column at any
+    // moment. Drifts downward between streak speed (0.6) and hue speed
+    // (0.25), so gaps feel like persistent openings that move with the
+    // water rather than particles or frozen rips.
+    //   x-freq 5.0  → ~2-3 gap features across column width
+    //   y-freq 4.0  → gaps are taller than wide (sheet-tear shape, not holes)
+    //   t * 0.45    → intermediate drift; between hue and streak rates
+    vec2 gap_uv = vec2(uv.x * 5.0, uv.y * 4.0 + t * 0.45);
+    float gap_raw = fbm_gap(gap_uv);
+
+    // Narrow smoothstep window (0.40 → 0.55) gives near-binary gap/water
+    // transitions with antialiased edges. Widening this window (e.g., to
+    // 0.30 → 0.60) would give softer wispy gap edges.
+    float gap_factor = smoothstep(0.40, 0.55, gap_raw);
+
+    // Modulate water_density: inside a gap, density goes to zero, which
+    // zeros out both streaks and highlights in the composition below.
+    // Mist is a separate additive layer and continues to render through.
+    water_density *= gap_factor;
 
     // Hue field — low frequency, slow downward drift. Decouples color from
     // streak structure so multi-color bands show across the falls regardless
@@ -123,8 +154,10 @@ void main() {
         float mist_half_width = 0.45 - uv.y * 0.4;
         float horizontal = 1.0 - smoothstep(0.0, mist_half_width, x_dist);
 
-        // Vertical envelope: strong at base, decays upward
-        float vertical = exp(-uv.y * 6.0);
+        // Vertical envelope: strong at base, decays upward.
+        // Taper to zero at the branch boundary (uv.y = 0.30) so the quantize
+        // post-process has no density step to amplify into a visible line.
+        float vertical = exp(-uv.y * 6.0) * (1.0 - smoothstep(0.0, 0.30, uv.y));
 
         // Mist drifts UP: -t in y sample direction
         vec2 mist_uv = vec2(uv.x * 3.0, uv.y * 4.0 - t * 0.25);
