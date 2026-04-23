@@ -730,23 +730,40 @@ impl PreviewState {
                     });
             }
 
-            // FPS counter — bottom-left of render area
+            // FPS counter — top-left of render area
             if bundle.state.show_fps {
                 let fps_text = if is_paused {
                     format!("{:.0} FPS (paused)", fps_val)
                 } else {
                     format!("{:.0} FPS", fps_val)
                 };
-                egui::Area::new(egui::Id::new("fps_counter"))
-                    .fixed_pos(egui::Pos2::new(8.0, logical_h - 24.0))
-                    .show(ctx, |ui| {
-                        ui.label(
-                            egui::RichText::new(fps_text)
-                                .size(12.0)
-                                .color(egui::Color32::from_rgba_unmultiplied(200, 200, 200, 160))
-                                .monospace(),
-                        );
-                    });
+                let pos = egui::Pos2::new(10.0, 10.0);
+                let anchor = egui::Align2::LEFT_TOP;
+                let font = egui::FontId::monospace(24.0);
+                let painter = ctx.layer_painter(egui::LayerId::new(
+                    egui::Order::Foreground,
+                    egui::Id::new("fps_counter"),
+                ));
+                for (dx, dy) in [
+                    (-1.0_f32, -1.0_f32),
+                    (0.0_f32, -1.0_f32),
+                    (1.0_f32, -1.0_f32),
+                    (-1.0_f32, 0.0_f32),
+                    (1.0_f32, 0.0_f32),
+                    (-1.0_f32, 1.0_f32),
+                    (0.0_f32, 1.0_f32),
+                    (1.0_f32, 1.0_f32),
+                ] {
+                    let offset_pos = pos + egui::Vec2::new(dx * 2.0, dy * 2.0);
+                    painter.text(
+                        offset_pos,
+                        anchor,
+                        &fps_text,
+                        font.clone(),
+                        egui::Color32::BLACK,
+                    );
+                }
+                painter.text(pos, anchor, &fps_text, font, egui::Color32::WHITE);
             }
         });
 
@@ -1865,6 +1882,12 @@ impl KeyboardHandler for PreviewState {
                     log::info!("preview: transition key pressed");
                     self.trigger_debug_transition();
                 }
+                Keysym::i | Keysym::I => {
+                    if let Some(ref mut bundle) = self.egui_bundle {
+                        bundle.state.show_fps = !bundle.state.show_fps;
+                        log::info!("preview: show_fps={}", bundle.state.show_fps);
+                    }
+                }
                 _ => {}
             }
         }
@@ -2383,15 +2406,6 @@ fn draw_preview_tab(
                     );
                 });
 
-            ui.add_space(4.0);
-
-            // ── Display section ────────────────────────────────────────
-            egui::CollapsingHeader::new(egui::RichText::new("Display").strong())
-                .default_open(true)
-                .show(ui, |ui| {
-                    ui.checkbox(&mut state.show_fps, "Show FPS counter");
-                });
-
             ui.add_space(10.0);
 
             // ── Action buttons ─────────────────────────────────────────
@@ -2460,6 +2474,7 @@ fn draw_preview_tab(
                      ↑/↓         prev/next palette\n\
                      R           reset time\n\
                      F           toggle fullscreen\n\
+                     I           toggle FPS counter\n\
                      Esc         exit",
                 )
                 .small()
