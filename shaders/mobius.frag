@@ -26,16 +26,18 @@ uniform int   u_frame;
 uniform float u_speed_scale;
 uniform float u_zoom_scale;
 
-const int   MAX_STEPS  = 48;
-const float MAX_DIST   = 20.0;
-const float HIT_EPS    = 0.001;
-const float MIN_STEP   = 0.001;
-const float R          = 1.5;    // major radius of ring
-const float W          = 0.3;    // ribbon half-width
-const float THICKNESS  = 0.018;  // SDF ribbon thickness (half)
-const float SPEED      = 0.4;    // radians / sec camera advance
-const float LOOK_AHEAD = 0.7;    // radians ahead for look-at target
-const float ELEV       = 0.15;   // elevation above surface in surf-normal dir
+const int   MAX_STEPS      = 48;
+const float MAX_DIST       = 20.0;
+const float HIT_EPS        = 0.001;
+const float MIN_STEP       = 0.001;
+const float R              = 1.5;    // major radius of ring
+const float W              = 0.3;    // ribbon half-width
+const float THICKNESS      = 0.018;  // SDF ribbon thickness (half)
+const float SPEED          = 0.4;    // radians / sec camera advance
+const float LOOK_AHEAD     = 0.7;    // radians ahead for look-at target
+const float ELEV           = 0.15;   // elevation above surface in surf-normal dir
+const float TAU            = 6.283185307;
+const float BANDS_PER_LOOP = 8.0;   // colour bands around the full 2π loop
 
 // ---------------------------------------------------------------------------
 // mobiusSDF — signed distance to the Möbius ribbon.
@@ -110,18 +112,20 @@ void main() {
     }
 
     // ---------------------------------------------------------------------------
-    // Shading — palette across ribbon width; black void everywhere else.
+    // Shading — palette along strip length (u axis); black void elsewhere.
     // ---------------------------------------------------------------------------
     vec3 col;
     if (hit) {
-        // Recover v at hit point (same projection as SDF)
+        // Recover v at hit point for edge darkening (same projection as SDF)
         float rxy_h = max(length(p.xy), 0.001);
         float th_h  = atan(p.y, p.x);
         float ch_h  = cos(th_h * 0.5);
         float sh_h  = sin(th_h * 0.5);
         float v_hit = (rxy_h - R) * ch_h + p.z * sh_h;
-        float v_n   = clamp((v_hit + W) / (2.0 * W), 0.0, 1.0);
-        col = palette(v_n);
+
+        // Gradient along strip length (u axis) — bands run perpendicular to travel
+        float u_n = fract(th_h / TAU * BANDS_PER_LOOP + 0.5);
+        col = palette(u_n);
 
         // Soft edge darkening — ribbon looks like a solid ribbon, not a flat slab
         float edge = 1.0 - smoothstep(0.85, 1.0, abs(v_hit) / W);
