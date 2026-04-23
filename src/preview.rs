@@ -198,6 +198,8 @@ struct PaletteEditorState {
     save_requested: bool,
     /// Set by the "Reset" button, consumed inline.
     reset_requested: bool,
+    /// Set by the "⟳ Test Palette Transition" button, consumed by `render_panel`.
+    test_palette_transition_requested: bool,
     /// Status message shown beneath the action buttons.
     save_status: String,
 }
@@ -231,6 +233,7 @@ impl PaletteEditorState {
             dirty: false,
             save_requested: false,
             reset_requested: false,
+            test_palette_transition_requested: false,
             save_status: String::new(),
         }
     }
@@ -989,6 +992,46 @@ impl PreviewState {
             }
         }
 
+        // ── Palette tab: "⟳ Test Palette Transition" button ──────────
+        // Advance to the next palette in sorted order and begin a crossfade
+        // using the current `palette_transition_speed` duration. Mirrors the
+        // logic from wayland.rs: renderer.begin_transition uploads palette B,
+        // then advance_transition() drives the blend each frame.
+        if bundle.state.palette_editor.test_palette_transition_requested {
+            bundle.state.palette_editor.test_palette_transition_requested = false;
+            let mut palette_list: Vec<String> = self
+                .palette_manager
+                .list()
+                .iter()
+                .map(|p| p.to_string())
+                .collect();
+            palette_list.sort();
+            if !palette_list.is_empty() {
+                let current_idx = palette_list
+                    .iter()
+                    .position(|p| p == &self.active_palette)
+                    .unwrap_or(0) as i32;
+                let n = palette_list.len() as i32;
+                let next_idx = ((current_idx + 1) % n + n) % n;
+                let next_name = palette_list[next_idx as usize].clone();
+                let duration = bundle.state.palette_transition_speed;
+                let now = Instant::now();
+                self.palette_manager.transition_to(&next_name, duration, now);
+                if let Some(next_entry) = self.palette_manager.get(&next_name).cloned() {
+                    if let Some(r) = self.renderer.as_mut() {
+                        if duration > 0.0 {
+                            r.begin_transition(&next_entry).ok();
+                        } else {
+                            r.set_palette(&next_entry).ok();
+                        }
+                    }
+                }
+                self.active_palette = next_name.clone();
+                bundle.state.selected_palette = next_name.clone();
+                log::info!("preview: test palette transition → '{next_name}'");
+            }
+        }
+
         // ── Preview tab: "Save Config" button ─────────────────────────
         // Merge the current preview state (active shader/palette, slider
         // values, any edited playlists, any palettes saved this session)
@@ -1443,9 +1486,21 @@ pub fn run(
 
             // Advance palette cross-fade transition.
             let now = Instant::now();
+            let was_transitioning = state.palette_manager.next_palette().is_some();
             let blend = state.palette_manager.advance_transition(now);
+            let just_completed =
+                was_transitioning && state.palette_manager.next_palette().is_none();
             if let Some(r) = state.renderer.as_mut() {
                 r.set_blend(if blend > 0.0 { blend } else { 0.0 });
+            }
+            // When the crossfade finishes, commit palette A to the new value
+            // so the renderer switches back to single-palette mode cleanly.
+            if just_completed {
+                if let Some(entry) = state.palette_manager.current_palette().cloned() {
+                    if let Some(r) = state.renderer.as_mut() {
+                        r.set_palette(&entry).ok();
+                    }
+                }
             }
 
             // Generate thumbnails once after GL init, and regenerate on palette change.
@@ -2150,7 +2205,7 @@ fn draw_panel(
                     );
                 }
                 PreviewTab::PaletteEditor => {
-                    draw_palette_editor_tab(ui, state, cosine_palettes);
+                    draw_palette_editor_tab(ui, state, cosine_palettes, palette_gradients);
                 }
             }
         });
@@ -2206,6 +2261,63 @@ fn draw_palette_swatch_in_rect(
             0.0,
             color,
         );
+    }
+}
+
+/// Render gradient-swatch dropdown rows for a palette picker inside a `show_ui` callback.
+///
+/// Renders one row per name: left-aligned text label + right-aligned 50 px gradient
+/// swatch. Highlights the currently-selected row. Updates `*selected` when a row
+/// is clicked. Intended to be called inside a `ComboBox::show_ui` → `ScrollArea`
+/// chain where the ComboBox width and `set_min_width` are set by the caller.
+fn palette_combo_rows(
+    ui: &mut egui::Ui,
+    names: &[String],
+    selected: &mut String,
+    palette_gradients: &std::collections::HashMap<String, Vec<egui::Color32>>,
+) {
+    for name in names {
+        let row_h = 24.0;
+        let is_selected = *selected == *name;
+        let (rect, response) = ui.allocate_exact_size(
+            egui::vec2(ui.available_width(), row_h),
+            egui::Sense::click(),
+        );
+        let bg = if is_selected {
+            ui.visuals().selection.bg_fill
+        } else if response.hovered() {
+            ui.visuals().widgets.hovered.weak_bg_fill
+        } else {
+            egui::Color32::TRANSPARENT
+        };
+        if bg != egui::Color32::TRANSPARENT {
+            ui.painter().rect_filled(rect, 2.0, bg);
+        }
+        let text_color = if is_selected {
+            ui.visuals().selection.stroke.color
+        } else {
+            ui.visuals().text_color()
+        };
+        ui.painter().text(
+            rect.left_center() + egui::vec2(6.0, 0.0),
+            egui::Align2::LEFT_CENTER,
+            name,
+            egui::TextStyle::Body.resolve(ui.style()),
+            text_color,
+        );
+        let swatch_w = 50.0;
+        let swatch_rect = egui::Rect::from_min_size(
+            egui::pos2(rect.right() - swatch_w - 4.0, rect.top() + 2.0),
+            egui::vec2(swatch_w, row_h - 4.0),
+        );
+        draw_palette_swatch_in_rect(
+            ui.painter(),
+            swatch_rect,
+            palette_gradients.get(name.as_str()),
+        );
+        if response.clicked() {
+            *selected = name.clone();
+        }
     }
 }
 
@@ -2342,55 +2454,12 @@ fn draw_preview_tab(
                                 .max_height(300.0)
                                 .show(ui, |ui| {
                                     ui.set_min_width(combo_w);
-                                    for name in palette_list {
-                                        let row_h = 24.0;
-                                        let is_selected = state.selected_palette == *name;
-                                        let (rect, response) = ui.allocate_exact_size(
-                                            egui::vec2(ui.available_width(), row_h),
-                                            egui::Sense::click(),
-                                        );
-                                        // Background highlight
-                                        let bg = if is_selected {
-                                            ui.visuals().selection.bg_fill
-                                        } else if response.hovered() {
-                                            ui.visuals().widgets.hovered.weak_bg_fill
-                                        } else {
-                                            egui::Color32::TRANSPARENT
-                                        };
-                                        if bg != egui::Color32::TRANSPARENT {
-                                            ui.painter().rect_filled(rect, 2.0, bg);
-                                        }
-                                        // Text label — left aligned
-                                        let text_color = if is_selected {
-                                            ui.visuals().selection.stroke.color
-                                        } else {
-                                            ui.visuals().text_color()
-                                        };
-                                        ui.painter().text(
-                                            rect.left_center() + egui::vec2(6.0, 0.0),
-                                            egui::Align2::LEFT_CENTER,
-                                            name,
-                                            egui::TextStyle::Body.resolve(ui.style()),
-                                            text_color,
-                                        );
-                                        // Gradient swatch — right edge
-                                        let swatch_w = 50.0;
-                                        let swatch_rect = egui::Rect::from_min_size(
-                                            egui::pos2(
-                                                rect.right() - swatch_w - 4.0,
-                                                rect.top() + 2.0,
-                                            ),
-                                            egui::vec2(swatch_w, row_h - 4.0),
-                                        );
-                                        draw_palette_swatch_in_rect(
-                                            ui.painter(),
-                                            swatch_rect,
-                                            palette_gradients.get(name.as_str()),
-                                        );
-                                        if response.clicked() {
-                                            state.selected_palette = name.clone();
-                                        }
-                                    }
+                                    palette_combo_rows(
+                                        ui,
+                                        palette_list,
+                                        &mut state.selected_palette,
+                                        palette_gradients,
+                                    );
                                 });
                         });
 
@@ -2728,52 +2797,12 @@ fn draw_playlists_tab(
                                     .max_height(300.0)
                                     .show(ui, |ui| {
                                         ui.set_min_width(combo_w);
-                                        for name in &available {
-                                            let row_h = 24.0;
-                                            let is_selected = ed.add_palette_selected == *name;
-                                            let (rect, response) = ui.allocate_exact_size(
-                                                egui::vec2(ui.available_width(), row_h),
-                                                egui::Sense::click(),
-                                            );
-                                            let bg = if is_selected {
-                                                ui.visuals().selection.bg_fill
-                                            } else if response.hovered() {
-                                                ui.visuals().widgets.hovered.weak_bg_fill
-                                            } else {
-                                                egui::Color32::TRANSPARENT
-                                            };
-                                            if bg != egui::Color32::TRANSPARENT {
-                                                ui.painter().rect_filled(rect, 2.0, bg);
-                                            }
-                                            let text_color = if is_selected {
-                                                ui.visuals().selection.stroke.color
-                                            } else {
-                                                ui.visuals().text_color()
-                                            };
-                                            ui.painter().text(
-                                                rect.left_center() + egui::vec2(6.0, 0.0),
-                                                egui::Align2::LEFT_CENTER,
-                                                name,
-                                                egui::TextStyle::Body.resolve(ui.style()),
-                                                text_color,
-                                            );
-                                            let swatch_w = 50.0;
-                                            let swatch_rect = egui::Rect::from_min_size(
-                                                egui::pos2(
-                                                    rect.right() - swatch_w - 4.0,
-                                                    rect.top() + 2.0,
-                                                ),
-                                                egui::vec2(swatch_w, row_h - 4.0),
-                                            );
-                                            draw_palette_swatch_in_rect(
-                                                ui.painter(),
-                                                swatch_rect,
-                                                palette_gradients.get(name.as_str()),
-                                            );
-                                            if response.clicked() {
-                                                ed.add_palette_selected = name.clone();
-                                            }
-                                        }
+                                        palette_combo_rows(
+                                            ui,
+                                            &available,
+                                            &mut ed.add_palette_selected,
+                                            palette_gradients,
+                                        );
                                     });
                             });
                         let can_add = !ed.add_palette_selected.is_empty()
@@ -2922,6 +2951,7 @@ fn draw_palette_editor_tab(
     ui: &mut egui::Ui,
     state: &mut PreviewPanelState,
     cosine_palettes: &std::collections::BTreeMap<String, Palette>,
+    palette_gradients: &std::collections::HashMap<String, Vec<egui::Color32>>,
 ) {
     let avail_w = ui.available_width();
     egui::ScrollArea::vertical()
@@ -2932,20 +2962,32 @@ fn draw_palette_editor_tab(
 
             // ── Palette selector ────────────────────────────────────────
             ui.label(egui::RichText::new("Palette").strong().small());
+            let combo_w = avail_w - 4.0;
             let prev_selection = ed.selected_name.clone();
             egui::ComboBox::from_id_salt("palette_editor_combo")
-                .width(avail_w - 4.0)
+                .width(combo_w)
                 .selected_text(&ed.selected_name)
                 .show_ui(ui, |ui| {
-                    for name in cosine_palettes.keys() {
-                        ui.selectable_value(&mut ed.selected_name, name.clone(), name);
-                    }
-                    ui.separator();
-                    ui.selectable_value(
-                        &mut ed.selected_name,
-                        NEW_PALETTE_SENTINEL.to_string(),
-                        NEW_PALETTE_SENTINEL,
-                    );
+                    ui.set_min_width(combo_w);
+                    egui::ScrollArea::vertical()
+                        .max_height(300.0)
+                        .show(ui, |ui| {
+                            ui.set_min_width(combo_w);
+                            let cosine_names: Vec<String> =
+                                cosine_palettes.keys().cloned().collect();
+                            palette_combo_rows(
+                                ui,
+                                &cosine_names,
+                                &mut ed.selected_name,
+                                palette_gradients,
+                            );
+                            ui.separator();
+                            ui.selectable_value(
+                                &mut ed.selected_name,
+                                NEW_PALETTE_SENTINEL.to_string(),
+                                NEW_PALETTE_SENTINEL,
+                            );
+                        });
                 });
 
             // Dropdown selection changed this frame — load the new palette
@@ -2962,6 +3004,18 @@ fn draw_palette_editor_tab(
                 }
                 ed.dirty = true;
                 ed.save_status.clear();
+            }
+
+            ui.add_space(4.0);
+            if ui
+                .add(
+                    egui::Button::new("⟳ Test Palette Transition")
+                        .min_size(egui::Vec2::new(avail_w - 4.0, 22.0)),
+                )
+                .on_hover_text("Preview a crossfade to the next palette")
+                .clicked()
+            {
+                ed.test_palette_transition_requested = true;
             }
 
             ui.add_space(6.0);
