@@ -997,8 +997,15 @@ impl PreviewState {
         // using the current `palette_transition_speed` duration. Mirrors the
         // logic from wayland.rs: renderer.begin_transition uploads palette B,
         // then advance_transition() drives the blend each frame.
-        if bundle.state.palette_editor.test_palette_transition_requested {
-            bundle.state.palette_editor.test_palette_transition_requested = false;
+        if bundle
+            .state
+            .palette_editor
+            .test_palette_transition_requested
+        {
+            bundle
+                .state
+                .palette_editor
+                .test_palette_transition_requested = false;
             let mut palette_list: Vec<String> = self
                 .palette_manager
                 .list()
@@ -1016,7 +1023,8 @@ impl PreviewState {
                 let next_name = palette_list[next_idx as usize].clone();
                 let duration = bundle.state.palette_transition_speed;
                 let now = Instant::now();
-                self.palette_manager.transition_to(&next_name, duration, now);
+                self.palette_manager
+                    .transition_to(&next_name, duration, now);
                 if let Some(next_entry) = self.palette_manager.get(&next_name).cloned() {
                     if let Some(r) = self.renderer.as_mut() {
                         if duration > 0.0 {
@@ -2216,7 +2224,7 @@ fn draw_panel(
 /// Paints `colors.len()` vertical strips side-by-side across a 50 px wide rect
 /// allocated at the current cursor position. When `colors` is `None` (palette
 /// not found in the map) nothing is allocated so the row degrades gracefully.
-fn draw_palette_swatch(ui: &mut egui::Ui, colors: Option<&Vec<egui::Color32>>) {
+fn draw_palette_swatch(ui: &mut egui::Ui, colors: Option<&[egui::Color32]>) {
     let Some(colors) = colors else { return };
     let text_h = ui.text_style_height(&egui::TextStyle::Body);
     let swatch_w = 50.0;
@@ -2245,7 +2253,7 @@ fn draw_palette_swatch(ui: &mut egui::Ui, colors: Option<&Vec<egui::Color32>>) {
 fn draw_palette_swatch_in_rect(
     painter: &egui::Painter,
     rect: egui::Rect,
-    colors: Option<&Vec<egui::Color32>>,
+    colors: Option<&[egui::Color32]>,
 ) {
     let Some(colors) = colors else { return };
     if colors.is_empty() {
@@ -2313,7 +2321,7 @@ fn palette_combo_rows(
         draw_palette_swatch_in_rect(
             ui.painter(),
             swatch_rect,
-            palette_gradients.get(name.as_str()),
+            palette_gradients.get(name.as_str()).map(Vec::as_slice),
         );
         if response.clicked() {
             *selected = name.clone();
