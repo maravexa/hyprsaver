@@ -124,6 +124,9 @@ pub const BUILTIN_BLOB: &str = include_str!("../shaders/blob.frag");
 /// Procedural candlestick chart with MACD oscillator — scrolling OHLC candles, palette-sampled
 /// bull/bear colors, EMA-derived MACD + signal lines in the bottom pane. Lightweight GPU tier.
 pub const BUILTIN_STONKS: &str = include_str!("../shaders/stonks.frag");
+/// Warm glowing wanderers drifting across a dark field — 20×12 cell grid, one firefly per cell,
+/// 9-cell Gaussian neighbourhood sum, per-cell Lissajous wander, brightness pulse. Lightweight tier.
+pub const BUILTIN_FIREFLIES: &str = include_str!("../shaders/fireflies.frag");
 
 // ---------------------------------------------------------------------------
 // Vertex shader for the fullscreen quad (triangle-strip, no VBO needed)
@@ -306,6 +309,7 @@ impl ShaderManager {
             ("wormhole", BUILTIN_WORMHOLE),
             ("blob", BUILTIN_BLOB),
             ("stonks", BUILTIN_STONKS),
+            ("fireflies", BUILTIN_FIREFLIES),
         ];
         for (name, raw_const) in builtins {
             let raw = raw_const
@@ -888,6 +892,7 @@ mod tests {
             "temple",
             "wormhole",
             "stonks",
+            "fireflies",
         ] {
             assert!(
                 names.contains(expected),
