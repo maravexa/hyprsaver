@@ -121,6 +121,10 @@ pub const BUILTIN_TEMPLE: &str = include_str!("../shaders/temple.frag");
 /// 48-step march, finite-difference normals, Phong lighting. Lightweight GPU tier.
 pub const BUILTIN_BLOB: &str = include_str!("../shaders/blob.frag");
 
+/// Warm glowing wanderers drifting across a dark field — 20×12 cell grid, one firefly per cell,
+/// 9-cell Gaussian neighbourhood sum, per-cell Lissajous wander, brightness pulse. Lightweight tier.
+pub const BUILTIN_FIREFLIES: &str = include_str!("../shaders/fireflies.frag");
+
 // ---------------------------------------------------------------------------
 // Vertex shader for the fullscreen quad (triangle-strip, no VBO needed)
 // ---------------------------------------------------------------------------
@@ -301,6 +305,7 @@ impl ShaderManager {
             ("temple", BUILTIN_TEMPLE),
             ("wormhole", BUILTIN_WORMHOLE),
             ("blob", BUILTIN_BLOB),
+            ("fireflies", BUILTIN_FIREFLIES),
         ];
         for (name, raw_const) in builtins {
             let raw = raw_const
@@ -844,7 +849,7 @@ mod tests {
 
     #[test]
     fn test_builtin_shader_count() {
-        assert_eq!(manager().list().len(), 30);
+        assert_eq!(manager().list().len(), 31);
     }
 
     #[test]
@@ -882,6 +887,7 @@ mod tests {
             "voronoi",
             "temple",
             "wormhole",
+            "fireflies",
         ] {
             assert!(
                 names.contains(expected),
