@@ -117,15 +117,19 @@ void main() {
     // New aspect ratio 50:6 ≈ 8.3:1 tall:wide, up from 4.4:1. Features are
     // narrow and tall — slits, not blobs.
     //
-    // Tear density REDUCED: threshold window (0.15, 0.30) → (0.10, 0.20).
-    // Only ~10% of pixels become full tears (down from ~15-20%). The sheet
-    // reads as a sheet with strand structure, not a perforated surface.
+    // Tear density REDUCED FURTHER: threshold window (0.10, 0.20) → (0.05, 0.12).
+    // Now roughly 5% of pixels become full tears with a narrow 0.05-0.12
+    // antialiased edge. Tears read as occasional punctuation of the sheet
+    // rather than a constant perforation pattern.
+    //
+    // Aspect ratio preserved at 50:6 — slit shape from previous iteration
+    // was correct, only density was excessive.
     //
     // Time coefficient preserved at 0.6 — scroll rate and parallax with
     // streaks unchanged by this tuning.
     vec2 tear_uv = vec2(uv.x * 50.0, uv.y * 6.0 + t * 0.6);
     float tear = vnoise2(tear_uv);
-    float tear_factor = smoothstep(0.10, 0.20, tear);
+    float tear_factor = smoothstep(0.05, 0.12, tear);
     water_density *= tear_factor;
 
     // Hue field — y-freq SLASHED (2.0 → 0.5) so color varies almost
@@ -146,16 +150,15 @@ void main() {
 
     // Streak texture — high frequency, fast downward flow. Drives brightness.
     //
-    // Streak y-freq RAISED (2.5 → 4.5). New streak aspect ratio 18:4.5 = 4:1
-    // instead of 7.2:1 — streaks now have visible horizontal structure
-    // across stream width, not just vertical elongation that disappears
-    // into stream shape.
+    // Streak y-freq RAISED FURTHER (4.5 → 7.0). Aspect ratio 18:7 ≈ 2.6:1
+    // produces dense streak structure within streams — multiple bright/dim
+    // cycles visible top-to-bottom per stream, not 2-3 broad gradients.
     //
-    // Time coefficient COMPENSATED (0.6 → 1.08) to preserve current scroll
+    // Time coefficient COMPENSATED (1.08 → 1.68) to preserve current scroll
     // rate. Screen-space scroll rate = t_coef / y_freq:
-    //   Before: 0.6 / 2.5  = 0.24 screen heights per time unit
-    //   After:  1.08 / 4.5 = 0.24 screen heights per time unit (identical)
-    vec2 water_uv = vec2(uv.x * 18.0, uv.y * 4.5 + t * 1.08);
+    //   Before: 1.08 / 4.5 = 0.24 screen heights per time unit
+    //   After:  1.68 / 7.0 = 0.24 screen heights per time unit (identical)
+    vec2 water_uv = vec2(uv.x * 18.0, uv.y * 7.0 + t * 1.68);
     float w = fbm_water(water_uv);
 
     // Within-stream pulse — single-octave low-frequency sample that scrolls
