@@ -121,6 +121,10 @@ pub const BUILTIN_TEMPLE: &str = include_str!("../shaders/temple.frag");
 /// 48-step march, finite-difference normals, Phong lighting. Lightweight GPU tier.
 pub const BUILTIN_BLOB: &str = include_str!("../shaders/blob.frag");
 
+/// Stylized 2D waterfall — three vertical bands (dark rock | fbm water | dark rock) with
+/// downward-scrolling 3-octave fbm, bottom mist overlay, and PS1-style Bayer dither + quantize.
+/// Lightweight GPU tier (<30% util).
+pub const BUILTIN_WATERFALL: &str = include_str!("../shaders/waterfall.frag");
 /// Race along a twisted Möbius ribbon against the void — 48-step abs-step raymarcher,
 /// local torus-frame SDF, camera rides the center line. Palette gradient across ribbon
 /// width flips after each full 2π loop (Möbius half-twist). Medium GPU tier.
@@ -316,6 +320,7 @@ impl ShaderManager {
             ("temple", BUILTIN_TEMPLE),
             ("wormhole", BUILTIN_WORMHOLE),
             ("blob", BUILTIN_BLOB),
+            ("waterfall", BUILTIN_WATERFALL),
             ("mobius", BUILTIN_MOBIUS),
             ("attitude", BUILTIN_ATTITUDE),
             ("stonks", BUILTIN_STONKS),
@@ -901,6 +906,7 @@ mod tests {
             "voronoi",
             "temple",
             "wormhole",
+            "waterfall",
             "mobius",
             "attitude",
             "stonks",
