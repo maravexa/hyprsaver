@@ -5,10 +5,11 @@ precision highp float;
 // hyprsaver — waterfall.frag
 //
 // Stylized 2D waterfall with retro quantize-and-dither post.
-// Solid rock background fills the screen; central downward-scrolling 3-octave
-// fbm water channel composites on top with soft noise-fringed edges (rocks
-// stay solid — shape defined by absence of water). Mist billows at the base
-// from a 2-octave fbm with upward drift, wider than the water column so it
+// Solid black rock background fills the screen; central waterfall column
+// composites on top with soft noise-fringed edges. Water color is a marble-
+// style sin-wave gradient through a palette slice, domain-warped by 3-octave
+// fbm, with phase advancing downward over time. Mist billows at the base
+// from 2-octave fbm with upward drift, wider than the water column so it
 // spills onto the rocks. PS1-style Bayer dither + color quantize post.
 // Lightweight GPU tier (<30% util).
 // ---------------------------------------------------------------------------
@@ -75,16 +76,14 @@ void main() {
     vec2 uv = gl_FragCoord.xy / u_resolution.xy;
     // uv.y = 0.0 at bottom, 1.0 at top
 
-    // Layer 1: solid rock silhouette across the full screen.
-    // Rocks are defined by absence of water (see Layer 2), so their shape
-    // is implicit and does not wiggle. No more curvy rock fingers.
-    vec3 col = palette(0.20);
+    // Layer 1: solid black background. Rocks are defined by absence of
+    // water, so their shape is implicit — no wiggle, no palette sampling.
+    // Bayer dither rounds cleanly to 0 at pure black (no speckle).
+    vec3 col = vec3(0.0);
 
     // Layer 2: waterfall column, nominally uv.x in [0.30, 0.70].
-    // vnoise1 on uv.y gives the column a gentle sway (water is not a rigid
-    // rectangle) and smoothstep feathers the water-rock contact into spray.
-    // Because the mask is applied to the water alpha only, the rock layer
-    // beneath stays solid.
+    // vnoise1 on uv.y gives the column a gentle sway; smoothstep feathers
+    // the water-rock contact into spray fringe against the black rock.
     float edge_wiggle_l = 0.03 * (vnoise1(uv.y * 8.0)        * 2.0 - 1.0);
     float edge_wiggle_r = 0.03 * (vnoise1(uv.y * 8.0 + 37.0) * 2.0 - 1.0);
     float left_edge  = 0.30 + edge_wiggle_l;
@@ -95,11 +94,24 @@ void main() {
           smoothstep(left_edge  - feather, left_edge  + feather, uv.x)
         * (1.0 - smoothstep(right_edge - feather, right_edge + feather, uv.x));
 
-    // Plus on time: uv.y=0 at bottom → noise pattern advances upward in
-    // sample space, which renders as the pattern translating DOWN on screen.
+    // Water texture: fbm advancing upward in sample space (= pattern moves
+    // down on screen under uv.y=0-at-bottom convention).
     vec2 water_uv = vec2(uv.x * 4.0, uv.y * 8.0 + u_time * u_speed_scale * 0.4);
     float w = fbm_water(water_uv);
-    vec3 water_col = palette(mix(0.60, 0.80, w));
+
+    // Marble-inspired gradient: sin banding with fbm domain warp.
+    //   uv.y * 12.0       → ~2 bands visible at once across screen height
+    //   w     * 3.5       → fbm warps zero-crossings, breaks up rigid stripes
+    //   time  * 2.0       → phase advances, so bands flow downward
+    // Fast-moving bands modulated by slower-moving noise = flowing sheet
+    // with surface turbulence.
+    float marble = sin(uv.y * 12.0
+                     + w * 3.5
+                     + u_time * u_speed_scale * 2.0) * 0.5 + 0.5;
+
+    // Gradient through [0.50, 0.85] slice of the active palette.
+    float palette_idx = mix(0.50, 0.85, marble);
+    vec3 water_col = palette(palette_idx);
 
     col = mix(col, water_col, water_alpha);
 
