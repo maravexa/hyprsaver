@@ -257,8 +257,18 @@ void main() {
           smoothstep(0.0, 0.05, uv.y)             // fade in from bottom
         * smoothstep(1.0, 0.90, uv.y);            // fade out at top
 
-    float overhead_density = overhead_raw * overhead_h_env * overhead_v_env;
-    col += palette(0.90) * overhead_density * 0.20;
+    // Wisp thresholding: carves distinct wispy regions with soft edges.
+    // Window (0.45, 0.60) gates roughly the upper 40% of noise values into
+    // full wisp, with soft edge fade below. Result: discrete cloud patches
+    // with clear sky between them, not uniform fog.
+    float overhead_wisp = smoothstep(0.45, 0.60, overhead_raw);
+    float overhead_density = overhead_wisp * overhead_h_env * overhead_v_env;
+
+    // Alpha-blend composition: mist partially obscures water beneath.
+    // Palette index 0.95 matches bottom-mist convention for consistent
+    // mist color across all palettes. Intensity 0.30 — higher than the
+    // former additive 0.20 because alpha-blend weights differently.
+    col = mix(col, palette(0.95), overhead_density * 0.30);
 
     // Rising impact mist — plume extending upward from the impact zone.
     // Real waterfalls produce upward atmospheric turbulence from the
@@ -287,8 +297,16 @@ void main() {
           exp(-uv.y * 4.0)
         * (1.0 - smoothstep(0.40, 0.55, uv.y));   // hard cutoff approaching mid-screen
 
-    float rising_density = rising_raw * rising_h_env * rising_v_env;
-    col += palette(0.92) * rising_density * 0.35;
+    // Wisp thresholding: lower window (0.35, 0.55) than overhead so rising
+    // mist has higher coverage within its envelope zone — the plume should
+    // be visibly present where the envelope allows, not occasional wisps.
+    float rising_wisp = smoothstep(0.35, 0.55, rising_raw);
+    float rising_density = rising_wisp * rising_h_env * rising_v_env;
+
+    // Alpha-blend composition and palette index unification (0.92 → 0.95).
+    // Intensity 0.45 — higher than overhead (0.30) so rising reads as the
+    // dominant atmospheric effect at the impact zone.
+    col = mix(col, palette(0.95), rising_density * 0.45);
 
     // Mist at the base (bottom 30%). Uniform early-out across most RDNA
     // wavefronts — saves fbm_mist on ~70% of pixels.
