@@ -96,17 +96,17 @@ void main() {
         // Band 1 — freq 3.0, speed 0.20; Gaussian envelope centered at band peak
         float b1 = sin(lat * 3.0 + t * 0.20);
         float g1 = exp(-(b1 - 1.0) * (b1 - 1.0) * 4.0);
-        col += palette(fract(b1 * 0.5 + 0.5 + t * 0.02))        * g1 * 0.65;
+        col += palette(abs(fract(b1 * 0.5 + 0.5 + t * 0.02) * 2.0 - 1.0))        * g1 * 0.65;
 
         // Band 2 — freq 5.0, speed 0.15
         float b2 = sin(lat * 5.0 + t * 0.15 + 1.2);
         float g2 = exp(-(b2 - 1.0) * (b2 - 1.0) * 4.0);
-        col += palette(fract(b2 * 0.5 + 0.5 + t * 0.02 + 0.33)) * g2 * 0.50;
+        col += palette(abs(fract(b2 * 0.5 + 0.5 + t * 0.02 + 0.33) * 2.0 - 1.0)) * g2 * 0.50;
 
         // Band 3 — freq 7.0, speed 0.25
         float b3 = sin(lat * 7.0 + t * 0.25 + 2.4);
         float g3 = exp(-(b3 - 1.0) * (b3 - 1.0) * 4.0);
-        col += palette(fract(b3 * 0.5 + 0.5 + t * 0.02 + 0.66)) * g3 * 0.40;
+        col += palette(abs(fract(b3 * 0.5 + 0.5 + t * 0.02 + 0.66) * 2.0 - 1.0)) * g3 * 0.40;
 
     } else {
         // Background: black with faint star dots
