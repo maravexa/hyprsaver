@@ -82,7 +82,8 @@ vec3 edge_contribution(vec2 pg, NodeInfo nA, NodeInfo nB,
     float shape = smoothstep(width, width * 0.35, dist);
 
     // Single palette call per edge; hash offset provides per-edge variety
-    vec3 col = palette(fract(edge_t * 2.0 + t * 0.08 + e_hash * 0.7));
+    float _ec_raw = edge_t * 2.0 + t * 0.08 + e_hash * 0.7;
+    vec3 col = palette(abs(fract(_ec_raw) * 2.0 - 1.0));
 
     // Gradient pulse sweeps along edge
     float pulse_pos = fract(t * 0.25 + e_hash);
@@ -101,7 +102,7 @@ vec3 node_contribution(vec2 pg, NodeInfo n, float t) {
     float radius = NODE_SIZE * n.intensity;
     float shape  = smoothstep(radius, radius * 0.3, dist);
 
-    vec3 col = palette(fract(n.intensity * 0.6 + t * 0.05));
+    vec3 col = palette(abs(fract(n.intensity * 0.6 + t * 0.05) * 2.0 - 1.0));
     return col * shape * 0.8;
 }
 

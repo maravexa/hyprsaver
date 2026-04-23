@@ -77,11 +77,11 @@ void main() {
     // Primary layer: palette cycles with trap distance, animated over time
     // The *2.0 multiplier produces two full palette cycles across the trap range
     float t_trap = clamp(min_trap_dist, 0.0, 1.0);
-    vec3 col_primary = palette(fract(t_trap * 2.0 + u_time * 0.10));
+    vec3 col_primary = palette(abs(fract(t_trap * 2.0 + u_time * 0.10) * 2.0 - 1.0));
 
     // Secondary layer: palette cycles with escape iteration, offset in palette space
     float t_iter = escape_iter / float(MAX_ITER);
-    vec3 col_secondary = palette(fract(t_iter * 3.0 + u_time * 0.14 + 0.3));
+    vec3 col_secondary = palette(abs(fract(t_iter * 3.0 + u_time * 0.14 + 0.3) * 2.0 - 1.0));
 
     // Blend the two layers — primary dominant, secondary adds detail variation
     vec3 col = mix(col_primary, col_secondary, 0.4);
