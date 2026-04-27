@@ -7,6 +7,7 @@
 //!
 //! Requires no Wayland compositor — uses a headless EGL context.
 
+use std::collections::HashMap;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -23,6 +24,18 @@ const DEFAULT_SEED: u64 = 0;
 
 // Fixed crossfade window (seconds) between palettes in --cycle-palettes mode.
 const XFADE_DURATION: f32 = 1.0;
+
+/// Which mechanism selected the palette(s) for a given shader render.
+enum PaletteSource {
+    /// `--cycle-palettes` flag.
+    CycleFlag,
+    /// `--palette` flag.
+    PaletteFlag,
+    /// `[render_preview.palettes]` config override.
+    ConfigOverride,
+    /// FNV-1a hash of shader name + seed (deterministic default).
+    HashDefault,
+}
 
 // ---------------------------------------------------------------------------
 // CLI args
@@ -94,7 +107,12 @@ pub fn run(
     args: &RenderPreviewArgs,
     shader_manager: &ShaderManager,
     palette_manager: &PaletteManager,
+    palette_overrides: &HashMap<String, String>,
 ) -> anyhow::Result<()> {
+    // Validate [render_preview.palettes] config entries up front so the user
+    // gets a clear error before any rendering work begins.
+    validate_palette_overrides(palette_overrides, shader_manager, palette_manager)?;
+
     // -o is only valid for a single-shader invocation.
     if args.output.is_some() {
         match args.shaders.len() {
@@ -211,18 +229,21 @@ pub fn run(
             continue;
         }
 
-        eprint!("{label} Rendering {shader_name}...");
-        let _ = std::io::stderr().flush();
-
         let t_start = Instant::now();
 
-        let palette_list = resolve_palette_list(
+        let config_override = palette_overrides.get(shader_name.as_str()).map(String::as_str);
+        let (palette_list, palette_source) = resolve_palette_list(
             shader_name,
             args.palette.as_deref(),
             cycle_palette_names.as_deref(),
+            config_override,
             &all_palette_names,
             seed,
         );
+
+        let palette_desc = format_palette_desc(&palette_list, &palette_source);
+        eprint!("{label} Rendering {shader_name} with palette {palette_desc}...");
+        let _ = std::io::stderr().flush();
 
         let result = render_shader_to_webp(
             shader_name,
@@ -386,30 +407,107 @@ fn render_shader_to_webp(
 // Palette resolution
 // ---------------------------------------------------------------------------
 
-/// Return the ordered palette list for `shader_name`.
+/// Return the ordered palette list and selection source for `shader_name`.
 ///
 /// Priority:
-/// 1. `cycle_palettes` — explicit multi-palette list
-/// 2. `single_palette` — explicit single palette
-/// 3. FNV-1a hash of `shader_name + seed` → deterministic pick from all palettes
+/// 1. `cycle_palettes` — `--cycle-palettes` flag (highest)
+/// 2. `single_palette` — `--palette` flag
+/// 3. `config_override` — `[render_preview.palettes]` config entry
+/// 4. FNV-1a hash of `shader_name + seed` — deterministic default (lowest)
 fn resolve_palette_list(
     shader_name: &str,
     single_palette: Option<&str>,
     cycle_palettes: Option<&[String]>,
+    config_override: Option<&str>,
     all_palette_names: &[String],
     seed: u64,
-) -> Vec<String> {
+) -> (Vec<String>, PaletteSource) {
     if let Some(names) = cycle_palettes {
-        return names.to_vec();
+        return (names.to_vec(), PaletteSource::CycleFlag);
     }
     if let Some(name) = single_palette {
-        return vec![name.to_string()];
+        return (vec![name.to_string()], PaletteSource::PaletteFlag);
+    }
+    if let Some(name) = config_override {
+        return (vec![name.to_string()], PaletteSource::ConfigOverride);
     }
     if all_palette_names.is_empty() {
-        return Vec::new();
+        return (Vec::new(), PaletteSource::HashDefault);
     }
     let idx = fnv1a_pick(shader_name, seed, all_palette_names.len());
-    vec![all_palette_names[idx].clone()]
+    (
+        vec![all_palette_names[idx].clone()],
+        PaletteSource::HashDefault,
+    )
+}
+
+/// Validate the `[render_preview.palettes]` config map.
+///
+/// Checks every `(shader_name, palette_name)` entry against the live shader and
+/// palette registries. All invalid entries are collected before returning so the
+/// user sees the full list of problems in a single error message.
+fn validate_palette_overrides(
+    overrides: &HashMap<String, String>,
+    shader_manager: &ShaderManager,
+    palette_manager: &PaletteManager,
+) -> anyhow::Result<()> {
+    if overrides.is_empty() {
+        return Ok(());
+    }
+
+    let mut errors: Vec<String> = Vec::new();
+
+    // Sort by shader name for deterministic error output.
+    let mut entries: Vec<(&String, &String)> = overrides.iter().collect();
+    entries.sort_by_key(|(k, _)| *k);
+
+    for (shader_name, palette_name) in entries {
+        let mut reasons: Vec<String> = Vec::new();
+        if shader_manager.get(shader_name).is_none() {
+            reasons.push(format!(
+                "shader '{}' not found. Run `hyprsaver --list-shaders` for valid names.",
+                shader_name
+            ));
+        }
+        if palette_manager.get(palette_name).is_none() {
+            reasons.push(format!(
+                "palette '{}' not found. Run `hyprsaver --list-palettes` for valid names.",
+                palette_name
+            ));
+        }
+        for reason in reasons {
+            errors.push(format!(
+                "  '{}' = '{}'\n  Reason: {}",
+                shader_name, palette_name, reason
+            ));
+        }
+    }
+
+    if !errors.is_empty() {
+        anyhow::bail!(
+            "Invalid render_preview.palettes {} in your hyprsaver.toml:\n{}",
+            if errors.len() == 1 { "entry" } else { "entries" },
+            errors.join("\n")
+        );
+    }
+
+    Ok(())
+}
+
+/// Format a human-readable palette description including the selection source.
+fn format_palette_desc(palette_list: &[String], source: &PaletteSource) -> String {
+    let names = if palette_list.len() == 1 {
+        format!("'{}'", palette_list[0])
+    } else {
+        format!("'{}'", palette_list.join(","))
+    };
+    let src = match source {
+        PaletteSource::CycleFlag => "--cycle-palettes",
+        PaletteSource::PaletteFlag => "--palette flag",
+        PaletteSource::ConfigOverride => "config override",
+        PaletteSource::HashDefault => "hash default",
+    };
+    format!("{names} ({src})")
 }
 
 /// FNV-1a 64-bit hash of `seed_bytes || shader_name_bytes`, mapped to `[0, count)`.
@@ -560,6 +658,50 @@ mod tests {
             seed0 != seed1,
             "seed did not change palette assignments — hash may be broken"
         );
+    }
+
+    // resolve_palette_list priority tests.
+    fn palettes() -> Vec<String> {
+        vec!["alpha".to_string(), "beta".to_string(), "gamma".to_string()]
+    }
+
+    #[test]
+    fn resolve_cycle_flag_wins() {
+        let cycle = vec!["beta".to_string(), "gamma".to_string()];
+        let (list, _) =
+            resolve_palette_list("blob", Some("alpha"), Some(&cycle), Some("gamma"), &palettes(), 0);
+        assert_eq!(list, cycle);
+    }
+
+    #[test]
+    fn resolve_palette_flag_beats_config_override() {
+        let (list, src) =
+            resolve_palette_list("blob", Some("alpha"), None, Some("beta"), &palettes(), 0);
+        assert_eq!(list, vec!["alpha"]);
+        assert!(matches!(src, PaletteSource::PaletteFlag));
+    }
+
+    #[test]
+    fn resolve_config_override_beats_hash() {
+        let (list, src) =
+            resolve_palette_list("blob", None, None, Some("beta"), &palettes(), 0);
+        assert_eq!(list, vec!["beta"]);
+        assert!(matches!(src, PaletteSource::ConfigOverride));
+    }
+
+    #[test]
+    fn resolve_hash_default_when_no_override() {
+        let (list, src) = resolve_palette_list("blob", None, None, None, &palettes(), 0);
+        assert_eq!(list.len(), 1);
+        assert!(palettes().contains(&list[0]));
+        assert!(matches!(src, PaletteSource::HashDefault));
+    }
+
+    #[test]
+    fn resolve_hash_is_deterministic() {
+        let (a, _) = resolve_palette_list("blob", None, None, None, &palettes(), 0);
+        let (b, _) = resolve_palette_list("blob", None, None, None, &palettes(), 0);
+        assert_eq!(a, b);
     }
 
     #[test]
