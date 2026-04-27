@@ -301,7 +301,7 @@ void main() {
     float overhead_density = overhead_wisp * overhead_h_env * overhead_v_env;
 
     vec3 overhead_color = mix(palette(palette_t), palette(0.95), 0.4);
-    col = mix(col, overhead_color, overhead_density * 0.85);
+    col = mix(col, overhead_color, overhead_density * 0.60);
 
     // Rising impact mist — smooth fbm with linear mix composition.
     // Rising mist coordinate. Base frequencies RAISED 30/15 → 45/22.5 for
@@ -337,7 +337,7 @@ void main() {
     float rising_density = rising_wisp * rising_h_env * rising_v_env;
 
     vec3 rising_color = mix(palette(palette_t), palette(0.95), 0.5);
-    col = mix(col, rising_color, rising_density * 0.95);
+    col = mix(col, rising_color, rising_density * 0.70);
 
     // Mist at the base (bottom 30%). Uniform early-out across most RDNA
     // wavefronts — saves fbm_mist on ~70% of pixels.
