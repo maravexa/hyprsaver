@@ -134,6 +134,10 @@ void main() {
     // uv.y = 0.0 at bottom, 1.0 at top
     float t = u_time * u_speed_scale;
 
+    vec2 hue_uv = vec2(uv.x * 2.0, uv.y * 0.5 + t * 0.25);
+    float hue = fbm_hue(hue_uv);
+    float palette_t = clamp(hue * 1.2 - 0.1, 0.0, 1.0);
+
     // Water density envelope: solid core in x ∈ [0.25, 0.75] (50% of screen),
     // smooth falloff to zero at x ∈ [0.10, 0.90]. No alpha mask — where
     // density is zero, black rock shows through by default.
@@ -196,9 +200,6 @@ void main() {
     // Effective palette slice ~[0.08, 0.92] instead of [0, 1]. Still wide
     // enough for multi-color bands, but extreme palette endpoints (which
     // dominate via saturation on rainbow) are excluded.
-    vec2 hue_uv = vec2(uv.x * 2.0, uv.y * 0.5 + t * 0.25);
-    float hue = fbm_hue(hue_uv);
-    float palette_t = clamp(hue * 1.2 - 0.1, 0.0, 1.0);
 
     // Streak texture — high frequency, fast downward flow. Drives brightness.
     //
@@ -262,13 +263,18 @@ void main() {
     col += water_col * smoothstep(0.50, 0.75, w) * water_density * 0.5;
 
     // Overhead atmospheric mist — turbulence fbm with Beer's law composition.
-    // Spatial frequency 25.0 (0.12 screen-heights/time scroll rate).
-    // z = t * 0.5: base temporal evolution so features morph in place
-    // rather than rigidly translating with 2D time-translation.
+    // Falling mist coordinate. Base frequency RAISED 25.0 → 40.0 for finer
+    // features (~2.5% of screen width per feature, down from 4%). Time
+    // coefficients HALVED for slower motion overall:
+    //   y-drift: 3.00 → 0.75. New scroll rate = 0.75 / 40.0 = 0.019
+    //            screen-heights/time-unit (was 0.12, now 16% of previous —
+    //            note this is also affected by the freq change; halving the
+    //            time coefficient AND raising freq compounds to slower drift)
+    //   z-evolution: 0.5 → 0.25. Half the previous evolution rate.
     vec3 overhead_p = vec3(
-        uv.x * 25.0,
-        uv.y * 25.0 + t * 3.00,
-        t * 0.5
+        uv.x * 40.0,
+        uv.y * 40.0 + t * 0.75,
+        t * 0.25
     );
     float overhead_raw = fbm_haze(overhead_p);
 
@@ -280,37 +286,44 @@ void main() {
           smoothstep(0.0, 0.05, uv.y)
         * smoothstep(1.0, 0.90, uv.y);
 
-    // Wisp threshold RECALIBRATED for turbulence output distribution.
-    // Turbulence fbm output is biased toward low values (mean ~0.3 vs
-    // standard fbm's ~0.44) because abs-of-signed-noise spends more time
-    // near zero. Lower threshold selects the ridge-crest regions.
-    // Window narrowed (0.35, 0.45) — turbulence already produces sharp
-    // edges; tight smoothstep window preserves that sharpness.
-    float overhead_wisp = smoothstep(0.35, 0.45, overhead_raw);
+    // Wisp threshold TIGHTENED (0.35, 0.45) → (0.45, 0.55). Higher lower
+    // bound means fewer pixels qualify as wisp. Result: sparser, more
+    // punctuated mist coverage instead of broad continuous regions.
+    float overhead_wisp = smoothstep(0.45, 0.55, overhead_raw);
 
     float overhead_density = overhead_wisp * overhead_h_env * overhead_v_env;
 
-    // Beer's law exponential composition. Replaces mix() which produces
-    // linear blend. exp(-density * k) gives transmittance — fraction of
-    // water color that passes through the mist.
+    // Beer's law: exp(-density * k) gives transmittance. k=3.0 → at peak
+    // density, water is 5% visible through the wisp.
+    // Mist color INHERITS hue field via palette_t. On multi-color palettes
+    // like rainbow, this produces a horizontal mist color gradient matching
+    // the water below it — mist atop a green stream is greenish, mist atop
+    // a blue stream is bluish. On gradient palettes, mist color varies
+    // smoothly with the hue field's spatial pattern.
     //
-    // Absorption coefficient k = 3.0: at density=1.0, transmittance ≈ 0.05
-    // (water 5% visible through dense wisp). At density=0.5, transmittance
-    // ≈ 0.22 (water 22% visible). At density=0, transmittance = 1 (no
-    // attenuation). This nonlinear curve is what distinguishes fog from
-    // color wash.
+    // mix(palette(palette_t), palette(0.95), 0.4) blends the local hue with
+    // a 40% pull toward the palette-endpoint "haze" color — gives the mist
+    // some atmospheric uniformity while preserving palette inheritance.
+    vec3 overhead_color = mix(palette(palette_t), palette(0.95), 0.4);
     float overhead_transmittance = exp(-overhead_density * 3.0);
     col = col * overhead_transmittance
-        + palette(0.95) * (1.0 - overhead_transmittance);
+        + overhead_color * (1.0 - overhead_transmittance);
 
     // Rising impact mist — turbulence fbm with more aggressive Beer's law
-    // coefficient for near-total obscuration at plume core.
-    // Spatial frequencies 30/15 (2:1 aspect), upward scroll -0.60 screen-heights/time.
-    // z = t * 1.0: evolves 2× faster than overhead — impact zones churn faster.
+    // coefficient (4.5) for near-total obscuration at plume core.
+    // Rising mist coordinate. Base frequencies RAISED 30/15 → 45/22.5 for
+    // finer features (preserves 2:1 aspect ratio for plume verticality).
+    // Time coefficients DRASTICALLY REDUCED to 10% of previous rates:
+    //   y-drift: -9.00 → -0.90. New upward scroll = -0.90/22.5 = -0.04
+    //            screen-heights/time-unit (was -0.60). Plume motion now
+    //            gentle and meandering, not racing.
+    //   z-evolution: 1.0 → 0.10. Slow morphing — features change shape
+    //            over a ~10 second timescale at the lowest octave, matching
+    //            real impact-mist convection which is calmer than expected.
     vec3 rising_p = vec3(
-        uv.x * 30.0,
-        uv.y * 15.0 - t * 9.00,
-        t * 1.0
+        uv.x * 45.0,
+        uv.y * 22.5 - t * 0.90,
+        t * 0.10
     );
     float rising_raw = fbm_haze(rising_p);
 
@@ -322,20 +335,26 @@ void main() {
           exp(-uv.y * 4.0)
         * (1.0 - smoothstep(0.40, 0.55, uv.y));
 
-    // Wisp threshold LOWER than overhead (0.30 vs 0.35) for higher coverage
-    // within rising envelope — rising should dominate its zone.
-    float rising_wisp = smoothstep(0.30, 0.40, rising_raw);
+    // Wisp threshold TIGHTENED (0.30, 0.40) → (0.40, 0.50). Same logic as
+    // overhead — sparser coverage. Rising mist still has wider coverage
+    // than overhead (lower threshold values) because it's the dominant
+    // effect at the impact zone, but no longer fills its envelope densely.
+    float rising_wisp = smoothstep(0.40, 0.50, rising_raw);
 
     float rising_density = rising_wisp * rising_h_env * rising_v_env;
 
-    // Beer's law with higher absorption coefficient (4.5 vs 3.0). At peak
-    // density, transmittance ≈ exp(-4.5) = 0.011 — water 1% visible. This
-    // is the "near-total obscuration" desired at the impact zone where real
-    // waterfalls create dense spray that completely hides the water-ground
-    // transition.
+    // Beer's law: k=4.5 → transmittance ≈ 0.011 at peak density (near-total
+    // obscuration at impact zone, hiding water-ground transition).
+    // Rising mist color also inherits hue field, with slightly stronger
+    // pull toward palette endpoint (0.5 vs 0.4 for overhead). Reasoning:
+    // rising mist is dense at impact zone where convection mixes air —
+    // real impact mist has a more uniform "white-haze" appearance than
+    // gentle ambient atmospheric haze. The 50/50 blend gives both palette
+    // inheritance and atmospheric uniformity.
+    vec3 rising_color = mix(palette(palette_t), palette(0.95), 0.5);
     float rising_transmittance = exp(-rising_density * 4.5);
     col = col * rising_transmittance
-        + palette(0.95) * (1.0 - rising_transmittance);
+        + rising_color * (1.0 - rising_transmittance);
 
     // Mist at the base (bottom 30%). Uniform early-out across most RDNA
     // wavefronts — saves fbm_mist on ~70% of pixels.
