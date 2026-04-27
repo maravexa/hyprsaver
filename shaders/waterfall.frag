@@ -270,9 +270,14 @@ void main() {
     //            note this is also affected by the freq change; halving the
     //            time coefficient AND raising freq compounds to slower drift)
     //   z-evolution: 0.5 → 0.25. Half the previous evolution rate.
+    // Falling mist y-drift DOUBLED 0.75 → 1.50. New scroll rate =
+    // 1.50 / 40.0 = 0.0375 screen-heights/time-unit (was 0.019).
+    // Z-evolution rate UNCHANGED at 0.25 — motion character (in-place
+    // pulsing/morphing) is correct as-is, only the translation component
+    // is too slow.
     vec3 overhead_p = vec3(
         uv.x * 40.0,
-        uv.y * 40.0 + t * 0.75,
+        uv.y * 40.0 + t * 1.50,
         t * 0.25
     );
     float overhead_raw = fbm_haze(overhead_p);
@@ -285,7 +290,13 @@ void main() {
           smoothstep(0.0, 0.05, uv.y)
         * smoothstep(1.0, 0.90, uv.y);
 
-    float overhead_wisp = smoothstep(0.30, 0.75, overhead_raw);
+    // Wisp threshold lower bound RAISED 0.30 → 0.45. Roughly one-third of
+    // pixels that previously qualified as "barely-there wispy edge" now
+    // fall below threshold and contribute zero density. Net effect:
+    // approximately 33% sparser coverage, more clear sky between wisps,
+    // more water visible through gaps. Upper bound (0.75) unchanged so
+    // dense cores remain dense — only the wispy edges thin out.
+    float overhead_wisp = smoothstep(0.45, 0.75, overhead_raw);
 
     float overhead_density = overhead_wisp * overhead_h_env * overhead_v_env;
 
@@ -317,7 +328,11 @@ void main() {
           exp(-uv.y * 4.0)
         * (1.0 - smoothstep(0.40, 0.55, uv.y));
 
-    float rising_wisp = smoothstep(0.25, 0.70, rising_raw);
+    // Same coverage reduction logic as overhead — lower bound raised to
+    // remove approximately one-third of barely-there wispy edges. Rising
+    // keeps lower threshold than overhead (0.40 vs 0.45) so it remains the
+    // denser layer at impact zone, just less aggressively so.
+    float rising_wisp = smoothstep(0.40, 0.70, rising_raw);
 
     float rising_density = rising_wisp * rising_h_env * rising_v_env;
 
