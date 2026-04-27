@@ -228,3 +228,28 @@ palettes = [
     "frida",
     "emily",
 ]
+
+# ---------------------------------------------------------------------------
+# [render_preview] -- Settings for `hyprsaver render-preview`
+# ---------------------------------------------------------------------------
+# The render-preview subcommand generates animated WebP gallery images for
+# each built-in shader. By default it picks a palette for each shader via a
+# stable hash of the shader name, which is reproducible but may not always
+# match the shader's aesthetic.
+#
+# Use [render_preview.palettes] to specify intentional shader→palette pairings.
+# Any shader not listed here falls back to the hash-based default, so partial
+# overrides are valid — you only need to list the shaders you care about.
+#
+# Leave this section out entirely (or keep it empty) to use hash-based
+# selection for all shaders (the default behaviour).
+#
+# Invalid entries (unknown shader or palette name) cause `render-preview` to
+# fail at startup with a clear error message naming the offending entry.
+# Run `hyprsaver --list-shaders` and `hyprsaver --list-palettes` for valid names.
+#
+# [render_preview.palettes]
+# blob      = "marsha"
+# fireflies = "achilles"
+# mobius    = "cahun"
+# aurora    = "sappho"
