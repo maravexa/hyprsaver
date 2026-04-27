@@ -252,8 +252,13 @@ fn run() -> anyhow::Result<()> {
 
     // Dispatch render-preview before any Wayland init.
     if let Some(Command::RenderPreview(ref args)) = cli.command {
-        return render_preview::run(args, &shader_manager, &palette_manager)
-            .context("render-preview failed");
+        return render_preview::run(
+            args,
+            &shader_manager,
+            &palette_manager,
+            &cfg.render_preview.palettes,
+        )
+        .context("render-preview failed");
     }
 
     if cli.preview {

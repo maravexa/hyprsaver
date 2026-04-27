@@ -60,6 +60,10 @@ pub struct Config {
     /// Superseded by `[playlists]` in v0.4.0; kept for backward compatibility.
     #[serde(default)]
     pub palette_playlists: HashMap<String, PalettePlaylist>,
+
+    /// Config for the `render-preview` subcommand.
+    #[serde(default)]
+    pub render_preview: RenderPreviewConfig,
 }
 
 // ---------------------------------------------------------------------------
@@ -316,6 +320,31 @@ pub struct MonitorConfig {
 }
 
 // ---------------------------------------------------------------------------
+// [render_preview]
+// ---------------------------------------------------------------------------
+
+/// Configuration for the `render-preview` subcommand.
+///
+/// Example TOML:
+/// ```toml
+/// [render_preview.palettes]
+/// blob      = "marsha"
+/// fireflies = "achilles"
+/// mobius    = "cahun"
+/// ```
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct RenderPreviewConfig {
+    /// Intentional shader→palette pairings for `render-preview`.
+    ///
+    /// Any shader not listed falls back to the hash-based default selection.
+    /// Invalid entries (unknown shader or palette name) cause `render-preview`
+    /// to fail at startup with a clear error message.
+    #[serde(default)]
+    pub palettes: HashMap<String, String>,
+}
+
+// ---------------------------------------------------------------------------
 // Config path resolution
 // ---------------------------------------------------------------------------
 
@@ -498,6 +527,7 @@ mod tests {
         assert!(cfg.playlists.is_empty());
         assert!(cfg.shader_playlists.is_empty());
         assert!(cfg.palette_playlists.is_empty());
+        assert!(cfg.render_preview.palettes.is_empty());
     }
 
     #[test]
@@ -960,5 +990,65 @@ palettes = ["rainbow", "ember"]
 
         let outcome = resolve_config_path_impl(new_path, legacy_path);
         assert_eq!(outcome, ConfigPathOutcome::NotFound);
+    }
+
+    // ---------------------------------------------------------------------------
+    // render_preview config tests
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn test_render_preview_default_empty() {
+        let cfg = Config::default();
+        assert!(cfg.render_preview.palettes.is_empty());
+    }
+
+    #[test]
+    fn test_parse_render_preview_palettes() {
+        let toml_str = r#"
+[render_preview.palettes]
+blob = "marsha"
+mobius = "achilles"
+"#;
+        let cfg: Config = toml::from_str(toml_str).expect("render_preview TOML must parse");
+        assert_eq!(
+            cfg.render_preview.palettes.get("blob").map(String::as_str),
+            Some("marsha")
+        );
+        assert_eq!(
+            cfg.render_preview.palettes.get("mobius").map(String::as_str),
+            Some("achilles")
+        );
+        assert_eq!(cfg.render_preview.palettes.len(), 2);
+    }
+
+    #[test]
+    fn test_parse_empty_render_preview_palettes_section() {
+        let toml_str = "[render_preview.palettes]\n";
+        let cfg: Config = toml::from_str(toml_str).expect("empty render_preview TOML must parse");
+        assert!(cfg.render_preview.palettes.is_empty());
+    }
+
+    #[test]
+    fn test_no_render_preview_section_gives_empty() {
+        let cfg: Config = toml::from_str("").expect("empty TOML must parse");
+        assert!(cfg.render_preview.palettes.is_empty());
+    }
+
+    #[test]
+    fn test_render_preview_does_not_affect_other_fields() {
+        let toml_str = r#"
+[general]
+fps = 60
+
+[render_preview.palettes]
+blob = "marsha"
+"#;
+        let cfg: Config = toml::from_str(toml_str).expect("mixed TOML must parse");
+        assert_eq!(cfg.general.fps, 60);
+        assert_eq!(
+            cfg.render_preview.palettes.get("blob").map(String::as_str),
+            Some("marsha")
+        );
+        assert_eq!(cfg.general.shader, "cycle");
     }
 }
