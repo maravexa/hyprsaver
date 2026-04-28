@@ -37,6 +37,7 @@ cargo install hyprsaver
 
 | Shader | Preview |
 |---|---|
+| **attitude** | ![attitude](https://github.com/maravexa/hyprsaver/raw/main/media/attitude.webp) |
 | **aurora** | ![aurora](https://github.com/maravexa/hyprsaver/raw/main/media/aurora.webp) |
 | **bezier** | ![bezier](https://github.com/maravexa/hyprsaver/raw/main/media/bezier.webp) |
 | **blob** | ![blob](https://github.com/maravexa/hyprsaver/raw/main/media/blob.webp) |
@@ -44,6 +45,7 @@ cargo install hyprsaver
 | **circuit** | ![circuit](https://github.com/maravexa/hyprsaver/raw/main/media/circuit.webp) |
 | **clouds** | ![clouds](https://github.com/maravexa/hyprsaver/raw/main/media/clouds.webp) |
 | **donut** | ![donut](https://github.com/maravexa/hyprsaver/raw/main/media/donut.webp) |
+| **fireflies** | ![fireflies](https://github.com/maravexa/hyprsaver/raw/main/media/fireflies.webp) |
 | **flames** | ![flames](https://github.com/maravexa/hyprsaver/raw/main/media/flames.webp) |
 | **fractaltrap** | ![fractaltrap](https://github.com/maravexa/hyprsaver/raw/main/media/fractaltrap.webp) |
 | **geometry** | ![geometry](https://github.com/maravexa/hyprsaver/raw/main/media/geometry.webp) |
@@ -178,7 +180,7 @@ graph TD
 - **Shadertoy-compatible** shader format -- paste Shadertoy code with minimal edits, it just works
 - **Hot-reload** shaders from `~/.config/hypr/hyprsaver/shaders/` -- edit, save, see the change instantly
 - **Cycle mode** for shaders and palettes -- rotate through all or a named playlist on a configurable interval
-- **Built-in shader collection** (26 shaders):
+- **Built-in shader collection** (35 shaders):
 
   | Name            | Description                                          |
   |-----------------|------------------------------------------------------|
@@ -209,6 +211,14 @@ graph TD
   | `terminal`      | Scrolling build-log output — block-glyph rows scroll upward with CRT scanlines and phosphor glow |
   | `oscilloscope`  | Realistic CRT oscilloscope — three animated waveform traces over a phosphor grid with scanlines and vignette |
   | `temple`        | Retro temple interior — floor + ceiling triangle-wave lattice, 4 scrolling pillars with ring trace pattern, CRT scanlines |
+  | `wormhole`      | Curved-tunnel raymarch with z-dominant palette rings |
+  | `gridwave`      | Perspective-projected neon grid with scrolling forward motion — Tron / Outrun aesthetic |
+  | `blob`          | Lit blob with flowing energy emission and atmospheric halo — warped sphere SDF, Phong lighting |
+  | `mobius`        | Race along a twisted Möbius ribbon against the void — palette gradient flips after each full loop |
+  | `fireflies`     | Warm glowing wanderers drifting across a dark field, per-firefly palette colors |
+  | `stonks`        | Procedural candlestick chart with MACD oscillator — palette-sampled bull/bear colors |
+  | `attitude`      | Artificial-horizon instrument with simulated flight motion |
+  | `waterfall`     | Stylized 2D waterfall with retro quantize-and-dither post |
 - **Built-in palette collection**: rainbow, autumn, vaporwave, frost, ember, ocean, monochrome, sunset, aurora, midnight
 - Configurable FPS and dismiss triggers
 - **Preview mode** for shader authoring (`--preview <shader>`) with speed/zoom control panel
@@ -273,14 +283,14 @@ yay -S hyprsaver
 
 ```bash
 # Download the .deb from the latest release
-sudo dpkg -i hyprsaver_0.4.3_amd64.deb
+sudo dpkg -i hyprsaver_0.4.5_amd64.deb
 ```
 
 ### Fedora / RHEL / openSUSE
 
 ```bash
 # Download the .rpm from the latest release
-sudo rpm -i hyprsaver-0.4.3-1.x86_64.rpm
+sudo rpm -i hyprsaver-0.4.5-1.x86_64.rpm
 ```
 
 ### Nix / NixOS
@@ -430,6 +440,12 @@ a = [0.5, 0.5, 0.5]
 b = [0.5, 0.5, 0.5]
 c = [1.0, 1.0, 1.0]
 d = [0.00, 0.33, 0.67]
+
+# Optional shader→palette overrides for the `render-preview` subcommand.
+# Any shader not listed falls back to a stable hash-based default.
+[render_preview.palettes]
+blob = "marsha"
+mobius = "achilles"
 ```
 
 ### Cycle Mode
