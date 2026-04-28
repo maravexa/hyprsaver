@@ -4,15 +4,17 @@
 hyprsaver is a Wayland-native screensaver for Hyprland. It renders GLSL fractal shaders on fullscreen wlr-layer-shell overlay surfaces via OpenGL ES (glow). It integrates with hypridle (timeout orchestration) and coexists with hyprlock (lock screen). The two are intentionally separate — Unix philosophy.
 
 ## Architecture
-Eight modules in `src/` (plus `main.rs`):
+Ten modules in `src/` (plus `main.rs`):
 - `wayland.rs` — Wayland connection, output enumeration, layer-shell surface lifecycle. Uses smithay-client-toolkit. One surface per monitor. Hosts the calloop event loop, calls `CycleManager::tick(now)` each frame, and dispatches `CycleEvent`s to advance shaders/palettes.
 - `renderer.rs` — OpenGL via glow. Fullscreen quad, uploads uniforms (time, resolution, palette vectors, speed/zoom scales, alpha fade), calls draw. Doesn't know about Wayland.
 - `shaders.rs` — Loads `.frag` files from config dir and built-ins. Handles compilation, hot-reload (notify crate), Shadertoy uniform remapping. Prepends palette function to all shaders. Manages cycle playlists (`set_playlist`, `cycle_next`, `randomize_cycle_start`).
 - `palette.rs` — Cosine gradient palettes (Inigo Quilez technique) and LUT palettes. Four vec3 params (a,b,c,d) → 12 floats. PNG LUT loading via `image` crate. CSS gradient stop palettes. `PaletteManager` with crossfade transition state (`begin_transition` / `advance_transition`).
-- `config.rs` — TOML config with serde. Every field has a default. Config path: CLI flag → `$XDG_CONFIG_HOME/hypr/hyprsaver.toml` (new) → `$XDG_CONFIG_HOME/hyprsaver/config.toml` (legacy, deprecated) → built-in defaults. Includes `[[shader_playlists]]` and `[[palette_playlists]]` table sections and cycle interval fields.
+- `config.rs` — TOML config with serde. Every field has a default. Config path: CLI flag → `$XDG_CONFIG_HOME/hypr/hyprsaver.toml` (new) → `$XDG_CONFIG_HOME/hyprsaver/config.toml` (legacy, deprecated) → built-in defaults. Includes `[[shader_playlists]]` and `[[palette_playlists]]` table sections, cycle interval fields, and the `[render_preview.palettes]` shader→palette override map.
 - `cycle.rs` — `CycleManager`: tick-driven scheduler for shader and palette rotation. `tick(&mut self, now: Instant) -> Vec<CycleEvent>` returns an empty vec when nothing changed. `CycleOrder` supports `Random` (shuffle-bag, no consecutive repeats across bag boundaries) and `Sequential`. Single-item playlists never emit events, preserving fixed-shader behaviour.
 - `shuffle.rs` — `ShuffleBag` randomizer. Returns every index in `0..len` exactly once per bag cycle in a freshly randomized order; reshuffles on exhaustion; guarantees no cross-bag consecutive repeats when `len >= 2`. "iPod shuffle" pattern — uniform-over-cycle, not uniform-per-pick. A separate instance per cycle stream (shaders, palettes), each with its own xorshift64 seed. `seed_from_time()` helper for wall-clock seeding.
-- `preview.rs` — Windowed preview mode with egui control panel. Left region: shader viewport. Right region: 300-px docked panel with Shader/Palette/Display sections and thumbnail previews. Keyboard shortcuts: Space (pause/resume), ←/→ (prev/next shader), ↑/↓ (prev/next palette), R (reset time), F (toggle panel), T (test crossfade), Q/Escape (quit).
+- `preview.rs` — Windowed preview mode with egui control panel. Left region: shader viewport. Right region: 300-px docked panel with Shader and Palette tabs and thumbnail previews. FPS counter is an overlay (top-left, toggled with `I`). Keyboard shortcuts: Space (pause/resume), ←/→ (prev/next shader), ↑/↓ (prev/next palette), R (reset time), F (toggle panel), I (toggle FPS), T (test shader crossfade), Q/Escape (quit).
+- `render_preview.rs` — `render-preview` subcommand. Headless EGL surfaceless + FBO capture; encodes animated WebP. Defaults: 480×270, 3 s, 15 fps, quality 80. Batch mode (no shader names) renders all shaders. Per-shader palette resolution: CLI override → `[render_preview.palettes]` config map → stable hash-based default. `--skip-existing` skips outputs that already exist.
+- `headless_egl.rs` — Surfaceless EGL context for `render-preview` (no Wayland surface needed).
 
 Entry point: `main.rs` — CLI (clap), signal handling (signal-hook), config load, then dispatches to `preview.rs` (windowed preview) or `wayland.rs` (layer-shell screensaver). Event loop is calloop.
 
@@ -29,8 +31,10 @@ After editing shader files (`.frag`, `.vert`) or Rust source:
 ## Build & Run
 ```sh
 cargo build --release
-./target/release/hyprsaver              # screensaver mode (needs Hyprland)
-./target/release/hyprsaver --preview oscilloscope  # windowed preview
+./target/release/hyprsaver                          # screensaver mode (needs Hyprland)
+./target/release/hyprsaver --preview oscilloscope   # windowed preview
+./target/release/hyprsaver render-preview           # batch-render WebP previews of all shaders
+./target/release/hyprsaver render-preview blob      # single-shader WebP preview
 ```
 
 ## Key Design Decisions
@@ -41,6 +45,8 @@ cargo build --release
 - **Belt-and-suspenders exit**: Exits on either (1) input events on the layer surface or (2) SIGTERM from hypridle's on-resume. Both paths must work independently.
 - **Hot-reload**: Filesystem watcher on shader dir. On change, recompile shader; on compile error, log and keep current shader. No restart needed.
 - **Cycle timers**: `CycleManager` in `cycle.rs` (tick()-driven, returns `CycleEvent`s). `wayland.rs` calls `tick()` each frame and acts on the returned events. Shader and palette cycles can have independent intervals; both advance all surfaces simultaneously so monitors stay in sync. Startup randomizes the cycle position.
+- **Triangle-wrap palette sampling**: when sampling a palette over a monotonically growing `t` (depth, scroll position, ribbon arc length), use `palette(abs(fract(x * 0.5) * 2.0 - 1.0))` instead of `palette(fract(x))`. Triangle-wrap reverses direction at the seam, so directional palettes (pride flags etc.) avoid a hard discontinuity at the wrap point. Use plain `fract(x)` only when `t` is intrinsically cyclic and the palette is symmetric. New shaders should default to triangle-wrap.
+- **Camera-roll for view-rotation animations**: when raymarching a scene where the apparent motion is "rolling along an axis" (e.g. mobius, twisted ribbons), roll the *view orientation* and keep the camera position fixed. Moving the camera position to fake roll produces parallax artifacts that don't match the intended geometry. Lesson learned in the mobius v3→v4 rewrite.
 
 ## Conventions
 - Rust 2021 edition, stable toolchain
@@ -56,10 +62,9 @@ cargo build --release
 - Built-in shaders: compiled into binary via `include_str!()`
 - Logs: stderr (journalctl if launched by hypridle)
 
-## Built-in Shaders (v0.4.4 — 30 total)
-## Built-in Shaders (v0.4.5 — 31 total)
+## Built-in Shaders (v0.4.5 — 35 total)
 
-`mandelbrot` was removed in v0.4.4 (GPU architectural mismatch on deep zoom — see v0.4.4 Status). Do NOT add it back. `network` was removed in the same cycle (plexus aesthetic is vertex-native, not fragment-native); `circuit` and `sonar` are its fragment-native replacements.
+`mandelbrot` was removed in v0.4.4 (GPU architectural mismatch on deep zoom). Do NOT add it back. `network` was removed in the same cycle (plexus aesthetic is vertex-native, not fragment-native); `circuit` and `sonar` are its fragment-native replacements.
 
 | Name          | Description                                              |
 |---------------|----------------------------------------------------------|
@@ -71,17 +76,16 @@ cargo build --release
 | voronoi       | Animated Voronoi cells                                   |
 | snowfall      | Five-layer parallax snowfall with palette dot glow       |
 | starfield     | Hyperspace zoom tunnel with motion-blur tracers          |
-| aurora        | Overhead aurora curtains — domain-warped FBM with striation ridges, asymmetric falloff (sharp lower, soft upper), filament shimmer, diagonal movement |
+| aurora        | Overhead aurora curtains — domain-warped FBM with striation ridges, asymmetric falloff, filament shimmer, diagonal movement |
 | kaleidoscope  | 6-fold kaleidoscope driven by domain-warped FBM          |
 | marble        | Curl-noise flow field with 8-step particle tracing       |
 | donut         | Raymarched torus with Phong lighting                     |
-| flames        | Single-layer fBm with domain warping + turbulence noise; fractal 3-octave height boundary for chaotic tips; ember glow floor |
+| flames        | Single-layer fBm with domain warping + turbulence noise; fractal 3-octave height boundary; ember glow floor |
 | lissajous     | Three overlapping Lissajous curves with glow             |
 | geometry      | Wireframe polyhedron morphing (cube→icosahedron→...)     |
 | hypercube     | Rotating 4D tesseract projected to 2D, neon glow         |
-| gridfly       | Corridor flight through a depth-gradient cube grid with edge borders for face definition |
 | circuit       | Brick-offset grid with hash-gated traces between cells — PCB / circuit-board aesthetic; 3×3 cell neighbourhood, 20-node cache |
-| sonar         | 6 point emitters on Lissajous paths emit cosine wavefronts; rotating radial sweep reveals constructive-interference contacts; tight blips at emitter positions |
+| sonar         | 6 point emitters on Lissajous paths emit cosine wavefronts; rotating radial sweep reveals constructive-interference contacts |
 | matrix        | Classic Matrix digital rain with procedural glyphs       |
 | caustics      | Underwater caustic light patterns                        |
 | bezier        | Five animated Bézier curves with additive palette glow   |
@@ -90,13 +94,15 @@ cargo build --release
 | terminal      | Scrolling build-log output with CRT scanlines and glow   |
 | oscilloscope  | Realistic CRT oscilloscope display with three animated waveform traces |
 | clouds        | Slowly drifting procedural fBm clouds over a tinted sky  |
-| temple        | Retro temple interior — centered horizon, floor + ceiling triangle-wave lattice, 4 scrolling pillars (screen-space rects) with ring trace pattern, CRT scanlines |
+| temple        | Retro temple interior — floor + ceiling triangle-wave lattice, 4 scrolling pillars with ring trace pattern, CRT scanlines |
 | wormhole      | Curved-tunnel raymarch; z-dominant palette rings, angular contribution dropped |
-| waterfall     | Stylized 2D waterfall with retro quantize-and-dither post                        |
+| waterfall     | Stylized 2D waterfall with retro quantize-and-dither post |
 | gridwave      | Perspective-projected neon grid with scrolling forward motion — classic Tron/Outrun aesthetic |
 | blob          | Lit blob with flowing energy emission and atmospheric halo — warped sphere SDF, Phong lighting |
 | mobius        | Race along a twisted Möbius ribbon against the void — palette gradient flips after each full loop |
 | stonks        | Procedural candlestick chart with MACD oscillator; palette-sampled bull/bear colors |
+| fireflies     | Warm glowing wanderers drifting across a dark field, per-firefly palette colors |
+| attitude      | Artificial-horizon instrument with simulated flight motion |
 
 ## Playlist / Cycle System (v0.3.0)
 
@@ -105,7 +111,7 @@ cargo build --release
 Cycle scheduling is handled by `CycleManager` in `cycle.rs`. `wayland.rs` calls `CycleManager::tick()` each frame and dispatches the returned `CycleEvent`s — advancing all `Renderer` instances simultaneously so monitors stay in sync.
 
 ## Testing Strategy
-- Unit tests: `#[cfg(test)]` modules in `config`, `cycle`, `palette`, `renderer`, `shaders`, `shuffle`, `wayland` — palette math (`color_at` for known inputs), config deserialization (missing fields → defaults), Shadertoy shim (uniform remapping), playlist cycle, built-in shader count (`test_builtin_shader_count` asserts 29), shuffle-bag uniformity + no-consecutive-repeats.
+- Unit tests: `#[cfg(test)]` modules in `config`, `cycle`, `palette`, `renderer`, `shaders`, `shuffle`, `wayland` — palette math (`color_at` for known inputs), config deserialization (missing fields → defaults), Shadertoy shim (uniform remapping), playlist cycle, built-in shader count (`test_builtin_shader_count` asserts 35), shuffle-bag uniformity + no-consecutive-repeats.
 - Integration: `--preview` mode with a test shader, assert it opens a window and renders frames without panic.
 - Manual: run under Hyprland, verify layer surface appears on all monitors, verify input dismiss, verify SIGTERM dismiss, verify hot-reload, verify cycle advances across monitors.
 
@@ -158,14 +164,15 @@ Two additional uniforms are injected by `prepare_shader()` in `shaders.rs` for e
 - v0.4.1: 2 new shaders (oscilloscope, clouds), doc path updates, patch fixes. ✓ shipped
 - v0.4.2: Aurora rewrite, Flames shader, preview UI fixes, shader precision fixes, default playlists. ✓ shipped
 - v0.4.3: GPU optimization audit — all 7 Heavy-tier shaders optimized to Medium tier. ✓ shipped
-- v0.4.4: Mandelbrot removed (GPU architectural mismatch on df32 deep zoom); `network` → `circuit` + `sonar` pivot; new shaders `shipburn`, `fractaltrap`, `gridfly`, `wormhole`; `waves` renamed to `temple` (ceiling + pillars added); `ShuffleBag` randomizer extracted to `shuffle.rs`; pride palette pack + `pride` playlist. In flight — `Cargo.toml` still at `0.4.3`. ⟳ in progress
+- v0.4.4: Mandelbrot removed (GPU architectural mismatch on df32 deep zoom); `network` → `circuit` + `sonar` pivot; new shaders `shipburn`, `fractaltrap`, `wormhole`; `waves` renamed to `temple` (ceiling + pillars added); `ShuffleBag` randomizer extracted to `shuffle.rs`; pride palette pack + `pride` playlist. ✓ shipped
+- v0.4.5: 5 new Lightweight shaders (`fireflies`, `stonks`, `attitude`, `waterfall`, `mobius`); triangle-wrap palette refactor across 11 shaders; `render-gif` → `render-preview` (animated WebP); `[render_preview.palettes]` config overrides; preview UI polish (FPS toggle keybind, palette tab dropdown parity, palette transition test button). ✓ shipped
 - v1.0.0: Stable config format, AUR/Nix packages, full Shadertoy uniform support, wgpu/Vulkan backend.
 
-## v0.4.4 Status (in flight)
+## v0.4.4 Status
 
-`Cargo.toml` is still at `0.4.3` even though v0.4.4 work has merged to `main`. Do NOT bump the version without explicit instruction.
+Shipped. `Cargo.toml` reflects the current release version.
 
-Authoritative change log: `docs/changelog-v0.4.4.md`. Benchmarks: `docs/benchmark-v0.4.4.md`.
+Authoritative change log: `CHANGELOG.md` and `docs/changelog-v0.4.4.md`. Benchmarks: `docs/benchmark-v0.4.4.md`.
 
 **Deletions (v0.4.4):**
 - `shaders/mandelbrot.frag`, `shaders/mandelbrot_deep.frag`, `src/mandelbrot_deep.rs` — deep-zoom Mandelbrot effort abandoned. HawkPoint1 GPU is fundamentally unsuited to the compound cost of the iteration loop + df32 coordinate arithmetic + exponential zoom at depth ~1e11. **Do not attempt to reintroduce mandelbrot shaders.** The fractal-aesthetic slot is now filled by `shipburn` and `fractaltrap`.
@@ -181,7 +188,6 @@ Authoritative change log: `docs/changelog-v0.4.4.md`. Benchmarks: `docs/benchmar
 **New shaders (v0.4.4):**
 - `shipburn` — Burning-Ship Julia; `abs()` applied to z before squaring each step; smooth escape coloring (Inigo Quilez log2-log2).
 - `fractaltrap` — Julia with unit-circle orbit-trap coloring; no solid interior; stained-glass look.
-- `gridfly` — corridor flight through a depth-gradient cube grid with edge borders.
 - `circuit` — brick-offset grid with hash-gated traces. 3×3 cell neighbourhood (9 cells, 27 edges); 20-entry node cache; Dave-Hoskins fract hash (no `sin()` hashing).
 - `sonar` — 6 Lissajous-path emitters, cosine ring waves, rotating sweep decays as `exp(-recency * 6.0)`; sweep multiplies the wave field rather than overpainting it.
 - `temple` — retro temple interior; `waves` renamed and expanded with ceiling mirroring and 4 scrolling pillars. Centered horizon (0.5), floor + ceiling share triangle-wave lattice with phase offset; pillars are screen-space rects with ring trace pattern. Medium tier (~22–30% GPU).
