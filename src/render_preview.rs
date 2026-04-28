@@ -231,7 +231,9 @@ pub fn run(
 
         let t_start = Instant::now();
 
-        let config_override = palette_overrides.get(shader_name.as_str()).map(String::as_str);
+        let config_override = palette_overrides
+            .get(shader_name.as_str())
+            .map(String::as_str);
         let (palette_list, palette_source) = resolve_palette_list(
             shader_name,
             args.palette.as_deref(),
@@ -486,7 +488,11 @@ fn validate_palette_overrides(
     if !errors.is_empty() {
         anyhow::bail!(
             "Invalid render_preview.palettes {} in your hyprsaver.toml:\n{}",
-            if errors.len() == 1 { "entry" } else { "entries" },
+            if errors.len() == 1 {
+                "entry"
+            } else {
+                "entries"
+            },
             errors.join("\n")
         );
     }
@@ -668,8 +674,14 @@ mod tests {
     #[test]
     fn resolve_cycle_flag_wins() {
         let cycle = vec!["beta".to_string(), "gamma".to_string()];
-        let (list, _) =
-            resolve_palette_list("blob", Some("alpha"), Some(&cycle), Some("gamma"), &palettes(), 0);
+        let (list, _) = resolve_palette_list(
+            "blob",
+            Some("alpha"),
+            Some(&cycle),
+            Some("gamma"),
+            &palettes(),
+            0,
+        );
         assert_eq!(list, cycle);
     }
 
@@ -683,8 +695,7 @@ mod tests {
 
     #[test]
     fn resolve_config_override_beats_hash() {
-        let (list, src) =
-            resolve_palette_list("blob", None, None, Some("beta"), &palettes(), 0);
+        let (list, src) = resolve_palette_list("blob", None, None, Some("beta"), &palettes(), 0);
         assert_eq!(list, vec!["beta"]);
         assert!(matches!(src, PaletteSource::ConfigOverride));
     }

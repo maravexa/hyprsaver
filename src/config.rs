@@ -1015,7 +1015,10 @@ mobius = "achilles"
             Some("marsha")
         );
         assert_eq!(
-            cfg.render_preview.palettes.get("mobius").map(String::as_str),
+            cfg.render_preview
+                .palettes
+                .get("mobius")
+                .map(String::as_str),
             Some("achilles")
         );
         assert_eq!(cfg.render_preview.palettes.len(), 2);

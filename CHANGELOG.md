@@ -6,6 +6,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [0.4.5] - 2026-04-28
+
+### Added
+- **New shaders:** 5 new Lightweight-tier shaders
+  - Fireflies: 25% (warm glowing wanderers drifting across a dark field, per-firefly palette colors)
+  - Stonks: 18% (procedural candlestick chart with MACD oscillator; palette-sampled bull/bear colors)
+  - Attitude: 28% (artificial-horizon instrument with simulated flight motion)
+  - Waterfall: 32% (stylized 2D waterfall with retro quantize-and-dither post)
+  - Mobius: 31% (race along a twisted Möbius ribbon against the void; palette gradient flips after each full loop)
+- **Preview UI — palette transition test button:** symmetric with the existing shader transition test; lives in preview > palette tab
+- **Preview UI — FPS toggle:** new `I` keybind shows/hides the FPS counter
+- **Config — `[render_preview.palettes]`:** optional shader→palette overrides for preview generation. Falls back to hash-based defaults for any shader not listed; invalid entries fail config load with clear error messages
+- **CLI — `render-preview --skip-existing`:** incremental regen flag that preserves existing previews
+
+### Changed
+- **Triangle-wrap palette sampling:** 11 shaders (circuit, fractaltrap, gridwave, julia, mobius, planet, plasma, shipburn, tunnel, voronoi, plus mobius-internal) refactored to sample palettes via `abs(fract(x * 0.5) * 2.0 - 1.0)` instead of `fract(x)`. Eliminates the seam at the palette wrap point on directional palettes (pride flags). Caustics audited and confirmed unaffected
+- **Preview FPS counter:** moved top-left, doubled in size, black-bordered for legibility on bright shaders
+- **Preview UI — palette tab dropdown:** now uses the same gradient-rectangle dropdown style as the preview and playlist tabs
+- **CLI — `render-gif` → `render-preview`:** subcommand renamed; output format is animated WebP instead of GIF. Defaults: 480×270, 3 s, 15 fps, quality 80. Batch mode renders all shaders when no names are given. Deterministic palette per shader via stable hash. Old `--palettes` (cycling list with random padding) replaced by `--palette` (single) and `--cycle-palettes` (explicit list, no padding)
+
+### Fixed
+- **Palette wrap seam:** directional palettes (pride flags etc.) no longer show a hard discontinuity where `t` wraps from 1.0 → 0.0 in shaders that sample monotonically. Triangle-wrap refactor across 11 shaders, see Changed
+
+### Removed
+- **CLI — `render-gif` subcommand:** superseded by `render-preview`. Users with scripts that call `render-gif` should switch to `render-preview` (output is now `.webp`, defaults differ)
+- **Preview UI — Display section:** removed from preview settings panel (FPS counter is now toggled with the `I` key instead)
+- **`--palettes` flag random-padding behavior:** replaced by `--palette` / `--cycle-palettes` on `render-preview`
+
+
 ## [0.4.4] - 2026-04-22
 
 ### Added
@@ -233,6 +262,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Zero-config mode with sensible built-in defaults
 - hypridle integration via `on-timeout` / `on-resume`
 
+[0.4.5]: https://github.com/maravexa/hyprsaver/compare/v0.4.4...v0.4.5
 [0.4.2]: https://github.com/maravexa/hyprsaver/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/maravexa/hyprsaver/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/maravexa/hyprsaver/compare/v0.3.0...v0.4.0
