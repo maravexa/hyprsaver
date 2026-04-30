@@ -599,11 +599,20 @@ impl PreviewState {
         };
         let shader_w_phys = phys_w.saturating_sub(panel_w_phys).max(1);
 
-        // Render shader in the left portion (or full window when panel hidden).
-        self.renderer
-            .as_mut()
-            .unwrap()
-            .render([shader_w_phys as f32, phys_h as f32]);
+        // Push the live speed slider value to the renderer immediately before
+        // each draw so changes take effect with no shader reload or restart.
+        // Pause forces 0.0; otherwise read the current `bundle.state.speed`.
+        let live_speed = if self.paused {
+            0.0
+        } else {
+            self.egui_bundle
+                .as_ref()
+                .map(|b| b.state.speed)
+                .unwrap_or(1.0)
+        };
+        let renderer = self.renderer.as_mut().unwrap();
+        renderer.set_speed_scale(live_speed);
+        renderer.render([shader_w_phys as f32, phys_h as f32]);
 
         // Drain accumulated egui input events, then paint the control panel + overlays.
         let events = std::mem::take(&mut self.egui_events);
@@ -1476,20 +1485,6 @@ pub fn run(
             if state.force_reload {
                 state.force_reload = false;
                 state.reload_current_shader();
-            }
-
-            // Pause: override speed_scale to freeze animation time.
-            if let Some(r) = state.renderer.as_mut() {
-                if state.paused {
-                    r.set_speed_scale(0.0);
-                } else {
-                    let speed = state
-                        .egui_bundle
-                        .as_ref()
-                        .map(|b| b.state.speed)
-                        .unwrap_or(1.0);
-                    r.set_speed_scale(speed);
-                }
             }
 
             // Advance palette cross-fade transition.
