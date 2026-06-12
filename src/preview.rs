@@ -2253,6 +2253,71 @@ fn palette_combo_rows(
     }
 }
 
+/// Render thumbnail dropdown rows for a shader picker inside a `show_ui` callback.
+///
+/// Mirrors [`palette_combo_rows`]: one row per name with a left-aligned text
+/// label and a right-aligned 28 px shader thumbnail. Highlights the
+/// currently-selected row. Updates `*selected` when a row is clicked.
+fn shader_combo_rows(
+    ui: &mut egui::Ui,
+    names: &[String],
+    selected: &mut String,
+    thumbnail_textures: &std::collections::HashMap<String, egui::TextureHandle>,
+) {
+    for name in names {
+        let row_h = 34.0;
+        let is_selected = *selected == *name;
+        let (rect, response) = ui.allocate_exact_size(
+            egui::vec2(ui.available_width(), row_h),
+            egui::Sense::click(),
+        );
+        // Background highlight
+        let bg = if is_selected {
+            ui.visuals().selection.bg_fill
+        } else if response.hovered() {
+            ui.visuals().widgets.hovered.weak_bg_fill
+        } else {
+            egui::Color32::TRANSPARENT
+        };
+        if bg != egui::Color32::TRANSPARENT {
+            ui.painter().rect_filled(rect, 2.0, bg);
+        }
+        // Text label — left aligned
+        let text_color = if is_selected {
+            ui.visuals().selection.stroke.color
+        } else {
+            ui.visuals().text_color()
+        };
+        ui.painter().text(
+            rect.left_center() + egui::vec2(6.0, 0.0),
+            egui::Align2::LEFT_CENTER,
+            name,
+            egui::TextStyle::Body.resolve(ui.style()),
+            text_color,
+        );
+        // Thumbnail — right edge
+        if let Some(tex) = thumbnail_textures.get(name.as_str()) {
+            let img_size = 28.0;
+            let img_rect = egui::Rect::from_min_size(
+                egui::pos2(
+                    rect.right() - img_size - 4.0,
+                    rect.center().y - img_size / 2.0,
+                ),
+                egui::vec2(img_size, img_size),
+            );
+            ui.painter().image(
+                tex.id(),
+                img_rect,
+                egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                egui::Color32::WHITE,
+            );
+        }
+        if response.clicked() {
+            *selected = name.clone();
+        }
+    }
+}
+
 /// Contents of the "Preview" tab — organized with collapsible sections.
 fn draw_preview_tab(
     ui: &mut egui::Ui,
@@ -2282,61 +2347,12 @@ fn draw_preview_tab(
                                 .max_height(300.0)
                                 .show(ui, |ui| {
                                     ui.set_min_width(combo_w);
-                                    for name in shader_list {
-                                        let row_h = 34.0;
-                                        let is_selected = state.selected_shader == *name;
-                                        let (rect, response) = ui.allocate_exact_size(
-                                            egui::vec2(ui.available_width(), row_h),
-                                            egui::Sense::click(),
-                                        );
-                                        // Background highlight
-                                        let bg = if is_selected {
-                                            ui.visuals().selection.bg_fill
-                                        } else if response.hovered() {
-                                            ui.visuals().widgets.hovered.weak_bg_fill
-                                        } else {
-                                            egui::Color32::TRANSPARENT
-                                        };
-                                        if bg != egui::Color32::TRANSPARENT {
-                                            ui.painter().rect_filled(rect, 2.0, bg);
-                                        }
-                                        // Text label — left aligned
-                                        let text_color = if is_selected {
-                                            ui.visuals().selection.stroke.color
-                                        } else {
-                                            ui.visuals().text_color()
-                                        };
-                                        ui.painter().text(
-                                            rect.left_center() + egui::vec2(6.0, 0.0),
-                                            egui::Align2::LEFT_CENTER,
-                                            name,
-                                            egui::TextStyle::Body.resolve(ui.style()),
-                                            text_color,
-                                        );
-                                        // Thumbnail — right edge
-                                        if let Some(tex) = thumbnail_textures.get(name.as_str()) {
-                                            let img_size = 28.0;
-                                            let img_rect = egui::Rect::from_min_size(
-                                                egui::pos2(
-                                                    rect.right() - img_size - 4.0,
-                                                    rect.center().y - img_size / 2.0,
-                                                ),
-                                                egui::vec2(img_size, img_size),
-                                            );
-                                            ui.painter().image(
-                                                tex.id(),
-                                                img_rect,
-                                                egui::Rect::from_min_max(
-                                                    egui::pos2(0.0, 0.0),
-                                                    egui::pos2(1.0, 1.0),
-                                                ),
-                                                egui::Color32::WHITE,
-                                            );
-                                        }
-                                        if response.clicked() {
-                                            state.selected_shader = name.clone();
-                                        }
-                                    }
+                                    shader_combo_rows(
+                                        ui,
+                                        shader_list,
+                                        &mut state.selected_shader,
+                                        thumbnail_textures,
+                                    );
                                 });
                         });
 
@@ -2597,59 +2613,12 @@ fn draw_playlists_tab(
                                     .max_height(300.0)
                                     .show(ui, |ui| {
                                         ui.set_min_width(combo_w);
-                                        for name in &available {
-                                            let row_h = 34.0;
-                                            let is_selected = ed.add_shader_selected == *name;
-                                            let (rect, response) = ui.allocate_exact_size(
-                                                egui::vec2(ui.available_width(), row_h),
-                                                egui::Sense::click(),
-                                            );
-                                            let bg = if is_selected {
-                                                ui.visuals().selection.bg_fill
-                                            } else if response.hovered() {
-                                                ui.visuals().widgets.hovered.weak_bg_fill
-                                            } else {
-                                                egui::Color32::TRANSPARENT
-                                            };
-                                            if bg != egui::Color32::TRANSPARENT {
-                                                ui.painter().rect_filled(rect, 2.0, bg);
-                                            }
-                                            let text_color = if is_selected {
-                                                ui.visuals().selection.stroke.color
-                                            } else {
-                                                ui.visuals().text_color()
-                                            };
-                                            ui.painter().text(
-                                                rect.left_center() + egui::vec2(6.0, 0.0),
-                                                egui::Align2::LEFT_CENTER,
-                                                name,
-                                                egui::TextStyle::Body.resolve(ui.style()),
-                                                text_color,
-                                            );
-                                            if let Some(tex) = thumbnail_textures.get(name.as_str())
-                                            {
-                                                let img_size = 28.0;
-                                                let img_rect = egui::Rect::from_min_size(
-                                                    egui::pos2(
-                                                        rect.right() - img_size - 4.0,
-                                                        rect.center().y - img_size / 2.0,
-                                                    ),
-                                                    egui::vec2(img_size, img_size),
-                                                );
-                                                ui.painter().image(
-                                                    tex.id(),
-                                                    img_rect,
-                                                    egui::Rect::from_min_max(
-                                                        egui::pos2(0.0, 0.0),
-                                                        egui::pos2(1.0, 1.0),
-                                                    ),
-                                                    egui::Color32::WHITE,
-                                                );
-                                            }
-                                            if response.clicked() {
-                                                ed.add_shader_selected = name.clone();
-                                            }
-                                        }
+                                        shader_combo_rows(
+                                            ui,
+                                            &available,
+                                            &mut ed.add_shader_selected,
+                                            thumbnail_textures,
+                                        );
                                     });
                             });
                         let can_add = !ed.add_shader_selected.is_empty()
