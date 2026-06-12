@@ -18,6 +18,8 @@ use std::f32::consts::TAU;
 use std::path::Path;
 use std::time::Instant;
 
+use crate::cycle::PlaylistCursor;
+
 use serde::Deserialize;
 
 // ---------------------------------------------------------------------------
@@ -639,11 +641,8 @@ pub struct PaletteManager {
     next_name: Option<String>,
     /// Wall-clock time when the current transition started.
     transition_start: Option<Instant>,
-    /// Current position in the cycle. Advances on each `cycle_next()` call.
-    cycle_index: usize,
-    /// If `Some`, `cycle_next()` iterates only these names (in order).
-    /// If `None`, iterates all palettes sorted by name.
-    cycle_playlist: Option<Vec<String>>,
+    /// Cycle position + optional playlist (shared cursor logic in `cycle.rs`).
+    cursor: PlaylistCursor,
 }
 
 impl PaletteManager {
@@ -712,8 +711,7 @@ impl PaletteManager {
             current_name,
             next_name: None,
             transition_start: None,
-            cycle_index: 0,
-            cycle_playlist: None,
+            cursor: PlaylistCursor::default(),
         }
     }
 
@@ -743,13 +741,7 @@ impl PaletteManager {
     /// If a playlist was set via [`set_playlist`], returns that list.
     /// Otherwise returns all known palette names sorted alphabetically.
     pub fn effective_playlist(&self) -> Vec<String> {
-        if let Some(ref pl) = self.cycle_playlist {
-            pl.clone()
-        } else {
-            let mut names: Vec<String> = self.palettes.keys().cloned().collect();
-            names.sort_unstable();
-            names
-        }
+        self.cursor.effective_playlist(&self.palettes)
     }
 
     /// Return a random palette (current-time subsecond-nanos mod count).
@@ -894,23 +886,7 @@ impl PaletteManager {
     ///
     /// Call `get()` with the returned name to access the palette entry.
     pub fn cycle_next(&mut self) -> Option<String> {
-        let names: Vec<String> = match &self.cycle_playlist {
-            Some(pl) => pl
-                .iter()
-                .filter(|n| self.palettes.contains_key(*n))
-                .cloned()
-                .collect(),
-            None => {
-                let mut ns: Vec<String> = self.palettes.keys().cloned().collect();
-                ns.sort_unstable();
-                ns
-            }
-        };
-        if names.is_empty() {
-            return None;
-        }
-        self.cycle_index = self.cycle_index.wrapping_add(1) % names.len();
-        Some(names[self.cycle_index].clone())
+        self.cursor.next(&self.palettes)
     }
 
     /// Return the name of the palette at the current cycle index, without advancing.
@@ -918,22 +894,7 @@ impl PaletteManager {
     /// Uses the playlist if set, otherwise all palettes alphabetically.
     /// Returns `None` if the collection is empty.
     pub fn current_cycle_name(&self) -> Option<&str> {
-        let names: Vec<&str> = match &self.cycle_playlist {
-            Some(pl) => pl
-                .iter()
-                .filter(|n| self.palettes.contains_key(*n))
-                .map(String::as_str)
-                .collect(),
-            None => {
-                let mut ns: Vec<&str> = self.palettes.keys().map(String::as_str).collect();
-                ns.sort_unstable();
-                ns
-            }
-        };
-        if names.is_empty() {
-            return None;
-        }
-        Some(names[self.cycle_index % names.len()])
+        self.cursor.current(&self.palettes)
     }
 
     /// Set a playlist so that `cycle_next()` iterates only the given names.
@@ -941,31 +902,14 @@ impl PaletteManager {
     /// Always resets `cycle_index` to 0; call `randomize_cycle_start()` afterward
     /// if a random starting position is desired (e.g. at screensaver startup).
     pub fn set_playlist(&mut self, names: Vec<String>) {
-        if names.is_empty() {
-            self.cycle_playlist = None;
-        } else {
-            self.cycle_playlist = Some(names);
-        }
-        self.cycle_index = 0;
+        self.cursor.set_playlist(names);
     }
 
     /// Randomize the starting cycle index within the current playlist (or all palettes
     /// if no playlist is set). Call this once at screensaver startup so every session
     /// begins at a different point in the rotation.
     pub fn randomize_cycle_start(&mut self) {
-        let count = match &self.cycle_playlist {
-            Some(pl) => pl.iter().filter(|n| self.palettes.contains_key(*n)).count(),
-            None => self.palettes.len(),
-        };
-        self.cycle_index = if count > 1 {
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .subsec_nanos() as usize
-                % count
-        } else {
-            0
-        };
+        self.cursor.randomize_start(&self.palettes);
     }
 
     /// Advance the transition and return the current blend factor in `[0.0, 1.0]`.

@@ -12,6 +12,8 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 
+use crate::cycle::PlaylistCursor;
+
 // ---------------------------------------------------------------------------
 // Built-in shaders compiled into the binary
 // ---------------------------------------------------------------------------
@@ -273,11 +275,8 @@ pub struct ShaderManager {
     watcher: Option<RecommendedWatcher>,
     /// Receiver for shader-name strings sent by the watcher thread.
     change_rx: Option<mpsc::Receiver<String>>,
-    /// Current position in the cycle. Advances on each `cycle_next()` call.
-    cycle_index: usize,
-    /// If `Some`, `cycle_next()` iterates only these names (in order).
-    /// If `None`, iterates all shaders sorted by name.
-    playlist: Option<Vec<String>>,
+    /// Cycle position + optional playlist (shared cursor logic in `cycle.rs`).
+    cursor: PlaylistCursor,
 }
 
 impl ShaderManager {
@@ -398,8 +397,7 @@ impl ShaderManager {
             shaders,
             watcher: None,
             change_rx: None,
-            cycle_index: 0,
-            playlist: None,
+            cursor: PlaylistCursor::default(),
         })
     }
 
@@ -420,13 +418,7 @@ impl ShaderManager {
     /// If a playlist was set via [`set_playlist`], returns that list.
     /// Otherwise returns all known shader names sorted alphabetically.
     pub fn effective_playlist(&self) -> Vec<String> {
-        if let Some(ref pl) = self.playlist {
-            pl.clone()
-        } else {
-            let mut names: Vec<String> = self.shaders.keys().cloned().collect();
-            names.sort_unstable();
-            names
-        }
+        self.cursor.effective_playlist(&self.shaders)
     }
 
     /// Return a random shader. Uses current-time subsecond nanos modulo count.
@@ -452,23 +444,7 @@ impl ShaderManager {
     ///
     /// Call `get()` or `get_compiled()` with the returned name to access the source.
     pub fn cycle_next(&mut self) -> Option<String> {
-        let names: Vec<String> = match &self.playlist {
-            Some(pl) => pl
-                .iter()
-                .filter(|n| self.shaders.contains_key(*n))
-                .cloned()
-                .collect(),
-            None => {
-                let mut ns: Vec<String> = self.shaders.keys().cloned().collect();
-                ns.sort_unstable();
-                ns
-            }
-        };
-        if names.is_empty() {
-            return None;
-        }
-        self.cycle_index = self.cycle_index.wrapping_add(1) % names.len();
-        Some(names[self.cycle_index].clone())
+        self.cursor.next(&self.shaders)
     }
 
     /// Return the name of the shader at the current cycle index, without advancing.
@@ -476,22 +452,7 @@ impl ShaderManager {
     /// Uses the playlist if set, otherwise all shaders alphabetically.
     /// Returns `None` if the collection is empty.
     pub fn current_cycle_name(&self) -> Option<&str> {
-        let names: Vec<&str> = match &self.playlist {
-            Some(pl) => pl
-                .iter()
-                .filter(|n| self.shaders.contains_key(*n))
-                .map(String::as_str)
-                .collect(),
-            None => {
-                let mut ns: Vec<&str> = self.shaders.keys().map(String::as_str).collect();
-                ns.sort_unstable();
-                ns
-            }
-        };
-        if names.is_empty() {
-            return None;
-        }
-        Some(names[self.cycle_index % names.len()])
+        self.cursor.current(&self.shaders)
     }
 
     /// Set a playlist so that `cycle_next()` iterates only the given names.
@@ -499,31 +460,14 @@ impl ShaderManager {
     /// Always resets `cycle_index` to 0; call `randomize_cycle_start()` afterward
     /// if a random starting position is desired (e.g. at screensaver startup).
     pub fn set_playlist(&mut self, names: Vec<String>) {
-        if names.is_empty() {
-            self.playlist = None;
-        } else {
-            self.playlist = Some(names);
-        }
-        self.cycle_index = 0;
+        self.cursor.set_playlist(names);
     }
 
     /// Randomize the starting cycle index within the current playlist (or all shaders
     /// if no playlist is set). Call this once at screensaver startup so every session
     /// begins at a different point in the rotation.
     pub fn randomize_cycle_start(&mut self) {
-        let count = match &self.playlist {
-            Some(pl) => pl.iter().filter(|n| self.shaders.contains_key(*n)).count(),
-            None => self.shaders.len(),
-        };
-        self.cycle_index = if count > 1 {
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .subsec_nanos() as usize
-                % count
-        } else {
-            0
-        };
+        self.cursor.randomize_start(&self.shaders);
     }
 
     /// Convenience shortcut: return just the compiled GLSL source string.
