@@ -8,6 +8,7 @@
 //! events are ever emitted for it, preserving the pre-cycle-mode behaviour
 //! where `shader = "mandelbrot"` just shows mandelbrot forever.
 
+use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use crate::shuffle::{seed_from_time, xorshift64, ShuffleBag};
@@ -287,6 +288,111 @@ impl CycleManager {
 }
 
 // ---------------------------------------------------------------------------
+// PlaylistCursor — shared playlist position tracking
+// ---------------------------------------------------------------------------
+
+/// Cursor over an optional named playlist with wraparound cycling.
+///
+/// Embedded by `ShaderManager` and `PaletteManager`, which previously carried
+/// near-identical copies of this logic. The valid-name map is passed per call
+/// (rather than stored) because the set of available items can change at any
+/// time — shader hot-reload, session palette edits.
+///
+/// Semantics (preserved exactly from the original manager implementations):
+/// - With a playlist set, iteration covers playlist items in definition order,
+///   skipping names missing from `available`. Without one, it covers all of
+///   `available` sorted alphabetically.
+/// - The index persists across validity changes and is never reset by
+///   filtering; `next()` advances `(index + 1) % len`, `current()` reads
+///   `index % len` without mutating.
+#[derive(Debug, Default)]
+pub struct PlaylistCursor {
+    playlist: Option<Vec<String>>,
+    index: usize,
+}
+
+impl PlaylistCursor {
+    /// Set a playlist so iteration covers only the given names.
+    /// An empty vec resets to "cycle all". Always resets the index to 0;
+    /// call `randomize_start()` afterward if a random position is desired.
+    pub fn set_playlist(&mut self, names: Vec<String>) {
+        if names.is_empty() {
+            self.playlist = None;
+        } else {
+            self.playlist = Some(names);
+        }
+        self.index = 0;
+    }
+
+    /// The iteration order: playlist items present in `available` (definition
+    /// order), or all of `available` sorted alphabetically.
+    fn names<'a, V>(&'a self, available: &'a HashMap<String, V>) -> Vec<&'a str> {
+        match &self.playlist {
+            Some(pl) => pl
+                .iter()
+                .filter(|n| available.contains_key(*n))
+                .map(String::as_str)
+                .collect(),
+            None => {
+                let mut ns: Vec<&str> = available.keys().map(String::as_str).collect();
+                ns.sort_unstable();
+                ns
+            }
+        }
+    }
+
+    /// Advance the cursor and return the next name, wrapping at the end.
+    /// Returns `None` when there is nothing to iterate.
+    pub fn next<V>(&mut self, available: &HashMap<String, V>) -> Option<String> {
+        let names = self.names(available);
+        if names.is_empty() {
+            return None;
+        }
+        let index = self.index.wrapping_add(1) % names.len();
+        let name = names[index].to_string();
+        self.index = index;
+        Some(name)
+    }
+
+    /// Return the name at the current position without advancing.
+    pub fn current<'a, V>(&'a self, available: &'a HashMap<String, V>) -> Option<&'a str> {
+        let names = self.names(available);
+        if names.is_empty() {
+            return None;
+        }
+        Some(names[self.index % names.len()])
+    }
+
+    /// Randomize the position within the current iteration set. Call once at
+    /// startup so every session begins at a different point in the rotation.
+    pub fn randomize_start<V>(&mut self, available: &HashMap<String, V>) {
+        let count = self.names(available).len();
+        self.index = if count > 1 {
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .subsec_nanos() as usize
+                % count
+        } else {
+            0
+        };
+    }
+
+    /// The effective playlist as an owned `Vec<String>`: the set playlist
+    /// verbatim (unfiltered), or all of `available` sorted alphabetically.
+    pub fn effective_playlist<V>(&self, available: &HashMap<String, V>) -> Vec<String> {
+        match &self.playlist {
+            Some(pl) => pl.clone(),
+            None => {
+                let mut ns: Vec<String> = available.keys().cloned().collect();
+                ns.sort_unstable();
+                ns
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -561,5 +667,87 @@ mod tests {
                 let _ = mgr.force_next_shader();
             }
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // PlaylistCursor
+    // -----------------------------------------------------------------------
+
+    fn cursor_map(names: &[&str]) -> HashMap<String, ()> {
+        names.iter().map(|n| (n.to_string(), ())).collect()
+    }
+
+    #[test]
+    fn cursor_next_iterates_all_sorted_and_wraps() {
+        let map = cursor_map(&["b", "a", "c"]);
+        let mut cursor = PlaylistCursor::default();
+        // Index starts at 0 ("a"); first next() advances to index 1.
+        assert_eq!(cursor.next(&map).as_deref(), Some("b"));
+        assert_eq!(cursor.next(&map).as_deref(), Some("c"));
+        assert_eq!(cursor.next(&map).as_deref(), Some("a"));
+        assert_eq!(cursor.next(&map).as_deref(), Some("b"));
+    }
+
+    #[test]
+    fn cursor_playlist_restricts_and_skips_invalid() {
+        let map = cursor_map(&["a", "b", "c"]);
+        let mut cursor = PlaylistCursor::default();
+        cursor.set_playlist(vec!["c".into(), "nope".into(), "a".into()]);
+        // Valid playlist order: [c, a]. Index 0 = "c"; next() lands on "a".
+        assert_eq!(cursor.current(&map), Some("c"));
+        assert_eq!(cursor.next(&map).as_deref(), Some("a"));
+        assert_eq!(cursor.next(&map).as_deref(), Some("c"));
+    }
+
+    #[test]
+    fn cursor_empty_playlist_resets_to_all() {
+        let map = cursor_map(&["a", "b"]);
+        let mut cursor = PlaylistCursor::default();
+        cursor.set_playlist(vec!["b".into()]);
+        assert_eq!(cursor.current(&map), Some("b"));
+        cursor.set_playlist(Vec::new());
+        assert_eq!(cursor.current(&map), Some("a"));
+    }
+
+    #[test]
+    fn cursor_empty_available_returns_none() {
+        let map: HashMap<String, ()> = HashMap::new();
+        let mut cursor = PlaylistCursor::default();
+        assert_eq!(cursor.next(&map), None);
+        assert_eq!(cursor.current(&map), None);
+    }
+
+    #[test]
+    fn cursor_current_does_not_advance() {
+        let map = cursor_map(&["a", "b", "c"]);
+        let cursor = PlaylistCursor::default();
+        assert_eq!(cursor.current(&map), Some("a"));
+        assert_eq!(cursor.current(&map), Some("a"));
+    }
+
+    #[test]
+    fn cursor_randomize_start_in_bounds() {
+        let map = cursor_map(&["a", "b", "c", "d"]);
+        for _ in 0..16 {
+            let mut cursor = PlaylistCursor::default();
+            cursor.randomize_start(&map);
+            // current() must always resolve to a valid name.
+            assert!(cursor.current(&map).is_some());
+        }
+        // Single-item set always pins to index 0.
+        let one = cursor_map(&["solo"]);
+        let mut cursor = PlaylistCursor::default();
+        cursor.randomize_start(&one);
+        assert_eq!(cursor.current(&one), Some("solo"));
+    }
+
+    #[test]
+    fn cursor_effective_playlist_unfiltered_or_all_sorted() {
+        let map = cursor_map(&["b", "a"]);
+        let mut cursor = PlaylistCursor::default();
+        assert_eq!(cursor.effective_playlist(&map), vec!["a", "b"]);
+        // Set playlists are returned verbatim, including invalid names.
+        cursor.set_playlist(vec!["z".into(), "a".into()]);
+        assert_eq!(cursor.effective_playlist(&map), vec!["z", "a"]);
     }
 }

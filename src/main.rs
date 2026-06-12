@@ -14,6 +14,7 @@ use std::sync::Arc;
 
 mod config;
 mod cycle;
+mod egl;
 mod headless_egl;
 mod palette;
 mod preview;

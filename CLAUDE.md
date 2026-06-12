@@ -4,16 +4,17 @@
 hyprsaver is a Wayland-native screensaver for Hyprland. It renders GLSL fractal shaders on fullscreen wlr-layer-shell overlay surfaces via OpenGL ES (glow). It integrates with hypridle (timeout orchestration) and coexists with hyprlock (lock screen). The two are intentionally separate — Unix philosophy.
 
 ## Architecture
-Ten modules in `src/` (plus `main.rs`):
+Eleven modules in `src/` (plus `main.rs`):
 - `wayland.rs` — Wayland connection, output enumeration, layer-shell surface lifecycle. Uses smithay-client-toolkit. One surface per monitor. Hosts the calloop event loop, calls `CycleManager::tick(now)` each frame, and dispatches `CycleEvent`s to advance shaders/palettes.
 - `renderer.rs` — OpenGL via glow. Fullscreen quad, uploads uniforms (time, resolution, palette vectors, speed/zoom scales, alpha fade), calls draw. Doesn't know about Wayland.
 - `shaders.rs` — Loads `.frag` files from config dir and built-ins. Handles compilation, hot-reload (notify crate), Shadertoy uniform remapping. Prepends palette function to all shaders. Manages cycle playlists (`set_playlist`, `cycle_next`, `randomize_cycle_start`).
 - `palette.rs` — Cosine gradient palettes (Inigo Quilez technique) and LUT palettes. Four vec3 params (a,b,c,d) → 12 floats. PNG LUT loading via `image` crate. CSS gradient stop palettes. `PaletteManager` with crossfade transition state (`begin_transition` / `advance_transition`).
-- `config.rs` — TOML config with serde. Every field has a default. Config path: CLI flag → `$XDG_CONFIG_HOME/hypr/hyprsaver.toml` (new) → `$XDG_CONFIG_HOME/hyprsaver/config.toml` (legacy, deprecated) → built-in defaults. Includes `[[shader_playlists]]` and `[[palette_playlists]]` table sections, cycle interval fields, and the `[render_preview.palettes]` shader→palette override map.
+- `config.rs` — TOML config with serde. Every field has a default. Config path: CLI flag → `$XDG_CONFIG_HOME/hypr/hyprsaver.toml` (new) → `$XDG_CONFIG_HOME/hyprsaver/config.toml` (legacy, deprecated) → built-in defaults. Includes `[playlists.<name>]` table sections (unified v0.4.0 format; legacy `[shader_playlists.<name>]` / `[palette_playlists.<name>]` still parsed), cycle interval fields, and the `[render_preview.palettes]` shader→palette override map.
 - `cycle.rs` — `CycleManager`: tick-driven scheduler for shader and palette rotation. `tick(&mut self, now: Instant) -> Vec<CycleEvent>` returns an empty vec when nothing changed. `CycleOrder` supports `Random` (shuffle-bag, no consecutive repeats across bag boundaries) and `Sequential`. Single-item playlists never emit events, preserving fixed-shader behaviour.
 - `shuffle.rs` — `ShuffleBag` randomizer. Returns every index in `0..len` exactly once per bag cycle in a freshly randomized order; reshuffles on exhaustion; guarantees no cross-bag consecutive repeats when `len >= 2`. "iPod shuffle" pattern — uniform-over-cycle, not uniform-per-pick. A separate instance per cycle stream (shaders, palettes), each with its own xorshift64 seed. `seed_from_time()` helper for wall-clock seeding.
 - `preview.rs` — Windowed preview mode with egui control panel. Left region: shader viewport. Right region: 300-px docked panel with Shader and Palette tabs and thumbnail previews. FPS counter is an overlay (top-left, toggled with `I`). Keyboard shortcuts: Space (pause/resume), ←/→ (prev/next shader), ↑/↓ (prev/next palette), R (reset time), F (toggle panel), I (toggle FPS), T (test shader crossfade), Q/Escape (quit).
 - `render_preview.rs` — `render-preview` subcommand. Headless EGL surfaceless + FBO capture; encodes animated WebP. Defaults: 480×270, 3 s, 15 fps, quality 80. Batch mode (no shader names) renders all shaders. Per-shader palette resolution: CLI override → `[render_preview.palettes]` config map → stable hash-based default. `--skip-existing` skips outputs that already exist.
+- `egl.rs` — Shared `EglState` (EGL instance/display/config) initialisation from a `wl_display` pointer, used by both `wayland.rs` and `preview.rs`. Distinct from `headless_egl.rs` — do not merge.
 - `headless_egl.rs` — Surfaceless EGL context for `render-preview` (no Wayland surface needed).
 
 Entry point: `main.rs` — CLI (clap), signal handling (signal-hook), config load, then dispatches to `preview.rs` (windowed preview) or `wayland.rs` (layer-shell screensaver). Event loop is calloop.
@@ -54,6 +55,7 @@ cargo build --release
 - Error handling: `anyhow` for application errors, descriptive context on every `?`
 - Logging: `log` macros (debug!/info!/warn!/error!), user runs with `RUST_LOG=hyprsaver=debug` for verbose output
 - Shader files: `#version 320 es`, `precision highp float;`, uniforms prefixed `u_` (our convention) with Shadertoy aliases (iTime etc.) added by the shim
+- GLSL helper duplication is deliberate: hash/noise/fbm helpers are copied per-shader rather than injected as a shared prelude. Each shader tunes its own variant (sin-dot hashes kept for ARM Mali/Iris Xe stability, Dave-Hoskins fract hashes where `sin()` precision bites), and a shared prelude would risk `contains()` needle collisions in `prepare_shader()` and force recompiling all built-ins on any helper change. Do not "deduplicate" these across `.frag` files.
 - Config: all fields optional with serde defaults. Zero-config must work.
 
 ## File Locations at Runtime
@@ -106,7 +108,7 @@ cargo build --release
 
 ## Playlist / Cycle System (v0.3.0)
 
-`config.rs` parses `[shader_playlists.<name>]` and `[palette_playlists.<name>]` table sections. When `shader = "cycle"` (or `palette = "cycle"`) is active and `shader_playlist` / `palette_playlist` is set in `[general]`, the `ShaderManager` / `PaletteManager` iterates only the named playlist. `ShaderManager::set_playlist()` and `randomize_cycle_start()` are called at startup. `cycle_next()` advances on each timer tick.
+`config.rs` parses `[playlists.<name>]` table sections (unified v0.4.0 format; the legacy v0.3.0 `[shader_playlists.<name>]` / `[palette_playlists.<name>]` sections are still parsed for backward compatibility). When `shader = "cycle"` (or `palette = "cycle"`) is active and `shader_playlist` / `palette_playlist` is set in `[general]`, the `ShaderManager` / `PaletteManager` iterates only the named playlist. `ShaderManager::set_playlist()` and `randomize_cycle_start()` are called at startup. `cycle_next()` advances on each timer tick.
 
 Cycle scheduling is handled by `CycleManager` in `cycle.rs`. `wayland.rs` calls `CycleManager::tick()` each frame and dispatches the returned `CycleEvent`s — advancing all `Renderer` instances simultaneously so monitors stay in sync.
 
@@ -172,7 +174,7 @@ Two additional uniforms are injected by `prepare_shader()` in `shaders.rs` for e
 
 Shipped. `Cargo.toml` reflects the current release version.
 
-Authoritative change log: `CHANGELOG.md` and `docs/changelog-v0.4.4.md`. Benchmarks: `docs/benchmark-v0.4.4.md`.
+Authoritative change log: `CHANGELOG.md`. Benchmarks: `docs/BENCHMARK_0.4.4.md`.
 
 **Deletions (v0.4.4):**
 - `shaders/mandelbrot.frag`, `shaders/mandelbrot_deep.frag`, `src/mandelbrot_deep.rs` — deep-zoom Mandelbrot effort abandoned. HawkPoint1 GPU is fundamentally unsuited to the compound cost of the iteration loop + df32 coordinate arithmetic + exponential zoom at depth ~1e11. **Do not attempt to reintroduce mandelbrot shaders.** The fractal-aesthetic slot is now filled by `shipburn` and `fractaltrap`.
@@ -216,7 +218,7 @@ All features through v0.4.3 implemented:
 - Network: grid topology for even screen coverage, removed O(n²) pair evaluation; 70% → 43%. (Shader itself deleted in v0.4.4.)
 - Starfield: complete rewrite using Art-of-Code 20-layer zoom with golden-angle rotation and dashed trails; 70% → 43%.
 - New benchmarks documented: Aurora (50%), Flames (24%), Oscilloscope (18%).
-- Benchmark docs: `docs/BENCHMARK_0.4.3.md` (v0.4.3), `docs/benchmark-v0.4.4.md` (v0.4.4 additions).
+- Benchmark docs: `docs/BENCHMARK_0.4.3.md` (v0.4.3), `docs/BENCHMARK_0.4.4.md` (v0.4.4 additions).
 
 ## v0.4.2 Status
 

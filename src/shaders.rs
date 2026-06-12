@@ -12,6 +12,8 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 
+use crate::cycle::PlaylistCursor;
+
 // ---------------------------------------------------------------------------
 // Built-in shaders compiled into the binary
 // ---------------------------------------------------------------------------
@@ -260,6 +262,45 @@ pub struct ShaderSource {
 }
 
 // ---------------------------------------------------------------------------
+// Renamed-shader aliases
+// ---------------------------------------------------------------------------
+
+/// Shaders renamed across releases: `(old name, replacement, warning message)`.
+/// Configs referencing an old name fall back to the replacement with a warning
+/// instead of erroring.
+pub const SHADER_ALIASES: &[(&str, &str, &str)] = &[
+    (
+        "flow_field",
+        "marble",
+        "Unknown shader 'flow_field', did you mean 'marble'? \
+         Please update your config. Falling back to 'marble'.",
+    ),
+    (
+        "raymarcher",
+        "donut",
+        "Unknown shader 'raymarcher', did you mean 'donut'? \
+         Falling back to 'donut'.",
+    ),
+    (
+        "aurora_sphere",
+        "planet",
+        "Shader 'aurora_sphere' was renamed to 'planet'. \
+         Please update your config. Falling back to 'planet'.",
+    ),
+];
+
+/// Resolve a renamed-shader alias, logging the migration warning on a match.
+pub fn resolve_shader_alias(name: &str) -> Option<&'static str> {
+    SHADER_ALIASES
+        .iter()
+        .find(|(old, _, _)| *old == name)
+        .map(|(_, replacement, warning)| {
+            log::warn!("{warning}");
+            *replacement
+        })
+}
+
+// ---------------------------------------------------------------------------
 // ShaderManager
 // ---------------------------------------------------------------------------
 
@@ -273,11 +314,8 @@ pub struct ShaderManager {
     watcher: Option<RecommendedWatcher>,
     /// Receiver for shader-name strings sent by the watcher thread.
     change_rx: Option<mpsc::Receiver<String>>,
-    /// Current position in the cycle. Advances on each `cycle_next()` call.
-    cycle_index: usize,
-    /// If `Some`, `cycle_next()` iterates only these names (in order).
-    /// If `None`, iterates all shaders sorted by name.
-    playlist: Option<Vec<String>>,
+    /// Cycle position + optional playlist (shared cursor logic in `cycle.rs`).
+    cursor: PlaylistCursor,
 }
 
 impl ShaderManager {
@@ -398,8 +436,7 @@ impl ShaderManager {
             shaders,
             watcher: None,
             change_rx: None,
-            cycle_index: 0,
-            playlist: None,
+            cursor: PlaylistCursor::default(),
         })
     }
 
@@ -420,13 +457,7 @@ impl ShaderManager {
     /// If a playlist was set via [`set_playlist`], returns that list.
     /// Otherwise returns all known shader names sorted alphabetically.
     pub fn effective_playlist(&self) -> Vec<String> {
-        if let Some(ref pl) = self.playlist {
-            pl.clone()
-        } else {
-            let mut names: Vec<String> = self.shaders.keys().cloned().collect();
-            names.sort_unstable();
-            names
-        }
+        self.cursor.effective_playlist(&self.shaders)
     }
 
     /// Return a random shader. Uses current-time subsecond nanos modulo count.
@@ -452,23 +483,7 @@ impl ShaderManager {
     ///
     /// Call `get()` or `get_compiled()` with the returned name to access the source.
     pub fn cycle_next(&mut self) -> Option<String> {
-        let names: Vec<String> = match &self.playlist {
-            Some(pl) => pl
-                .iter()
-                .filter(|n| self.shaders.contains_key(*n))
-                .cloned()
-                .collect(),
-            None => {
-                let mut ns: Vec<String> = self.shaders.keys().cloned().collect();
-                ns.sort_unstable();
-                ns
-            }
-        };
-        if names.is_empty() {
-            return None;
-        }
-        self.cycle_index = self.cycle_index.wrapping_add(1) % names.len();
-        Some(names[self.cycle_index].clone())
+        self.cursor.next(&self.shaders)
     }
 
     /// Return the name of the shader at the current cycle index, without advancing.
@@ -476,22 +491,7 @@ impl ShaderManager {
     /// Uses the playlist if set, otherwise all shaders alphabetically.
     /// Returns `None` if the collection is empty.
     pub fn current_cycle_name(&self) -> Option<&str> {
-        let names: Vec<&str> = match &self.playlist {
-            Some(pl) => pl
-                .iter()
-                .filter(|n| self.shaders.contains_key(*n))
-                .map(String::as_str)
-                .collect(),
-            None => {
-                let mut ns: Vec<&str> = self.shaders.keys().map(String::as_str).collect();
-                ns.sort_unstable();
-                ns
-            }
-        };
-        if names.is_empty() {
-            return None;
-        }
-        Some(names[self.cycle_index % names.len()])
+        self.cursor.current(&self.shaders)
     }
 
     /// Set a playlist so that `cycle_next()` iterates only the given names.
@@ -499,31 +499,14 @@ impl ShaderManager {
     /// Always resets `cycle_index` to 0; call `randomize_cycle_start()` afterward
     /// if a random starting position is desired (e.g. at screensaver startup).
     pub fn set_playlist(&mut self, names: Vec<String>) {
-        if names.is_empty() {
-            self.playlist = None;
-        } else {
-            self.playlist = Some(names);
-        }
-        self.cycle_index = 0;
+        self.cursor.set_playlist(names);
     }
 
     /// Randomize the starting cycle index within the current playlist (or all shaders
     /// if no playlist is set). Call this once at screensaver startup so every session
     /// begins at a different point in the rotation.
     pub fn randomize_cycle_start(&mut self) {
-        let count = match &self.playlist {
-            Some(pl) => pl.iter().filter(|n| self.shaders.contains_key(*n)).count(),
-            None => self.shaders.len(),
-        };
-        self.cycle_index = if count > 1 {
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .subsec_nanos() as usize
-                % count
-        } else {
-            0
-        };
+        self.cursor.randomize_start(&self.shaders);
     }
 
     /// Convenience shortcut: return just the compiled GLSL source string.
@@ -763,39 +746,35 @@ fn prepare_shader(raw: &str) -> String {
 
     let mut out = header;
 
-    // ---- inject common uniforms (skip those already declared) ----
-    if !source.contains("u_time") {
-        out.push_str("uniform float u_time;\n");
-    }
-    if !source.contains("u_resolution") {
-        out.push_str("uniform vec2 u_resolution;\n");
-    }
-    if !source.contains("u_mouse") {
-        out.push_str("uniform vec2 u_mouse;\n");
-    }
-    if !source.contains("u_frame") {
-        out.push_str("uniform int u_frame;\n");
-    }
-    // Use "out vec4 fragColor;" (with semicolon) to avoid matching function params.
-    if !source.contains("out vec4 fragColor;") {
-        out.push_str("out vec4 fragColor;\n");
-    }
-
-    // Fade alpha uniform — multiplied into the final fragColor for fade in/out.
-    // Check for the *declaration* (not just usage) so shaders that reference
-    // "u_alpha" in a comment don't accidentally suppress the injection.
-    if !source.contains("uniform float u_alpha") {
-        out.push_str("uniform float u_alpha;\n");
-    }
-
-    // Speed / zoom multipliers — uploaded every frame; default 1.0 in daemon mode.
-    // Check for the *declaration* (not just usage) so shaders that reference these
-    // uniforms in their body without declaring them still get the injection.
-    if !source.contains("uniform float u_speed_scale") {
-        out.push_str("uniform float u_speed_scale;\n");
-    }
-    if !source.contains("uniform float u_zoom_scale") {
-        out.push_str("uniform float u_zoom_scale;\n");
+    // ---- inject common declarations (skip those already present) ----
+    // (needle, injected line) pairs, pushed in order. The needle granularity is
+    // intentional and varies — do NOT normalize:
+    //   - bare names (u_time .. u_frame): any mention in the source (even just a
+    //     usage) suppresses injection, matching long-standing behavior;
+    //   - "out vec4 fragColor;" with semicolon: avoids matching function params;
+    //   - full declarations (u_alpha, u_speed_scale, u_zoom_scale): only an actual
+    //     declaration suppresses injection, so shaders that merely *use* these
+    //     uniforms (or mention them in comments) still get them injected.
+    const INJECTED_DECLS: &[(&str, &str)] = &[
+        ("u_time", "uniform float u_time;\n"),
+        ("u_resolution", "uniform vec2 u_resolution;\n"),
+        ("u_mouse", "uniform vec2 u_mouse;\n"),
+        ("u_frame", "uniform int u_frame;\n"),
+        ("out vec4 fragColor;", "out vec4 fragColor;\n"),
+        ("uniform float u_alpha", "uniform float u_alpha;\n"),
+        (
+            "uniform float u_speed_scale",
+            "uniform float u_speed_scale;\n",
+        ),
+        (
+            "uniform float u_zoom_scale",
+            "uniform float u_zoom_scale;\n",
+        ),
+    ];
+    for (needle, decl) in INJECTED_DECLS {
+        if !source.contains(needle) {
+            out.push_str(decl);
+        }
     }
 
     // ---- inject palette block (if not already present) ----
@@ -869,6 +848,89 @@ mod tests {
     #[test]
     fn test_builtin_shader_count() {
         assert_eq!(manager().list().len(), 35);
+    }
+
+    #[test]
+    fn test_shader_aliases_resolve_to_existing_builtins() {
+        let mgr = manager();
+        for (old, replacement, _) in SHADER_ALIASES {
+            assert_eq!(resolve_shader_alias(old), Some(*replacement));
+            assert!(
+                mgr.get(replacement).is_some(),
+                "alias '{old}' points at unknown shader '{replacement}'"
+            );
+        }
+    }
+
+    #[test]
+    fn test_resolve_shader_alias_unknown_returns_none() {
+        assert_eq!(resolve_shader_alias("definitely_not_a_shader"), None);
+        // Current names must not be treated as aliases.
+        assert_eq!(resolve_shader_alias("marble"), None);
+    }
+
+    #[test]
+    fn test_injected_decl_order_is_stable() {
+        // The injected preamble order is part of the prepared-source contract;
+        // a reorder would silently change every compiled shader.
+        let prepared = prepare_shader("");
+        let decls = [
+            "uniform float u_time;",
+            "uniform vec2 u_resolution;",
+            "uniform vec2 u_mouse;",
+            "uniform int u_frame;",
+            "out vec4 fragColor;",
+            "uniform float u_alpha;",
+            "uniform float u_speed_scale;",
+            "uniform float u_zoom_scale;",
+            "uniform sampler2D u_lut_a;",
+        ];
+        let positions: Vec<usize> = decls
+            .iter()
+            .map(|d| {
+                prepared
+                    .find(d)
+                    .unwrap_or_else(|| panic!("missing decl: {d}"))
+            })
+            .collect();
+        assert!(
+            positions.windows(2).all(|w| w[0] < w[1]),
+            "injected declarations out of order:\n{prepared}"
+        );
+    }
+
+    #[test]
+    fn test_every_shader_file_is_registered() {
+        // Guards against the BUILTIN_* const table and the registration tuple
+        // list silently desyncing: every shaders/*.frag must be registered as
+        // a built-in, and there must be no registered built-in without a file.
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("shaders");
+        let mgr = manager();
+        let mut stems: Vec<String> = std::fs::read_dir(&dir)
+            .expect("shaders/ dir must exist")
+            .filter_map(|e| {
+                let path = e.expect("readable dir entry").path();
+                match path.extension().and_then(|x| x.to_str()) {
+                    Some("frag") => Some(
+                        path.file_stem()
+                            .and_then(|s| s.to_str())
+                            .expect("utf-8 shader filename")
+                            .to_string(),
+                    ),
+                    _ => None,
+                }
+            })
+            .collect();
+        stems.sort();
+
+        let mut registered: Vec<String> = mgr.list().into_iter().map(str::to_string).collect();
+        registered.sort();
+
+        assert_eq!(
+            stems, registered,
+            "shaders/*.frag files and registered built-ins must match exactly"
+        );
+        assert_eq!(stems.len(), 35);
     }
 
     #[test]

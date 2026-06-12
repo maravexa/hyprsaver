@@ -389,6 +389,26 @@ fn resolve_config_path_impl(new_path: PathBuf, legacy_path: PathBuf) -> ConfigPa
     }
 }
 
+/// Resolve the path to *write* config to: an existing new path wins, then an
+/// existing legacy path, else the new path (to be created by the caller).
+/// Mirrors `resolve_config_path()` priorities so saves land where loads look.
+pub fn save_config_path() -> PathBuf {
+    let cfg_dir = dirs::config_dir().unwrap_or_else(|| PathBuf::from(".config"));
+    save_config_path_impl(
+        cfg_dir.join("hypr").join("hyprsaver.toml"),
+        cfg_dir.join("hyprsaver").join("config.toml"),
+    )
+}
+
+/// Inner implementation that accepts explicit paths for testability.
+fn save_config_path_impl(new_path: PathBuf, legacy_path: PathBuf) -> PathBuf {
+    match resolve_config_path_impl(new_path.clone(), legacy_path) {
+        ConfigPathOutcome::New(p) | ConfigPathOutcome::Both { new: p, .. } => p,
+        ConfigPathOutcome::Legacy(p) => p,
+        ConfigPathOutcome::NotFound => new_path,
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Config loading
 // ---------------------------------------------------------------------------
@@ -990,6 +1010,62 @@ palettes = ["rainbow", "ember"]
 
         let outcome = resolve_config_path_impl(new_path, legacy_path);
         assert_eq!(outcome, ConfigPathOutcome::NotFound);
+    }
+
+    // ---------------------------------------------------------------------------
+    // save_config_path tests
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn test_save_config_path_new_only() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let new_path = tmp.path().join("hyprsaver.toml");
+        let legacy_path = tmp.path().join("config.toml"); // does not exist
+        std::fs::write(&new_path, "").expect("write new path");
+
+        assert_eq!(
+            save_config_path_impl(new_path.clone(), legacy_path),
+            new_path
+        );
+    }
+
+    #[test]
+    fn test_save_config_path_legacy_only() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let new_path = tmp.path().join("hyprsaver.toml"); // does not exist
+        let legacy_path = tmp.path().join("config.toml");
+        std::fs::write(&legacy_path, "").expect("write legacy path");
+
+        assert_eq!(
+            save_config_path_impl(new_path, legacy_path.clone()),
+            legacy_path
+        );
+    }
+
+    #[test]
+    fn test_save_config_path_both_exist_prefers_new() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let new_path = tmp.path().join("hyprsaver.toml");
+        let legacy_path = tmp.path().join("config.toml");
+        std::fs::write(&new_path, "").expect("write new path");
+        std::fs::write(&legacy_path, "").expect("write legacy path");
+
+        assert_eq!(
+            save_config_path_impl(new_path.clone(), legacy_path),
+            new_path
+        );
+    }
+
+    #[test]
+    fn test_save_config_path_neither_exists_returns_new_for_creation() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let new_path = tmp.path().join("hyprsaver.toml");
+        let legacy_path = tmp.path().join("config.toml");
+
+        assert_eq!(
+            save_config_path_impl(new_path.clone(), legacy_path),
+            new_path
+        );
     }
 
     // ---------------------------------------------------------------------------

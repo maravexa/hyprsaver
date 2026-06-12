@@ -53,6 +53,7 @@ use wayland_client::{
 
 use crate::{
     config::Config,
+    egl::EglState,
     palette::{Palette, PaletteEntry, PaletteManager},
     renderer::Renderer,
     shaders::ShaderManager,
@@ -63,57 +64,6 @@ const PANEL_WIDTH: u32 = 300;
 
 /// Below this window width (logical pixels) the panel collapses to an overlay.
 const PANEL_COLLAPSE_THRESHOLD: u32 = 640;
-
-// ---------------------------------------------------------------------------
-// EGL state (mirrors wayland.rs — preview and daemon paths are kept separate)
-// ---------------------------------------------------------------------------
-
-struct EglState {
-    egl: khronos_egl::DynamicInstance<khronos_egl::EGL1_4>,
-    display: khronos_egl::Display,
-    config: khronos_egl::Config,
-}
-
-impl EglState {
-    fn new(display_ptr: *mut std::ffi::c_void) -> anyhow::Result<Self> {
-        let egl = unsafe {
-            khronos_egl::DynamicInstance::<khronos_egl::EGL1_4>::load_required()
-                .context("failed to load libEGL")?
-        };
-
-        let display = unsafe { egl.get_display(display_ptr) }
-            .ok_or_else(|| anyhow::anyhow!("eglGetDisplay returned EGL_NO_DISPLAY"))?;
-
-        egl.initialize(display).context("eglInitialize failed")?;
-
-        egl.bind_api(khronos_egl::OPENGL_ES_API)
-            .context("eglBindAPI(OPENGL_ES_API) failed")?;
-
-        #[rustfmt::skip]
-        let attribs = [
-            khronos_egl::RED_SIZE,        8,
-            khronos_egl::GREEN_SIZE,      8,
-            khronos_egl::BLUE_SIZE,       8,
-            khronos_egl::ALPHA_SIZE,      8,
-            khronos_egl::DEPTH_SIZE,      0,
-            khronos_egl::STENCIL_SIZE,    0,
-            khronos_egl::SURFACE_TYPE,    khronos_egl::WINDOW_BIT,
-            khronos_egl::RENDERABLE_TYPE, khronos_egl::OPENGL_ES3_BIT,
-            khronos_egl::NONE,
-        ];
-
-        let config = egl
-            .choose_first_config(display, &attribs)
-            .context("eglChooseConfig failed")?
-            .ok_or_else(|| anyhow::anyhow!("no suitable EGL config found"))?;
-
-        Ok(Self {
-            egl,
-            display,
-            config,
-        })
-    }
-}
 
 // ---------------------------------------------------------------------------
 // egui panel state
@@ -1582,23 +1532,10 @@ fn resolve_shader(
         n => {
             if shader_manager.get(n).is_some() {
                 n.to_string()
+            } else if let Some(replacement) = crate::shaders::resolve_shader_alias(n) {
+                // Graceful alias for shaders renamed across releases.
+                replacement.to_string()
             } else {
-                // Graceful alias: "raymarcher" was renamed to "donut" in v0.3.1.
-                if n == "raymarcher" {
-                    log::warn!(
-                        "Unknown shader 'raymarcher', did you mean 'donut'? \
-                         Falling back to 'donut'."
-                    );
-                    return "donut".to_string();
-                }
-                // Graceful alias: "aurora_sphere" was renamed to "planet".
-                if n == "aurora_sphere" {
-                    log::warn!(
-                        "Shader 'aurora_sphere' was renamed to 'planet'. \
-                         Please update your config. Falling back to 'planet'."
-                    );
-                    return "planet".to_string();
-                }
                 log::warn!("preview: unknown shader '{n}', falling back to oscilloscope");
                 shader_manager
                     .get("oscilloscope")
@@ -1615,18 +1552,10 @@ fn resolve_shader(
     }
 }
 
+// `handle_cycle = false`: the preview deliberately starts on a concrete
+// palette ("cycle" falls through to the rainbow fallback).
 fn resolve_palette(config: &Config, palette_manager: &PaletteManager) -> String {
-    let name = &config.general.palette;
-    match name.as_str() {
-        "random" => palette_manager.random().0.to_string(),
-        n => {
-            if palette_manager.get(n).is_some() {
-                n.to_string()
-            } else {
-                "rainbow".to_string()
-            }
-        }
-    }
+    crate::palette::resolve_palette_name(&config.general.palette, palette_manager, false)
 }
 
 // ---------------------------------------------------------------------------
@@ -2324,6 +2253,71 @@ fn palette_combo_rows(
     }
 }
 
+/// Render thumbnail dropdown rows for a shader picker inside a `show_ui` callback.
+///
+/// Mirrors [`palette_combo_rows`]: one row per name with a left-aligned text
+/// label and a right-aligned 28 px shader thumbnail. Highlights the
+/// currently-selected row. Updates `*selected` when a row is clicked.
+fn shader_combo_rows(
+    ui: &mut egui::Ui,
+    names: &[String],
+    selected: &mut String,
+    thumbnail_textures: &std::collections::HashMap<String, egui::TextureHandle>,
+) {
+    for name in names {
+        let row_h = 34.0;
+        let is_selected = *selected == *name;
+        let (rect, response) = ui.allocate_exact_size(
+            egui::vec2(ui.available_width(), row_h),
+            egui::Sense::click(),
+        );
+        // Background highlight
+        let bg = if is_selected {
+            ui.visuals().selection.bg_fill
+        } else if response.hovered() {
+            ui.visuals().widgets.hovered.weak_bg_fill
+        } else {
+            egui::Color32::TRANSPARENT
+        };
+        if bg != egui::Color32::TRANSPARENT {
+            ui.painter().rect_filled(rect, 2.0, bg);
+        }
+        // Text label — left aligned
+        let text_color = if is_selected {
+            ui.visuals().selection.stroke.color
+        } else {
+            ui.visuals().text_color()
+        };
+        ui.painter().text(
+            rect.left_center() + egui::vec2(6.0, 0.0),
+            egui::Align2::LEFT_CENTER,
+            name,
+            egui::TextStyle::Body.resolve(ui.style()),
+            text_color,
+        );
+        // Thumbnail — right edge
+        if let Some(tex) = thumbnail_textures.get(name.as_str()) {
+            let img_size = 28.0;
+            let img_rect = egui::Rect::from_min_size(
+                egui::pos2(
+                    rect.right() - img_size - 4.0,
+                    rect.center().y - img_size / 2.0,
+                ),
+                egui::vec2(img_size, img_size),
+            );
+            ui.painter().image(
+                tex.id(),
+                img_rect,
+                egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                egui::Color32::WHITE,
+            );
+        }
+        if response.clicked() {
+            *selected = name.clone();
+        }
+    }
+}
+
 /// Contents of the "Preview" tab — organized with collapsible sections.
 fn draw_preview_tab(
     ui: &mut egui::Ui,
@@ -2353,61 +2347,12 @@ fn draw_preview_tab(
                                 .max_height(300.0)
                                 .show(ui, |ui| {
                                     ui.set_min_width(combo_w);
-                                    for name in shader_list {
-                                        let row_h = 34.0;
-                                        let is_selected = state.selected_shader == *name;
-                                        let (rect, response) = ui.allocate_exact_size(
-                                            egui::vec2(ui.available_width(), row_h),
-                                            egui::Sense::click(),
-                                        );
-                                        // Background highlight
-                                        let bg = if is_selected {
-                                            ui.visuals().selection.bg_fill
-                                        } else if response.hovered() {
-                                            ui.visuals().widgets.hovered.weak_bg_fill
-                                        } else {
-                                            egui::Color32::TRANSPARENT
-                                        };
-                                        if bg != egui::Color32::TRANSPARENT {
-                                            ui.painter().rect_filled(rect, 2.0, bg);
-                                        }
-                                        // Text label — left aligned
-                                        let text_color = if is_selected {
-                                            ui.visuals().selection.stroke.color
-                                        } else {
-                                            ui.visuals().text_color()
-                                        };
-                                        ui.painter().text(
-                                            rect.left_center() + egui::vec2(6.0, 0.0),
-                                            egui::Align2::LEFT_CENTER,
-                                            name,
-                                            egui::TextStyle::Body.resolve(ui.style()),
-                                            text_color,
-                                        );
-                                        // Thumbnail — right edge
-                                        if let Some(tex) = thumbnail_textures.get(name.as_str()) {
-                                            let img_size = 28.0;
-                                            let img_rect = egui::Rect::from_min_size(
-                                                egui::pos2(
-                                                    rect.right() - img_size - 4.0,
-                                                    rect.center().y - img_size / 2.0,
-                                                ),
-                                                egui::vec2(img_size, img_size),
-                                            );
-                                            ui.painter().image(
-                                                tex.id(),
-                                                img_rect,
-                                                egui::Rect::from_min_max(
-                                                    egui::pos2(0.0, 0.0),
-                                                    egui::pos2(1.0, 1.0),
-                                                ),
-                                                egui::Color32::WHITE,
-                                            );
-                                        }
-                                        if response.clicked() {
-                                            state.selected_shader = name.clone();
-                                        }
-                                    }
+                                    shader_combo_rows(
+                                        ui,
+                                        shader_list,
+                                        &mut state.selected_shader,
+                                        thumbnail_textures,
+                                    );
                                 });
                         });
 
@@ -2668,59 +2613,12 @@ fn draw_playlists_tab(
                                     .max_height(300.0)
                                     .show(ui, |ui| {
                                         ui.set_min_width(combo_w);
-                                        for name in &available {
-                                            let row_h = 34.0;
-                                            let is_selected = ed.add_shader_selected == *name;
-                                            let (rect, response) = ui.allocate_exact_size(
-                                                egui::vec2(ui.available_width(), row_h),
-                                                egui::Sense::click(),
-                                            );
-                                            let bg = if is_selected {
-                                                ui.visuals().selection.bg_fill
-                                            } else if response.hovered() {
-                                                ui.visuals().widgets.hovered.weak_bg_fill
-                                            } else {
-                                                egui::Color32::TRANSPARENT
-                                            };
-                                            if bg != egui::Color32::TRANSPARENT {
-                                                ui.painter().rect_filled(rect, 2.0, bg);
-                                            }
-                                            let text_color = if is_selected {
-                                                ui.visuals().selection.stroke.color
-                                            } else {
-                                                ui.visuals().text_color()
-                                            };
-                                            ui.painter().text(
-                                                rect.left_center() + egui::vec2(6.0, 0.0),
-                                                egui::Align2::LEFT_CENTER,
-                                                name,
-                                                egui::TextStyle::Body.resolve(ui.style()),
-                                                text_color,
-                                            );
-                                            if let Some(tex) = thumbnail_textures.get(name.as_str())
-                                            {
-                                                let img_size = 28.0;
-                                                let img_rect = egui::Rect::from_min_size(
-                                                    egui::pos2(
-                                                        rect.right() - img_size - 4.0,
-                                                        rect.center().y - img_size / 2.0,
-                                                    ),
-                                                    egui::vec2(img_size, img_size),
-                                                );
-                                                ui.painter().image(
-                                                    tex.id(),
-                                                    img_rect,
-                                                    egui::Rect::from_min_max(
-                                                        egui::pos2(0.0, 0.0),
-                                                        egui::pos2(1.0, 1.0),
-                                                    ),
-                                                    egui::Color32::WHITE,
-                                                );
-                                            }
-                                            if response.clicked() {
-                                                ed.add_shader_selected = name.clone();
-                                            }
-                                        }
+                                        shader_combo_rows(
+                                            ui,
+                                            &available,
+                                            &mut ed.add_shader_selected,
+                                            thumbnail_textures,
+                                        );
                                     });
                             });
                         let can_add = !ed.add_shader_selected.is_empty()
@@ -3325,21 +3223,8 @@ fn save_playlist_config(
     palette_interval: u64,
     cycle_order_random: bool,
 ) -> Result<String, String> {
-    use std::path::PathBuf;
-
     // Resolve target path: prefer new location, fall back to legacy, else create new.
-    let cfg_path: PathBuf = {
-        let cfg_dir = dirs::config_dir().unwrap_or_else(|| PathBuf::from("."));
-        let new_path = cfg_dir.join("hypr").join("hyprsaver.toml");
-        let legacy_path = cfg_dir.join("hyprsaver").join("config.toml");
-        if new_path.exists() {
-            new_path
-        } else if legacy_path.exists() {
-            legacy_path
-        } else {
-            new_path // will be created below
-        }
-    };
+    let cfg_path = crate::config::save_config_path();
 
     // Read existing content (empty string if file doesn't exist yet).
     let existing = if cfg_path.exists() {
@@ -3480,8 +3365,6 @@ fn save_playlist_config(
 ///
 /// Path resolution matches `save_playlist_config`.
 fn save_palette_config(name: &str, palette: &Palette) -> Result<String, String> {
-    use std::path::PathBuf;
-
     // Basic name validation: non-empty, no whitespace, no `.` or `[` which
     // would make the TOML key ambiguous.
     let trimmed = name.trim();
@@ -3496,18 +3379,7 @@ fn save_palette_config(name: &str, palette: &Palette) -> Result<String, String> 
     }
 
     // Resolve target path: prefer new location, fall back to legacy, else create new.
-    let cfg_path: PathBuf = {
-        let cfg_dir = dirs::config_dir().unwrap_or_else(|| PathBuf::from("."));
-        let new_path = cfg_dir.join("hypr").join("hyprsaver.toml");
-        let legacy_path = cfg_dir.join("hyprsaver").join("config.toml");
-        if new_path.exists() {
-            new_path
-        } else if legacy_path.exists() {
-            legacy_path
-        } else {
-            new_path // will be created below
-        }
-    };
+    let cfg_path = crate::config::save_config_path();
 
     // Read existing content (empty string if file doesn't exist yet).
     let existing = if cfg_path.exists() {
@@ -3594,20 +3466,7 @@ fn save_preview_config(
     cycle_order_random: bool,
     session_palettes: &[(String, Palette)],
 ) -> Result<String, String> {
-    use std::path::PathBuf;
-
-    let cfg_path: PathBuf = {
-        let cfg_dir = dirs::config_dir().unwrap_or_else(|| PathBuf::from("."));
-        let new_path = cfg_dir.join("hypr").join("hyprsaver.toml");
-        let legacy_path = cfg_dir.join("hyprsaver").join("config.toml");
-        if new_path.exists() {
-            new_path
-        } else if legacy_path.exists() {
-            legacy_path
-        } else {
-            new_path
-        }
-    };
+    let cfg_path = crate::config::save_config_path();
 
     let existing = if cfg_path.exists() {
         std::fs::read_to_string(&cfg_path).map_err(|e| e.to_string())?
@@ -3763,20 +3622,7 @@ fn save_preview_config(
 /// config file. Errors are logged but not propagated — failing to persist
 /// the window size is not fatal.
 fn save_window_size(width: u32, height: u32) {
-    use std::path::PathBuf;
-
-    let cfg_path: PathBuf = {
-        let cfg_dir = dirs::config_dir().unwrap_or_else(|| PathBuf::from("."));
-        let new_path = cfg_dir.join("hypr").join("hyprsaver.toml");
-        let legacy_path = cfg_dir.join("hyprsaver").join("config.toml");
-        if new_path.exists() {
-            new_path
-        } else if legacy_path.exists() {
-            legacy_path
-        } else {
-            new_path
-        }
-    };
+    let cfg_path = crate::config::save_config_path();
 
     let existing = if cfg_path.exists() {
         std::fs::read_to_string(&cfg_path).unwrap_or_default()

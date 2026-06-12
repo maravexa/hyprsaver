@@ -1,5 +1,5 @@
 #version 320 es
-precision mediump float;
+precision highp float;
 
 uniform float u_time;
 uniform vec2  u_resolution;

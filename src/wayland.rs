@@ -37,65 +37,11 @@ use wayland_client::{
 use crate::{
     config::{Config, DismissEvent},
     cycle::{CycleConfig, CycleEvent, CycleManager, CycleOrder},
+    egl::EglState,
     palette::PaletteManager,
     renderer::Renderer,
     shaders::ShaderManager,
 };
-
-// ---------------------------------------------------------------------------
-// EGL state (shared across all surfaces)
-// ---------------------------------------------------------------------------
-
-/// Holds the EGL instance, display, and chosen config. Shared across all surfaces.
-struct EglState {
-    egl: khronos_egl::DynamicInstance<khronos_egl::EGL1_4>,
-    display: khronos_egl::Display,
-    config: khronos_egl::Config,
-}
-
-impl EglState {
-    /// Initialise EGL from the raw Wayland display pointer.
-    fn new(display_ptr: *mut std::ffi::c_void) -> anyhow::Result<Self> {
-        // Safety: display_ptr is the wl_display pointer which lives as long as the Connection.
-        let egl = unsafe {
-            khronos_egl::DynamicInstance::<khronos_egl::EGL1_4>::load_required()
-                .context("failed to load libEGL")?
-        };
-
-        let display = unsafe { egl.get_display(display_ptr) }
-            .ok_or_else(|| anyhow::anyhow!("eglGetDisplay returned EGL_NO_DISPLAY"))?;
-
-        egl.initialize(display).context("eglInitialize failed")?;
-
-        // We need OpenGL ES
-        egl.bind_api(khronos_egl::OPENGL_ES_API)
-            .context("eglBindAPI(OPENGL_ES_API) failed")?;
-
-        #[rustfmt::skip]
-        let attribs = [
-            khronos_egl::RED_SIZE,     8,
-            khronos_egl::GREEN_SIZE,   8,
-            khronos_egl::BLUE_SIZE,    8,
-            khronos_egl::ALPHA_SIZE,   8,
-            khronos_egl::DEPTH_SIZE,   0,
-            khronos_egl::STENCIL_SIZE, 0,
-            khronos_egl::SURFACE_TYPE, khronos_egl::WINDOW_BIT,
-            khronos_egl::RENDERABLE_TYPE, khronos_egl::OPENGL_ES3_BIT,
-            khronos_egl::NONE,
-        ];
-
-        let config = egl
-            .choose_first_config(display, &attribs)
-            .context("eglChooseConfig failed")?
-            .ok_or_else(|| anyhow::anyhow!("no suitable EGL config found"))?;
-
-        Ok(Self {
-            egl,
-            display,
-            config,
-        })
-    }
-}
 
 // ---------------------------------------------------------------------------
 // FadeState — per-surface fade tracking
@@ -454,31 +400,10 @@ impl WaylandState {
             name => {
                 if shader_manager.get(name).is_some() {
                     name.to_string()
+                } else if let Some(replacement) = crate::shaders::resolve_shader_alias(name) {
+                    // Graceful alias for shaders renamed across releases.
+                    replacement.to_string()
                 } else {
-                    // Graceful alias: "flow_field" was renamed to "marble".
-                    if name == "flow_field" {
-                        log::warn!(
-                            "Unknown shader 'flow_field', did you mean 'marble'? \
-                             Please update your config. Falling back to 'marble'."
-                        );
-                        return "marble".to_string();
-                    }
-                    // Graceful alias: "raymarcher" was renamed to "donut" in v0.3.1.
-                    if name == "raymarcher" {
-                        log::warn!(
-                            "Unknown shader 'raymarcher', did you mean 'donut'? \
-                             Falling back to 'donut'."
-                        );
-                        return "donut".to_string();
-                    }
-                    // Graceful alias: "aurora_sphere" was renamed to "planet".
-                    if name == "aurora_sphere" {
-                        log::warn!(
-                            "Shader 'aurora_sphere' was renamed to 'planet'. \
-                             Please update your config. Falling back to 'planet'."
-                        );
-                        return "planet".to_string();
-                    }
                     // Fallback to first available shader.
                     shader_manager
                         .list()
@@ -492,23 +417,7 @@ impl WaylandState {
 
     /// Select the initial palette, handling "random" and "cycle" modes.
     fn resolve_palette(config: &Config, palette_manager: &PaletteManager) -> String {
-        match config.general.palette.as_str() {
-            "random" => palette_manager.random().0.to_string(),
-            "cycle" => {
-                // Start at the randomized cycle index set during PaletteManager init.
-                palette_manager
-                    .current_cycle_name()
-                    .map(str::to_string)
-                    .unwrap_or_else(|| "rainbow".to_string())
-            }
-            name => {
-                if palette_manager.get(name).is_some() {
-                    name.to_string()
-                } else {
-                    "rainbow".to_string()
-                }
-            }
-        }
+        crate::palette::resolve_palette_name(&config.general.palette, palette_manager, true)
     }
 
     /// Initiate screensaver dismissal. If fade_out_ms > 0, starts fade-out on all

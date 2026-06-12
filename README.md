@@ -605,7 +605,7 @@ If your shader contains `void mainImage(out vec4 fragColor, in vec2 fragCoord)`,
 `--preview` opens a desktop window split into two regions:
 
 - **Left**: live shader viewport
-- **Right**: 280-px egui control panel
+- **Right**: 300-px egui control panel
 
 The panel provides:
 

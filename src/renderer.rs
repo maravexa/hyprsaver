@@ -38,6 +38,27 @@ pub struct UniformLocations {
     pub u_zoom_scale: Option<glow::UniformLocation>,
 }
 
+impl UniformLocations {
+    /// Query the standard uniform locations from a linked program.
+    ///
+    /// # Safety
+    /// `prog` must be a valid linked program on this GL context.
+    unsafe fn from_program(gl: &glow::Context, prog: glow::Program) -> Self {
+        UniformLocations {
+            u_time: gl.get_uniform_location(prog, "u_time"),
+            u_resolution: gl.get_uniform_location(prog, "u_resolution"),
+            u_frame: gl.get_uniform_location(prog, "u_frame"),
+            u_mouse: gl.get_uniform_location(prog, "u_mouse"),
+            u_lut_a: gl.get_uniform_location(prog, "u_lut_a"),
+            u_lut_b: gl.get_uniform_location(prog, "u_lut_b"),
+            u_palette_blend: gl.get_uniform_location(prog, "u_palette_blend"),
+            u_alpha: gl.get_uniform_location(prog, "u_alpha"),
+            u_speed_scale: gl.get_uniform_location(prog, "u_speed_scale"),
+            u_zoom_scale: gl.get_uniform_location(prog, "u_zoom_scale"),
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // OffscreenTarget — FBO + color texture for offscreen rendering
 // ---------------------------------------------------------------------------
@@ -1310,20 +1331,7 @@ impl Renderer {
         }
 
         // Get uniform locations for the temp program
-        let uniforms = unsafe {
-            UniformLocations {
-                u_time: self.gl.get_uniform_location(prog, "u_time"),
-                u_resolution: self.gl.get_uniform_location(prog, "u_resolution"),
-                u_frame: self.gl.get_uniform_location(prog, "u_frame"),
-                u_mouse: self.gl.get_uniform_location(prog, "u_mouse"),
-                u_lut_a: self.gl.get_uniform_location(prog, "u_lut_a"),
-                u_lut_b: self.gl.get_uniform_location(prog, "u_lut_b"),
-                u_palette_blend: self.gl.get_uniform_location(prog, "u_palette_blend"),
-                u_alpha: self.gl.get_uniform_location(prog, "u_alpha"),
-                u_speed_scale: self.gl.get_uniform_location(prog, "u_speed_scale"),
-                u_zoom_scale: self.gl.get_uniform_location(prog, "u_zoom_scale"),
-            }
-        };
+        let uniforms = unsafe { UniformLocations::from_program(&self.gl, prog) };
 
         // Render one frame
         unsafe {
@@ -1612,18 +1620,7 @@ impl Renderer {
             return;
         };
         unsafe {
-            self.uniforms = UniformLocations {
-                u_time: self.gl.get_uniform_location(prog, "u_time"),
-                u_resolution: self.gl.get_uniform_location(prog, "u_resolution"),
-                u_frame: self.gl.get_uniform_location(prog, "u_frame"),
-                u_mouse: self.gl.get_uniform_location(prog, "u_mouse"),
-                u_lut_a: self.gl.get_uniform_location(prog, "u_lut_a"),
-                u_lut_b: self.gl.get_uniform_location(prog, "u_lut_b"),
-                u_palette_blend: self.gl.get_uniform_location(prog, "u_palette_blend"),
-                u_alpha: self.gl.get_uniform_location(prog, "u_alpha"),
-                u_speed_scale: self.gl.get_uniform_location(prog, "u_speed_scale"),
-                u_zoom_scale: self.gl.get_uniform_location(prog, "u_zoom_scale"),
-            };
+            self.uniforms = UniformLocations::from_program(&self.gl, prog);
         }
     }
 }
