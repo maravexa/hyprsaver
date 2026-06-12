@@ -3325,21 +3325,8 @@ fn save_playlist_config(
     palette_interval: u64,
     cycle_order_random: bool,
 ) -> Result<String, String> {
-    use std::path::PathBuf;
-
     // Resolve target path: prefer new location, fall back to legacy, else create new.
-    let cfg_path: PathBuf = {
-        let cfg_dir = dirs::config_dir().unwrap_or_else(|| PathBuf::from("."));
-        let new_path = cfg_dir.join("hypr").join("hyprsaver.toml");
-        let legacy_path = cfg_dir.join("hyprsaver").join("config.toml");
-        if new_path.exists() {
-            new_path
-        } else if legacy_path.exists() {
-            legacy_path
-        } else {
-            new_path // will be created below
-        }
-    };
+    let cfg_path = crate::config::save_config_path();
 
     // Read existing content (empty string if file doesn't exist yet).
     let existing = if cfg_path.exists() {
@@ -3480,8 +3467,6 @@ fn save_playlist_config(
 ///
 /// Path resolution matches `save_playlist_config`.
 fn save_palette_config(name: &str, palette: &Palette) -> Result<String, String> {
-    use std::path::PathBuf;
-
     // Basic name validation: non-empty, no whitespace, no `.` or `[` which
     // would make the TOML key ambiguous.
     let trimmed = name.trim();
@@ -3496,18 +3481,7 @@ fn save_palette_config(name: &str, palette: &Palette) -> Result<String, String> 
     }
 
     // Resolve target path: prefer new location, fall back to legacy, else create new.
-    let cfg_path: PathBuf = {
-        let cfg_dir = dirs::config_dir().unwrap_or_else(|| PathBuf::from("."));
-        let new_path = cfg_dir.join("hypr").join("hyprsaver.toml");
-        let legacy_path = cfg_dir.join("hyprsaver").join("config.toml");
-        if new_path.exists() {
-            new_path
-        } else if legacy_path.exists() {
-            legacy_path
-        } else {
-            new_path // will be created below
-        }
-    };
+    let cfg_path = crate::config::save_config_path();
 
     // Read existing content (empty string if file doesn't exist yet).
     let existing = if cfg_path.exists() {
@@ -3594,20 +3568,7 @@ fn save_preview_config(
     cycle_order_random: bool,
     session_palettes: &[(String, Palette)],
 ) -> Result<String, String> {
-    use std::path::PathBuf;
-
-    let cfg_path: PathBuf = {
-        let cfg_dir = dirs::config_dir().unwrap_or_else(|| PathBuf::from("."));
-        let new_path = cfg_dir.join("hypr").join("hyprsaver.toml");
-        let legacy_path = cfg_dir.join("hyprsaver").join("config.toml");
-        if new_path.exists() {
-            new_path
-        } else if legacy_path.exists() {
-            legacy_path
-        } else {
-            new_path
-        }
-    };
+    let cfg_path = crate::config::save_config_path();
 
     let existing = if cfg_path.exists() {
         std::fs::read_to_string(&cfg_path).map_err(|e| e.to_string())?
@@ -3763,20 +3724,7 @@ fn save_preview_config(
 /// config file. Errors are logged but not propagated — failing to persist
 /// the window size is not fatal.
 fn save_window_size(width: u32, height: u32) {
-    use std::path::PathBuf;
-
-    let cfg_path: PathBuf = {
-        let cfg_dir = dirs::config_dir().unwrap_or_else(|| PathBuf::from("."));
-        let new_path = cfg_dir.join("hypr").join("hyprsaver.toml");
-        let legacy_path = cfg_dir.join("hyprsaver").join("config.toml");
-        if new_path.exists() {
-            new_path
-        } else if legacy_path.exists() {
-            legacy_path
-        } else {
-            new_path
-        }
-    };
+    let cfg_path = crate::config::save_config_path();
 
     let existing = if cfg_path.exists() {
         std::fs::read_to_string(&cfg_path).unwrap_or_default()
