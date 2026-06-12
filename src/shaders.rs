@@ -763,39 +763,35 @@ fn prepare_shader(raw: &str) -> String {
 
     let mut out = header;
 
-    // ---- inject common uniforms (skip those already declared) ----
-    if !source.contains("u_time") {
-        out.push_str("uniform float u_time;\n");
-    }
-    if !source.contains("u_resolution") {
-        out.push_str("uniform vec2 u_resolution;\n");
-    }
-    if !source.contains("u_mouse") {
-        out.push_str("uniform vec2 u_mouse;\n");
-    }
-    if !source.contains("u_frame") {
-        out.push_str("uniform int u_frame;\n");
-    }
-    // Use "out vec4 fragColor;" (with semicolon) to avoid matching function params.
-    if !source.contains("out vec4 fragColor;") {
-        out.push_str("out vec4 fragColor;\n");
-    }
-
-    // Fade alpha uniform — multiplied into the final fragColor for fade in/out.
-    // Check for the *declaration* (not just usage) so shaders that reference
-    // "u_alpha" in a comment don't accidentally suppress the injection.
-    if !source.contains("uniform float u_alpha") {
-        out.push_str("uniform float u_alpha;\n");
-    }
-
-    // Speed / zoom multipliers — uploaded every frame; default 1.0 in daemon mode.
-    // Check for the *declaration* (not just usage) so shaders that reference these
-    // uniforms in their body without declaring them still get the injection.
-    if !source.contains("uniform float u_speed_scale") {
-        out.push_str("uniform float u_speed_scale;\n");
-    }
-    if !source.contains("uniform float u_zoom_scale") {
-        out.push_str("uniform float u_zoom_scale;\n");
+    // ---- inject common declarations (skip those already present) ----
+    // (needle, injected line) pairs, pushed in order. The needle granularity is
+    // intentional and varies — do NOT normalize:
+    //   - bare names (u_time .. u_frame): any mention in the source (even just a
+    //     usage) suppresses injection, matching long-standing behavior;
+    //   - "out vec4 fragColor;" with semicolon: avoids matching function params;
+    //   - full declarations (u_alpha, u_speed_scale, u_zoom_scale): only an actual
+    //     declaration suppresses injection, so shaders that merely *use* these
+    //     uniforms (or mention them in comments) still get them injected.
+    const INJECTED_DECLS: &[(&str, &str)] = &[
+        ("u_time", "uniform float u_time;\n"),
+        ("u_resolution", "uniform vec2 u_resolution;\n"),
+        ("u_mouse", "uniform vec2 u_mouse;\n"),
+        ("u_frame", "uniform int u_frame;\n"),
+        ("out vec4 fragColor;", "out vec4 fragColor;\n"),
+        ("uniform float u_alpha", "uniform float u_alpha;\n"),
+        (
+            "uniform float u_speed_scale",
+            "uniform float u_speed_scale;\n",
+        ),
+        (
+            "uniform float u_zoom_scale",
+            "uniform float u_zoom_scale;\n",
+        ),
+    ];
+    for (needle, decl) in INJECTED_DECLS {
+        if !source.contains(needle) {
+            out.push_str(decl);
+        }
     }
 
     // ---- inject palette block (if not already present) ----
@@ -869,6 +865,36 @@ mod tests {
     #[test]
     fn test_builtin_shader_count() {
         assert_eq!(manager().list().len(), 35);
+    }
+
+    #[test]
+    fn test_injected_decl_order_is_stable() {
+        // The injected preamble order is part of the prepared-source contract;
+        // a reorder would silently change every compiled shader.
+        let prepared = prepare_shader("");
+        let decls = [
+            "uniform float u_time;",
+            "uniform vec2 u_resolution;",
+            "uniform vec2 u_mouse;",
+            "uniform int u_frame;",
+            "out vec4 fragColor;",
+            "uniform float u_alpha;",
+            "uniform float u_speed_scale;",
+            "uniform float u_zoom_scale;",
+            "uniform sampler2D u_lut_a;",
+        ];
+        let positions: Vec<usize> = decls
+            .iter()
+            .map(|d| {
+                prepared
+                    .find(d)
+                    .unwrap_or_else(|| panic!("missing decl: {d}"))
+            })
+            .collect();
+        assert!(
+            positions.windows(2).all(|w| w[0] < w[1]),
+            "injected declarations out of order:\n{prepared}"
+        );
     }
 
     #[test]
