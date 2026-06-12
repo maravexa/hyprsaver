@@ -29,10 +29,10 @@ shader = "cycle"
 palette = "cycle"
 
 # When shader = "cycle", how many seconds to display each shader before advancing.
-shader_cycle_interval = 120   # 2 minutes
+shader_cycle_interval = 300   # 5 minutes
 
 # When palette = "cycle", how many seconds to display each palette before advancing.
-palette_cycle_interval = 20   # 20 seconds
+palette_cycle_interval = 60   # 1 minute
 
 # Cycle selection order: "random" (default) shuffles; "sequential" goes in order.
 cycle_order = "random"
@@ -51,7 +51,7 @@ shader_playlist = "default"
 palette_playlist = "default"
 
 # Cross-fade duration when switching palettes, in seconds. 0.0 = instant snap.
-palette_transition_duration = 2.0
+palette_transition_duration = 0.0
 
 # ---------------------------------------------------------------------------
 # [behavior] -- Input and transition settings
@@ -92,7 +92,7 @@ dismiss_on = ["key", "mouse_move", "mouse_click", "touch"]
 # palettes = ["vaporwave", "frost", "ocean", "aurora"]
 
 # [playlists.intense]
-# shaders = ["mandelbrot", "julia", "tesla", "kaleidoscope", "fire"]
+# shaders = ["shipburn", "julia", "tesla", "kaleidoscope", "flames"]
 # palettes = ["rainbow", "ember", "groovy"]
 
 # ---------------------------------------------------------------------------
@@ -141,7 +141,7 @@ dismiss_on = ["key", "mouse_move", "mouse_click", "touch"]
 # but continue to work for backward compatibility.
 #
 # [shader_playlists.my_favorites]
-# shaders = ["mandelbrot", "julia", "plasma"]
+# shaders = ["shipburn", "julia", "plasma"]
 #
 # [palette_playlists.warm_tones]
 # palettes = ["ember", "autumn", "groovy"]
@@ -202,7 +202,7 @@ shaders = [
 
 [playlists.psychedelic]
 shaders = [
-    "mandelbrot",
+    "fractaltrap",
     "lissajous",
     "plasma",
     "hypercube",
@@ -213,7 +213,8 @@ shaders = [
 [playlists.tech]
 shaders = [
     "matrix",
-    "network",
+    "circuit",
+    "sonar",
     "oscilloscope",
     "terminal",
 ]
