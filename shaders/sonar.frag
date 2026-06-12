@@ -119,6 +119,12 @@ void main() {
     // ===== COMPOSE =====
     vec3 color = vec3(0.0);
 
+    // Plain fract() wrapping is intentional here (not triangle-wrap): the +0.5
+    // offset below relies on a constant half-palette distance between grid and
+    // nodes. Triangle-wrap folds the domain, so tri(x) and tri(x+0.5)
+    // periodically coincide (e.g. tri(0.75) == tri(1.25)), which would
+    // collapse the two hues together.
+
     // Grid elements all share one palette position
     vec3 grid_col = palette(fract(t * 0.03));
 

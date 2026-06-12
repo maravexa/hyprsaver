@@ -872,6 +872,40 @@ mod tests {
     }
 
     #[test]
+    fn test_every_shader_file_is_registered() {
+        // Guards against the BUILTIN_* const table and the registration tuple
+        // list silently desyncing: every shaders/*.frag must be registered as
+        // a built-in, and there must be no registered built-in without a file.
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("shaders");
+        let mgr = manager();
+        let mut stems: Vec<String> = std::fs::read_dir(&dir)
+            .expect("shaders/ dir must exist")
+            .filter_map(|e| {
+                let path = e.expect("readable dir entry").path();
+                match path.extension().and_then(|x| x.to_str()) {
+                    Some("frag") => Some(
+                        path.file_stem()
+                            .and_then(|s| s.to_str())
+                            .expect("utf-8 shader filename")
+                            .to_string(),
+                    ),
+                    _ => None,
+                }
+            })
+            .collect();
+        stems.sort();
+
+        let mut registered: Vec<String> = mgr.list().into_iter().map(str::to_string).collect();
+        registered.sort();
+
+        assert_eq!(
+            stems, registered,
+            "shaders/*.frag files and registered built-ins must match exactly"
+        );
+        assert_eq!(stems.len(), 35);
+    }
+
+    #[test]
     fn test_builtin_names() {
         let mgr = manager();
         let names = mgr.list();
