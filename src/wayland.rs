@@ -400,31 +400,10 @@ impl WaylandState {
             name => {
                 if shader_manager.get(name).is_some() {
                     name.to_string()
+                } else if let Some(replacement) = crate::shaders::resolve_shader_alias(name) {
+                    // Graceful alias for shaders renamed across releases.
+                    replacement.to_string()
                 } else {
-                    // Graceful alias: "flow_field" was renamed to "marble".
-                    if name == "flow_field" {
-                        log::warn!(
-                            "Unknown shader 'flow_field', did you mean 'marble'? \
-                             Please update your config. Falling back to 'marble'."
-                        );
-                        return "marble".to_string();
-                    }
-                    // Graceful alias: "raymarcher" was renamed to "donut" in v0.3.1.
-                    if name == "raymarcher" {
-                        log::warn!(
-                            "Unknown shader 'raymarcher', did you mean 'donut'? \
-                             Falling back to 'donut'."
-                        );
-                        return "donut".to_string();
-                    }
-                    // Graceful alias: "aurora_sphere" was renamed to "planet".
-                    if name == "aurora_sphere" {
-                        log::warn!(
-                            "Shader 'aurora_sphere' was renamed to 'planet'. \
-                             Please update your config. Falling back to 'planet'."
-                        );
-                        return "planet".to_string();
-                    }
                     // Fallback to first available shader.
                     shader_manager
                         .list()
@@ -438,23 +417,7 @@ impl WaylandState {
 
     /// Select the initial palette, handling "random" and "cycle" modes.
     fn resolve_palette(config: &Config, palette_manager: &PaletteManager) -> String {
-        match config.general.palette.as_str() {
-            "random" => palette_manager.random().0.to_string(),
-            "cycle" => {
-                // Start at the randomized cycle index set during PaletteManager init.
-                palette_manager
-                    .current_cycle_name()
-                    .map(str::to_string)
-                    .unwrap_or_else(|| "rainbow".to_string())
-            }
-            name => {
-                if palette_manager.get(name).is_some() {
-                    name.to_string()
-                } else {
-                    "rainbow".to_string()
-                }
-            }
-        }
+        crate::palette::resolve_palette_name(&config.general.palette, palette_manager, true)
     }
 
     /// Initiate screensaver dismissal. If fade_out_ms > 0, starts fade-out on all

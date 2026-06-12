@@ -645,6 +645,33 @@ pub struct PaletteManager {
     cursor: PlaylistCursor,
 }
 
+/// Resolve a requested palette name to a concrete one, handling `"random"`
+/// and unknown names (fall back to `"rainbow"`).
+///
+/// `handle_cycle` controls the `"cycle"` value: the daemon starts at the
+/// manager's randomized cycle position, while the preview deliberately treats
+/// `"cycle"` as unknown and starts on the fallback palette.
+pub fn resolve_palette_name(
+    requested: &str,
+    palette_manager: &PaletteManager,
+    handle_cycle: bool,
+) -> String {
+    match requested {
+        "random" => palette_manager.random().0.to_string(),
+        "cycle" if handle_cycle => palette_manager
+            .current_cycle_name()
+            .map(str::to_string)
+            .unwrap_or_else(|| "rainbow".to_string()),
+        name => {
+            if palette_manager.get(name).is_some() {
+                name.to_string()
+            } else {
+                "rainbow".to_string()
+            }
+        }
+    }
+}
+
 impl PaletteManager {
     /// Create a new manager.
     ///

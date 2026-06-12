@@ -1532,23 +1532,10 @@ fn resolve_shader(
         n => {
             if shader_manager.get(n).is_some() {
                 n.to_string()
+            } else if let Some(replacement) = crate::shaders::resolve_shader_alias(n) {
+                // Graceful alias for shaders renamed across releases.
+                replacement.to_string()
             } else {
-                // Graceful alias: "raymarcher" was renamed to "donut" in v0.3.1.
-                if n == "raymarcher" {
-                    log::warn!(
-                        "Unknown shader 'raymarcher', did you mean 'donut'? \
-                         Falling back to 'donut'."
-                    );
-                    return "donut".to_string();
-                }
-                // Graceful alias: "aurora_sphere" was renamed to "planet".
-                if n == "aurora_sphere" {
-                    log::warn!(
-                        "Shader 'aurora_sphere' was renamed to 'planet'. \
-                         Please update your config. Falling back to 'planet'."
-                    );
-                    return "planet".to_string();
-                }
                 log::warn!("preview: unknown shader '{n}', falling back to oscilloscope");
                 shader_manager
                     .get("oscilloscope")
@@ -1565,18 +1552,10 @@ fn resolve_shader(
     }
 }
 
+// `handle_cycle = false`: the preview deliberately starts on a concrete
+// palette ("cycle" falls through to the rainbow fallback).
 fn resolve_palette(config: &Config, palette_manager: &PaletteManager) -> String {
-    let name = &config.general.palette;
-    match name.as_str() {
-        "random" => palette_manager.random().0.to_string(),
-        n => {
-            if palette_manager.get(n).is_some() {
-                n.to_string()
-            } else {
-                "rainbow".to_string()
-            }
-        }
-    }
+    crate::palette::resolve_palette_name(&config.general.palette, palette_manager, false)
 }
 
 // ---------------------------------------------------------------------------

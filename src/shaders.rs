@@ -262,6 +262,45 @@ pub struct ShaderSource {
 }
 
 // ---------------------------------------------------------------------------
+// Renamed-shader aliases
+// ---------------------------------------------------------------------------
+
+/// Shaders renamed across releases: `(old name, replacement, warning message)`.
+/// Configs referencing an old name fall back to the replacement with a warning
+/// instead of erroring.
+pub const SHADER_ALIASES: &[(&str, &str, &str)] = &[
+    (
+        "flow_field",
+        "marble",
+        "Unknown shader 'flow_field', did you mean 'marble'? \
+         Please update your config. Falling back to 'marble'.",
+    ),
+    (
+        "raymarcher",
+        "donut",
+        "Unknown shader 'raymarcher', did you mean 'donut'? \
+         Falling back to 'donut'.",
+    ),
+    (
+        "aurora_sphere",
+        "planet",
+        "Shader 'aurora_sphere' was renamed to 'planet'. \
+         Please update your config. Falling back to 'planet'.",
+    ),
+];
+
+/// Resolve a renamed-shader alias, logging the migration warning on a match.
+pub fn resolve_shader_alias(name: &str) -> Option<&'static str> {
+    SHADER_ALIASES
+        .iter()
+        .find(|(old, _, _)| *old == name)
+        .map(|(_, replacement, warning)| {
+            log::warn!("{warning}");
+            *replacement
+        })
+}
+
+// ---------------------------------------------------------------------------
 // ShaderManager
 // ---------------------------------------------------------------------------
 
@@ -809,6 +848,25 @@ mod tests {
     #[test]
     fn test_builtin_shader_count() {
         assert_eq!(manager().list().len(), 35);
+    }
+
+    #[test]
+    fn test_shader_aliases_resolve_to_existing_builtins() {
+        let mgr = manager();
+        for (old, replacement, _) in SHADER_ALIASES {
+            assert_eq!(resolve_shader_alias(old), Some(*replacement));
+            assert!(
+                mgr.get(replacement).is_some(),
+                "alias '{old}' points at unknown shader '{replacement}'"
+            );
+        }
+    }
+
+    #[test]
+    fn test_resolve_shader_alias_unknown_returns_none() {
+        assert_eq!(resolve_shader_alias("definitely_not_a_shader"), None);
+        // Current names must not be treated as aliases.
+        assert_eq!(resolve_shader_alias("marble"), None);
     }
 
     #[test]
