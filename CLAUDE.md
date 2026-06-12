@@ -4,7 +4,7 @@
 hyprsaver is a Wayland-native screensaver for Hyprland. It renders GLSL fractal shaders on fullscreen wlr-layer-shell overlay surfaces via OpenGL ES (glow). It integrates with hypridle (timeout orchestration) and coexists with hyprlock (lock screen). The two are intentionally separate — Unix philosophy.
 
 ## Architecture
-Ten modules in `src/` (plus `main.rs`):
+Eleven modules in `src/` (plus `main.rs`):
 - `wayland.rs` — Wayland connection, output enumeration, layer-shell surface lifecycle. Uses smithay-client-toolkit. One surface per monitor. Hosts the calloop event loop, calls `CycleManager::tick(now)` each frame, and dispatches `CycleEvent`s to advance shaders/palettes.
 - `renderer.rs` — OpenGL via glow. Fullscreen quad, uploads uniforms (time, resolution, palette vectors, speed/zoom scales, alpha fade), calls draw. Doesn't know about Wayland.
 - `shaders.rs` — Loads `.frag` files from config dir and built-ins. Handles compilation, hot-reload (notify crate), Shadertoy uniform remapping. Prepends palette function to all shaders. Manages cycle playlists (`set_playlist`, `cycle_next`, `randomize_cycle_start`).
@@ -14,6 +14,7 @@ Ten modules in `src/` (plus `main.rs`):
 - `shuffle.rs` — `ShuffleBag` randomizer. Returns every index in `0..len` exactly once per bag cycle in a freshly randomized order; reshuffles on exhaustion; guarantees no cross-bag consecutive repeats when `len >= 2`. "iPod shuffle" pattern — uniform-over-cycle, not uniform-per-pick. A separate instance per cycle stream (shaders, palettes), each with its own xorshift64 seed. `seed_from_time()` helper for wall-clock seeding.
 - `preview.rs` — Windowed preview mode with egui control panel. Left region: shader viewport. Right region: 300-px docked panel with Shader and Palette tabs and thumbnail previews. FPS counter is an overlay (top-left, toggled with `I`). Keyboard shortcuts: Space (pause/resume), ←/→ (prev/next shader), ↑/↓ (prev/next palette), R (reset time), F (toggle panel), I (toggle FPS), T (test shader crossfade), Q/Escape (quit).
 - `render_preview.rs` — `render-preview` subcommand. Headless EGL surfaceless + FBO capture; encodes animated WebP. Defaults: 480×270, 3 s, 15 fps, quality 80. Batch mode (no shader names) renders all shaders. Per-shader palette resolution: CLI override → `[render_preview.palettes]` config map → stable hash-based default. `--skip-existing` skips outputs that already exist.
+- `egl.rs` — Shared `EglState` (EGL instance/display/config) initialisation from a `wl_display` pointer, used by both `wayland.rs` and `preview.rs`. Distinct from `headless_egl.rs` — do not merge.
 - `headless_egl.rs` — Surfaceless EGL context for `render-preview` (no Wayland surface needed).
 
 Entry point: `main.rs` — CLI (clap), signal handling (signal-hook), config load, then dispatches to `preview.rs` (windowed preview) or `wayland.rs` (layer-shell screensaver). Event loop is calloop.

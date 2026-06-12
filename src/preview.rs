@@ -53,6 +53,7 @@ use wayland_client::{
 
 use crate::{
     config::Config,
+    egl::EglState,
     palette::{Palette, PaletteEntry, PaletteManager},
     renderer::Renderer,
     shaders::ShaderManager,
@@ -63,57 +64,6 @@ const PANEL_WIDTH: u32 = 300;
 
 /// Below this window width (logical pixels) the panel collapses to an overlay.
 const PANEL_COLLAPSE_THRESHOLD: u32 = 640;
-
-// ---------------------------------------------------------------------------
-// EGL state (mirrors wayland.rs — preview and daemon paths are kept separate)
-// ---------------------------------------------------------------------------
-
-struct EglState {
-    egl: khronos_egl::DynamicInstance<khronos_egl::EGL1_4>,
-    display: khronos_egl::Display,
-    config: khronos_egl::Config,
-}
-
-impl EglState {
-    fn new(display_ptr: *mut std::ffi::c_void) -> anyhow::Result<Self> {
-        let egl = unsafe {
-            khronos_egl::DynamicInstance::<khronos_egl::EGL1_4>::load_required()
-                .context("failed to load libEGL")?
-        };
-
-        let display = unsafe { egl.get_display(display_ptr) }
-            .ok_or_else(|| anyhow::anyhow!("eglGetDisplay returned EGL_NO_DISPLAY"))?;
-
-        egl.initialize(display).context("eglInitialize failed")?;
-
-        egl.bind_api(khronos_egl::OPENGL_ES_API)
-            .context("eglBindAPI(OPENGL_ES_API) failed")?;
-
-        #[rustfmt::skip]
-        let attribs = [
-            khronos_egl::RED_SIZE,        8,
-            khronos_egl::GREEN_SIZE,      8,
-            khronos_egl::BLUE_SIZE,       8,
-            khronos_egl::ALPHA_SIZE,      8,
-            khronos_egl::DEPTH_SIZE,      0,
-            khronos_egl::STENCIL_SIZE,    0,
-            khronos_egl::SURFACE_TYPE,    khronos_egl::WINDOW_BIT,
-            khronos_egl::RENDERABLE_TYPE, khronos_egl::OPENGL_ES3_BIT,
-            khronos_egl::NONE,
-        ];
-
-        let config = egl
-            .choose_first_config(display, &attribs)
-            .context("eglChooseConfig failed")?
-            .ok_or_else(|| anyhow::anyhow!("no suitable EGL config found"))?;
-
-        Ok(Self {
-            egl,
-            display,
-            config,
-        })
-    }
-}
 
 // ---------------------------------------------------------------------------
 // egui panel state
