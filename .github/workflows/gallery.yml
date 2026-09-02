@@ -1,6 +1,7 @@
 name: Gallery
 
 # Builds the README shader gallery from source and deploys it to GitHub Pages.
+# Repository Pages is configured to publish from GitHub Actions.
 # Generated WebPs are deployment artifacts, never repository content.
 on:
   push:
