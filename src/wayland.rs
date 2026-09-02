@@ -50,6 +50,12 @@ use crate::{
     shaders::ShaderManager,
 };
 
+/// How long a surface waits for an outstanding frame callback before rendering
+/// anyway. Outputs that stopped presenting never answer, so this caps the idle
+/// state at ~1 fps rather than freezing the surface forever. Swap interval is 0,
+/// so the fallback render never blocks inside the driver (issue #348).
+const FRAME_CALLBACK_TIMEOUT: Duration = Duration::from_secs(1);
+
 // ---------------------------------------------------------------------------
 // FadeState — per-surface fade tracking
 // ---------------------------------------------------------------------------
@@ -101,6 +107,13 @@ pub struct Surface {
 
     /// Whether the surface has been configured by the compositor yet.
     pub configured: bool,
+
+    /// When a `wl_surface.frame` callback is outstanding, the instant it was
+    /// requested. `None` once the compositor has signalled that it consumed the
+    /// last frame. The render timer skips surfaces with a pending callback so
+    /// an output that stopped presenting (DPMS off, disconnected) idles instead
+    /// of piling up frames — see [`FRAME_CALLBACK_TIMEOUT`].
+    frame_pending_since: Option<Instant>,
 
     /// wl_egl_window — must be kept alive as long as the EGL surface exists.
     wl_egl_window: Option<wayland_egl::WlEglSurface>,
@@ -218,6 +231,11 @@ impl Surface {
         let w = self.phys_width().max(1) as i32;
         let h = self.phys_height().max(1) as i32;
 
+        // Map the physical-size buffer onto the logical surface size before the
+        // first buffer is attached, so fractional/HiDPI outputs are correct from
+        // frame one rather than after the first resize.
+        self.apply_viewport();
+
         // Create the wl_egl_window from the wl_surface id
         use wayland_client::Proxy as _;
         let wl_egl = wayland_egl::WlEglSurface::new(self.wl_surface.id(), w, h)
@@ -254,6 +272,16 @@ impl Surface {
             )
             .context("eglMakeCurrent failed")?;
 
+        // Swap interval 0: never let eglSwapBuffers block on the compositor's frame
+        // callback. With the default interval of 1, Mesa parks the calling thread
+        // inside swap until the previous frame is presented — which never happens
+        // for an output that has gone DPMS-off or been unplugged, wedging the whole
+        // event loop while the exclusive keyboard grab is still held (issue #348).
+        // Frame pacing is done by the render timer plus explicit frame callbacks.
+        if let Err(e) = egl.egl.swap_interval(egl.display, 0) {
+            log::warn!("eglSwapInterval(0) failed: {e:?}; swap may block on hidden outputs");
+        }
+
         // Create glow context from EGL proc loader
         let gl = unsafe {
             glow::Context::from_loader_function(|sym| {
@@ -279,8 +307,34 @@ impl Surface {
         Ok(())
     }
 
+    /// Whether the render timer should draw this surface now.
+    ///
+    /// False while a frame callback is outstanding and younger than
+    /// [`FRAME_CALLBACK_TIMEOUT`]: the compositor has not consumed the previous
+    /// frame yet (or the output is not presenting at all).
+    fn wants_frame(&self, now: Instant) -> bool {
+        match self.frame_pending_since {
+            None => true,
+            Some(requested) => now.duration_since(requested) >= FRAME_CALLBACK_TIMEOUT,
+        }
+    }
+
+    /// Point the wp_viewport (if the compositor offers one) at the logical surface
+    /// size so the physical-size buffer is scaled correctly on fractional and
+    /// integer HiDPI outputs. No-op until the surface has a size.
+    fn apply_viewport(&self) {
+        if let Some(ref viewport) = self.viewport {
+            if self.width > 0 && self.height > 0 {
+                viewport.set_destination(self.width as i32, self.height as i32);
+            }
+        }
+    }
+
     /// Make this surface's EGL context current, render one frame, and swap buffers.
-    fn render_frame(&mut self, egl: &EglState) {
+    ///
+    /// Requests a frame callback before the swap commits, so the render timer can
+    /// tell when the compositor has actually presented this frame.
+    fn render_frame(&mut self, egl: &EglState, qh: &QueueHandle<WaylandState>) {
         let (Some(es), Some(ec)) = (self.egl_surface, self.egl_context) else {
             return;
         };
@@ -300,6 +354,11 @@ impl Surface {
         let resolution = [self.phys_width() as f32, self.phys_height() as f32];
         self.renderer.as_mut().unwrap().render(resolution);
 
+        // The callback is delivered to CompositorHandler::frame with this
+        // wl_surface as its user data; the returned proxy needs no destructor.
+        self.wl_surface.frame(qh, self.wl_surface.clone());
+        self.frame_pending_since = Some(Instant::now());
+
         if let Err(e) = egl.egl.swap_buffers(egl.display, es) {
             log::warn!("swap_buffers failed: {e:?}");
         }
@@ -310,10 +369,7 @@ impl Surface {
         let w = self.phys_width().max(1) as i32;
         let h = self.phys_height().max(1) as i32;
 
-        if let Some(ref viewport) = self.viewport {
-            // Set the logical bounds for the viewport for scaling
-            viewport.set_destination(self.width as i32, self.height as i32);
-        }
+        self.apply_viewport();
 
         if let Some(ref wew) = self.wl_egl_window {
             wew.resize(w, h, 0, 0);
@@ -550,16 +606,14 @@ impl WaylandState {
     /// Create a layer surface for the given output and return the Surface.
     fn make_layer_surface(
         &self,
-        compositor: &CompositorState,
-        layer_shell: &LayerShell,
         output: Option<&wl_output::WlOutput>,
         qh: &QueueHandle<Self>,
         output_name: Option<String>,
         shader_name: String,
         palette_name: String,
     ) -> Surface {
-        let wl_surf = compositor.create_surface(qh);
-        let layer_surface = layer_shell.create_layer_surface(
+        let wl_surf = self.compositor_state.create_surface(qh);
+        let layer_surface = self.layer_shell.create_layer_surface(
             qh,
             wl_surf.clone(),
             Layer::Overlay,
@@ -568,7 +622,12 @@ impl WaylandState {
         );
         layer_surface.set_anchor(Anchor::TOP | Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT);
         layer_surface.set_exclusive_zone(-1);
-        layer_surface.set_keyboard_interactivity(KeyboardInteractivity::Exclusive);
+        let interactivity = if self.config.behavior.exclusive_keyboard {
+            KeyboardInteractivity::Exclusive
+        } else {
+            KeyboardInteractivity::None
+        };
+        layer_surface.set_keyboard_interactivity(interactivity);
         layer_surface.commit();
 
         let fractional_scale = self
@@ -590,6 +649,7 @@ impl WaylandState {
             fractional_scale,
             viewport,
             configured: false,
+            frame_pending_since: None,
             wl_egl_window: None,
             egl_surface: None,
             egl_context: None,
@@ -759,15 +819,8 @@ pub fn run(
                 (sn, pn, Some(mgr))
             };
 
-            let mut surface = state.make_layer_surface(
-                &state.compositor_state,
-                &state.layer_shell,
-                Some(output),
-                &qh,
-                output_name,
-                shader_name,
-                palette_name,
-            );
+            let mut surface =
+                state.make_layer_surface(Some(output), &qh, output_name, shader_name, palette_name);
             surface.cycle_manager = cycle_manager;
             state.surfaces.insert(output.clone(), surface);
         }
@@ -1125,18 +1178,21 @@ pub fn run(
 
             // SAFETY: egl is only None if init failed; surfaces won't have renderers in that case.
             let egl_ptr = state.egl.as_ref().map(|e| e as *const EglState);
-            if let Some(egl_ptr) = egl_ptr {
+            let qh = state.qh.clone();
+            if let (Some(egl_ptr), Some(qh)) = (egl_ptr, qh) {
                 let egl = unsafe { &*egl_ptr };
                 for surf in state.surfaces.values_mut() {
                     if surf.configured {
-                        // Compute and upload alpha for fade in/out.
+                        // Compute and upload alpha for fade in/out. This is time-based,
+                        // so fade-out completes even on an output that never presents.
                         let alpha = surf.update_fade(fade_in_ms, fade_out_ms);
                         if let Some(r) = surf.renderer.as_mut() {
                             r.set_alpha(alpha);
                         }
-                        // Skip rendering surfaces that have fully faded out.
-                        if !matches!(surf.fade_state, FadeState::Done) {
-                            surf.render_frame(egl);
+                        // Skip surfaces that have fully faded out, and surfaces whose
+                        // previous frame the compositor has not presented yet.
+                        if !matches!(surf.fade_state, FadeState::Done) && surf.wants_frame(now) {
+                            surf.render_frame(egl, &qh);
                         }
                     }
                 }
@@ -1230,11 +1286,17 @@ impl CompositorHandler for WaylandState {
         &mut self,
         _conn: &Connection,
         _qh: &QueueHandle<Self>,
-        _surface: &wl_surface::WlSurface,
+        surface: &wl_surface::WlSurface,
         _time: u32,
     ) {
-        // Frame callbacks are handled in the render loop, not here.
-        // TODO: switch to frame callbacks for better compositor integration.
+        // The compositor presented the last frame; the render timer may draw again.
+        if let Some(surf) = self
+            .surfaces
+            .values_mut()
+            .find(|s| &s.wl_surface == surface)
+        {
+            surf.frame_pending_since = None;
+        }
     }
 
     fn surface_enter(
@@ -1288,15 +1350,8 @@ impl OutputHandler for WaylandState {
             "New output detected (name={:?}); creating layer surface",
             output_name
         );
-        let mut surface = self.make_layer_surface(
-            &self.compositor_state,
-            &self.layer_shell,
-            Some(&output),
-            qh,
-            output_name,
-            shader_name,
-            palette_name,
-        );
+        let mut surface =
+            self.make_layer_surface(Some(&output), qh, output_name, shader_name, palette_name);
         surface.cycle_manager = cycle_manager;
         self.surfaces.insert(output, surface);
     }
@@ -1321,7 +1376,11 @@ impl OutputHandler for WaylandState {
                 let egl_ptr = egl as *const EglState;
                 surf.destroy_gl(unsafe { &*egl_ptr });
             }
-            log::info!("Output removed; surface destroyed");
+            log::info!(
+                "Output {} removed; surface destroyed ({} remaining)",
+                surf.output_name.as_deref().unwrap_or("<unnamed>"),
+                self.surfaces.len()
+            );
         }
     }
 }

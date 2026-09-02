@@ -207,6 +207,15 @@ pub struct BehaviorConfig {
 
     /// Which input events dismiss the screensaver. Default: all four.
     pub dismiss_on: Vec<DismissEvent>,
+
+    /// Request exclusive keyboard focus for the overlay surfaces. Default: `true`.
+    ///
+    /// Exclusive focus is what lets any key press dismiss the screensaver. Set to
+    /// `false` if you rely solely on hypridle's `on-resume = hyprsaver --quit`:
+    /// key presses then no longer reach hyprsaver, but a stuck instance can only
+    /// ever leave a frozen picture behind instead of stealing focus from every
+    /// window in the session.
+    pub exclusive_keyboard: bool,
 }
 
 impl Default for BehaviorConfig {
@@ -220,6 +229,7 @@ impl Default for BehaviorConfig {
                 DismissEvent::MouseClick,
                 DismissEvent::Touch,
             ],
+            exclusive_keyboard: true,
         }
     }
 }
@@ -562,6 +572,7 @@ mod tests {
         assert_eq!(cfg.behavior.fade_in_ms, 800);
         assert_eq!(cfg.behavior.fade_out_ms, 400);
         assert_eq!(cfg.behavior.dismiss_on.len(), 4);
+        assert!(cfg.behavior.exclusive_keyboard);
     }
 
     #[test]
@@ -579,6 +590,7 @@ palette_transition_duration = 1.5
 fade_in_ms = 200
 fade_out_ms = 100
 dismiss_on = ["key", "touch"]
+exclusive_keyboard = false
 "#;
         let cfg: Config = toml::from_str(toml_str).expect("full TOML must parse");
         assert_eq!(cfg.general.fps, 60);
@@ -589,6 +601,7 @@ dismiss_on = ["key", "touch"]
         assert_eq!(cfg.general.palette_transition_duration, 1.5);
         assert_eq!(cfg.behavior.fade_in_ms, 200);
         assert_eq!(cfg.behavior.fade_out_ms, 100);
+        assert!(!cfg.behavior.exclusive_keyboard);
         assert_eq!(
             cfg.behavior.dismiss_on,
             vec![DismissEvent::Key, DismissEvent::Touch]

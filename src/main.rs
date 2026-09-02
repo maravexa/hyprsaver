@@ -11,6 +11,7 @@ use signal_hook::iterator::Signals;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 
 mod config;
 mod cycle;
@@ -63,7 +64,8 @@ enum Command {
                   hyprsaver --preview                        (config shader/palette)\n  \
                   hyprsaver --preview --shader kaleidoscope  (specific shader)\n  \
                   hyprsaver --preview --shader ~/my.frag     (custom shader from path)\n\n\
-                  Press Q/Escape to quit the preview window, R to reload the shader.\n\n\
+                  Preview keys: Q/Escape quit, Space pause, ←/→ shader, ↑/↓ palette, R reset time, \
+                  F fullscreen, I FPS overlay, T test transition.\n\n\
                   Configuration: ~/.config/hypr/hyprsaver.toml\n\
                   User shaders:  ~/.config/hypr/hyprsaver/shaders/*.frag"
 )]
@@ -94,7 +96,8 @@ struct Cli {
 
     /// Open a resizable preview window for shader authoring (no screensaver overlay).
     /// Combine with --shader to select what to preview.
-    /// Keyboard: Q/Escape = quit, R = reload shader from disk.
+    /// Keyboard: Q/Escape = quit, Space = pause, ←/→ = shader, ↑/↓ = palette, R = reset time,
+    /// F = fullscreen, I = FPS overlay, T = test transition. Shaders hot-reload from disk.
     #[arg(long)]
     preview: bool,
 
@@ -172,14 +175,17 @@ fn run() -> anyhow::Result<()> {
     info!("hyprsaver starting");
     debug!("CLI args: {:?}", cli);
 
-    // Install signal handlers so SIGTERM (from hypridle) and SIGINT (Ctrl-C)
-    // exit cleanly.
-    let running = Arc::new(AtomicBool::new(true));
-    install_signal_handlers(Arc::clone(&running)).context("failed to install signal handlers")?;
-
     // Load configuration, applying CLI overrides.
     let cfg = load_config(&cli).context("failed to load config")?;
     debug!("Loaded config: {:?}", cfg);
+
+    // Install signal handlers so SIGTERM (from hypridle) and SIGINT (Ctrl-C)
+    // exit cleanly. The grace period covers a full fade-out before the watchdog
+    // force-exits a wedged event loop.
+    let running = Arc::new(AtomicBool::new(true));
+    let grace = Duration::from_millis(cfg.behavior.fade_out_ms) + SHUTDOWN_GRACE_EXTRA;
+    install_signal_handlers(Arc::clone(&running), grace)
+        .context("failed to install signal handlers")?;
 
     // Resolve user shader directory with new/legacy fallback.
     // TODO: Remove legacy path fallback in v0.5.0
@@ -713,19 +719,67 @@ fn print_palettes(manager: &PaletteManager, cfg: &Config) {
 // Signal handling
 // ---------------------------------------------------------------------------
 
-/// Register OS signal handlers. Sets `running` to false on SIGTERM or SIGINT.
-fn install_signal_handlers(running: Arc<AtomicBool>) -> anyhow::Result<()> {
+/// Extra time on top of the configured fade-out that a clean shutdown may take
+/// before the watchdog force-exits the process.
+const SHUTDOWN_GRACE_EXTRA: Duration = Duration::from_secs(3);
+
+/// Register OS signal handlers.
+///
+/// The first SIGTERM/SIGINT clears `running` so the event loop dismisses cleanly
+/// (fade-out, GL teardown, PID file removal) and arms a watchdog that force-exits
+/// the process if the loop has not finished within `grace`. A second signal
+/// force-exits immediately.
+///
+/// The watchdog exists because a render loop parked inside the GPU driver or the
+/// Wayland connection never gets around to checking `running` — and while the
+/// process lives, its exclusive keyboard grab holds every window in the session
+/// hostage (issue #348). Dying is always safe: the compositor tears down the
+/// layer surfaces and releases the grab.
+fn install_signal_handlers(running: Arc<AtomicBool>, grace: Duration) -> anyhow::Result<()> {
     let mut signals =
         Signals::new([SIGTERM, SIGINT]).context("could not create signal iterator")?;
 
     std::thread::spawn(move || {
+        let mut watchdog_armed = false;
         for sig in &mut signals {
-            info!("Received signal {}, shutting down", sig);
-            running.store(false, Ordering::SeqCst);
+            if !watchdog_armed {
+                watchdog_armed = true;
+                info!(
+                    "Received signal {sig}, shutting down (forcing exit if not done in {:.1}s)",
+                    grace.as_secs_f32()
+                );
+                running.store(false, Ordering::SeqCst);
+                std::thread::spawn(move || {
+                    std::thread::sleep(grace);
+                    log::error!(
+                        "Event loop did not exit within {:.1}s of the signal; forcing exit",
+                        grace.as_secs_f32()
+                    );
+                    force_exit();
+                });
+            } else {
+                log::warn!("Received second signal {sig}; forcing exit");
+                force_exit();
+            }
         }
     });
 
     Ok(())
+}
+
+/// Terminate the process immediately, without unwinding.
+///
+/// `process::exit` skips destructors, so the PID file is removed here by hand —
+/// but only if it still names this process, so a stuck preview never deletes a
+/// live daemon's file.
+fn force_exit() -> ! {
+    let path = pid_file_path();
+    if let Ok(contents) = std::fs::read_to_string(&path) {
+        if contents.trim() == std::process::id().to_string() {
+            let _ = std::fs::remove_file(&path);
+        }
+    }
+    std::process::exit(2);
 }
 
 // ---------------------------------------------------------------------------

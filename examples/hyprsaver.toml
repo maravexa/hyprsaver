@@ -73,6 +73,13 @@ fade_out_ms = 400
 # have a pet that walks on the desk).
 dismiss_on = ["key", "mouse_move", "mouse_click", "touch"]
 
+# Request exclusive keyboard focus for the overlay (default: true). This is what
+# lets any key press dismiss the screensaver. Set to false if you rely solely on
+# hypridle's `on-resume = hyprsaver --quit`: key presses then no longer reach
+# hyprsaver, but a stuck instance can only ever leave a frozen picture behind
+# instead of stealing keyboard focus from every window in the session.
+exclusive_keyboard = true
+
 # ---------------------------------------------------------------------------
 # [playlists] -- Named subsets for cycle mode (v0.4.0+)
 # ---------------------------------------------------------------------------
