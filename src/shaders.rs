@@ -141,6 +141,11 @@ pub const BUILTIN_STONKS: &str = include_str!("../shaders/stonks.frag");
 /// Warm glowing wanderers drifting across a dark field — 20×12 cell grid, one firefly per cell,
 /// 9-cell Gaussian neighbourhood sum, per-cell Lissajous wander, brightness pulse. Lightweight tier.
 pub const BUILTIN_FIREFLIES: &str = include_str!("../shaders/fireflies.frag");
+/// Phyllotaxis sunflower head — seeds at golden-angle polar positions (r = c·√n), growing
+/// outward as new seeds are born at the centre, slow global rotation, colour by 21-arm
+/// parastichy family, faint golden log-spiral overlay. Per pixel visits only the index band
+/// |Δn| ≤ 2·r/c (≤ 56 per side). Lightweight GPU tier.
+pub const BUILTIN_FIBONACCI: &str = include_str!("../shaders/fibonacci.frag");
 
 // ---------------------------------------------------------------------------
 // Vertex shader for the fullscreen quad (triangle-strip, no VBO needed)
@@ -363,6 +368,7 @@ impl ShaderManager {
             ("attitude", BUILTIN_ATTITUDE),
             ("stonks", BUILTIN_STONKS),
             ("fireflies", BUILTIN_FIREFLIES),
+            ("fibonacci", BUILTIN_FIBONACCI),
         ];
         for (name, raw_const) in builtins {
             let raw = raw_const
@@ -752,9 +758,12 @@ fn prepare_shader(raw: &str) -> String {
     //   - bare names (u_time .. u_frame): any mention in the source (even just a
     //     usage) suppresses injection, matching long-standing behavior;
     //   - "out vec4 fragColor;" with semicolon: avoids matching function params;
-    //   - full declarations (u_alpha, u_speed_scale, u_zoom_scale): only an actual
-    //     declaration suppresses injection, so shaders that merely *use* these
-    //     uniforms (or mention them in comments) still get them injected.
+    //   - full declarations (u_alpha, u_speed_scale, u_zoom_scale, u_prev_frame):
+    //     only an actual declaration suppresses injection, so shaders that merely
+    //     *use* these uniforms (or mention them in comments) still get them injected.
+    //     u_prev_frame is the previous frame's colour buffer (feedback / ping-pong);
+    //     GLSL drops the sampler when unused, so the renderer only allocates the
+    //     buffers for shaders that actually reference it.
     const INJECTED_DECLS: &[(&str, &str)] = &[
         ("u_time", "uniform float u_time;\n"),
         ("u_resolution", "uniform vec2 u_resolution;\n"),
@@ -769,6 +778,10 @@ fn prepare_shader(raw: &str) -> String {
         (
             "uniform float u_zoom_scale",
             "uniform float u_zoom_scale;\n",
+        ),
+        (
+            "uniform sampler2D u_prev_frame",
+            "uniform sampler2D u_prev_frame;\n",
         ),
     ];
     for (needle, decl) in INJECTED_DECLS {
@@ -847,7 +860,7 @@ mod tests {
 
     #[test]
     fn test_builtin_shader_count() {
-        assert_eq!(manager().list().len(), 35);
+        assert_eq!(manager().list().len(), 36);
     }
 
     #[test]
@@ -930,7 +943,7 @@ mod tests {
             stems, registered,
             "shaders/*.frag files and registered built-ins must match exactly"
         );
-        assert_eq!(stems.len(), 35);
+        assert_eq!(stems.len(), 36);
     }
 
     #[test]
@@ -973,6 +986,7 @@ mod tests {
             "attitude",
             "stonks",
             "fireflies",
+            "fibonacci",
         ] {
             assert!(
                 names.contains(expected),
@@ -1133,6 +1147,24 @@ mod tests {
 
     /// Shaders that already declare u_speed_scale / u_zoom_scale must not get
     /// a duplicate injection.
+    #[test]
+    fn test_prev_frame_injected_once() {
+        // Not declared by the shader → injected exactly once, even when used.
+        let src = "void main() { fragColor = texture(u_prev_frame, vec2(0.5)); }";
+        let out = prepare_shader(src);
+        assert_eq!(out.matches("uniform sampler2D u_prev_frame;").count(), 1);
+
+        // Declared by the shader → not injected again.
+        let src = "uniform sampler2D u_prev_frame;\nvoid main() { fragColor = vec4(0.0); }";
+        let out = prepare_shader(src);
+        assert_eq!(out.matches("uniform sampler2D u_prev_frame;").count(), 1);
+
+        // A shader that never mentions it still gets the declaration (the GLSL
+        // compiler removes the unused sampler, so this costs nothing).
+        let out = prepare_shader("void main() { fragColor = vec4(1.0); }");
+        assert_eq!(out.matches("uniform sampler2D u_prev_frame;").count(), 1);
+    }
+
     #[test]
     fn test_speed_zoom_no_duplicate_when_already_declared() {
         let source = concat!(

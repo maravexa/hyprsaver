@@ -158,6 +158,17 @@ pub fn init() -> anyhow::Result<(glow::Context, HeadlessContext)> {
         })
     };
 
+    // Log which driver answered — tells a CI log whether llvmpipe or a real
+    // GPU is rendering.
+    unsafe {
+        use glow::HasContext as _;
+        log::info!(
+            "headless EGL: renderer '{}', version '{}'",
+            gl.get_parameter_string(glow::RENDERER),
+            gl.get_parameter_string(glow::VERSION)
+        );
+    }
+
     let handle = HeadlessContext {
         egl,
         display,

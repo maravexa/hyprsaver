@@ -13,6 +13,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
+mod bench;
 mod config;
 mod cycle;
 mod egl;
@@ -35,6 +36,10 @@ enum Command {
     /// Render animated WebP previews of shaders for README galleries.
     /// Uses headless EGL — no Wayland compositor required.
     RenderPreview(render_preview::RenderPreviewArgs),
+
+    /// Benchmark shader GPU cost headlessly: mean frame time per shader and
+    /// the share of the daemon's frame budget it implies. No compositor required.
+    Bench(bench::BenchArgs),
 }
 
 /// hyprsaver -- Wayland-native fractal screensaver for Hyprland
@@ -266,6 +271,10 @@ fn run() -> anyhow::Result<()> {
             &cfg.render_preview.palettes,
         )
         .context("render-preview failed");
+    }
+
+    if let Some(Command::Bench(ref args)) = cli.command {
+        return bench::run(args, &shader_manager, &palette_manager).context("bench failed");
     }
 
     if cli.preview {
@@ -606,6 +615,10 @@ fn shader_descriptions() -> std::collections::HashMap<&'static str, &'static str
         (
             "stonks",
             "Procedural candlestick chart with MACD oscillator",
+        ),
+        (
+            "fibonacci",
+            "Phyllotaxis sunflower — golden-angle seed spiral with Fibonacci arms",
         ),
     ]
     .into_iter()

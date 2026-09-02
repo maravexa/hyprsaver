@@ -1,0 +1,121 @@
+name: Gallery
+
+# Regenerates the README shader gallery (media/*.webp) with the daemon's own
+# `render-preview` subcommand, rendered headlessly on Mesa llvmpipe.
+#
+# Automatic runs re-render only the shaders whose .frag changed in the push
+# (plus any shader that has no preview yet), so a one-shader tweak does not
+# rewrite 45 MB of binaries. Use workflow_dispatch with `shaders: all` after
+# an engine change (renderer, palette pipeline) to refresh everything.
+#
+# Palette pairing follows render-preview's deterministic per-shader hash.
+# To pin intentional pairings, commit a config with [render_preview.palettes]
+# and add `--config <path>` to the Render step.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'shaders/**'
+      - '.github/workflows/gallery.yml'
+  workflow_dispatch:
+    inputs:
+      shaders:
+        description: 'Space-separated shader names, "all", or "changed" (default: shaders without a preview)'
+        required: false
+        default: 'changed'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: gallery
+  cancel-in-progress: false
+
+jobs:
+  render:
+    name: Render WebP previews
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Decide which shaders to render
+        id: pick
+        env:
+          BEFORE: ${{ github.event.before }}
+          INPUT: ${{ github.event.inputs.shaders }}
+        run: |
+          set -euo pipefail
+          all=$(ls shaders/*.frag | xargs -n1 basename | sed 's/\.frag$//')
+          case "${INPUT:-changed}" in
+            all)
+              list="$all" ;;
+            changed)
+              changed=""
+              if [ -n "${BEFORE:-}" ] && git cat-file -e "$BEFORE" 2>/dev/null; then
+                changed=$(git diff --name-only "$BEFORE" "$GITHUB_SHA" -- 'shaders/*.frag' \
+                          | xargs -rn1 basename | sed 's/\.frag$//' || true)
+              fi
+              missing=$(for n in $all; do [ -f "media/$n.webp" ] || echo "$n"; done)
+              # keep only names that still exist as shaders (a deleted .frag has nothing to render)
+              list=$(printf '%s\n%s\n' "$changed" "$missing" | sort -u | grep -Fx -f <(echo "$all") || true) ;;
+            *)
+              list="$INPUT" ;;
+          esac
+          list=$(echo $list)
+          echo "list=$list" >> "$GITHUB_OUTPUT"
+          echo "Rendering: ${list:-<nothing to do>}"
+
+      - name: Install system dependencies
+        if: steps.pick.outputs.list != ''
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwayland-dev \
+            libwayland-egl-backend-dev \
+            libegl1-mesa-dev \
+            libgl1-mesa-dev \
+            libxkbcommon-dev \
+            pkg-config \
+            libegl-mesa0 \
+            libgl1-mesa-dri \
+            libgbm1
+
+      - uses: dtolnay/rust-toolchain@stable
+        if: steps.pick.outputs.list != ''
+
+      - uses: Swatinem/rust-cache@v2
+        if: steps.pick.outputs.list != ''
+        with:
+          prefix-key: gallery
+
+      - name: Build
+        if: steps.pick.outputs.list != ''
+        run: cargo build --release
+
+      - name: Render
+        if: steps.pick.outputs.list != ''
+        env:
+          # Mesa software rasteriser; no GPU on the runner. The daemon logs the
+          # renderer string ("llvmpipe") at RUST_LOG=hyprsaver=info.
+          LIBGL_ALWAYS_SOFTWARE: "1"
+          EGL_PLATFORM: surfaceless
+          RUST_LOG: hyprsaver=info
+        run: |
+          cd media
+          ../target/release/hyprsaver render-preview --seed 0 ${{ steps.pick.outputs.list }}
+
+      - name: Commit and push
+        if: steps.pick.outputs.list != ''
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add media/*.webp
+          if git diff --cached --quiet; then
+            echo "Previews unchanged"
+            exit 0
+          fi
+          git commit -m "media: regenerate WebP previews (${{ steps.pick.outputs.list }})"
+          git push
