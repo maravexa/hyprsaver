@@ -9,6 +9,8 @@ license=('MIT')
 depends=(
     'wayland'
     'mesa'
+    'libwebp'
+    'libxkbcommon'
 )
 makedepends=(
     'rust'
@@ -19,7 +21,7 @@ optdepends=(
     'hyprlock: lock screen to pair with hyprsaver'
 )
 source=("$pkgname-$pkgver.tar.gz::https://github.com/maravexa/hyprsaver/archive/v$pkgver.tar.gz")
-sha256sums=('SKIP')
+sha256sums=('f668d4571edb1d14835022e0e8f5bcb89bb8f59d97f35838a5afc9200e0b26bc')
 
 prepare() {
     cd "$pkgname-$pkgver"
