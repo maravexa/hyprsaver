@@ -5,11 +5,11 @@ hyprsaver is a Wayland-native screensaver for Hyprland. It renders GLSL fractal 
 
 ## Architecture
 Eleven modules in `src/` (plus `main.rs`):
-- `wayland.rs` — Wayland connection, output enumeration, layer-shell surface lifecycle. Uses smithay-client-toolkit. One surface per monitor. Hosts the calloop event loop, calls `CycleManager::tick(now)` each frame, and dispatches `CycleEvent`s to advance shaders/palettes.
+- `wayland.rs` — Wayland connection, output enumeration, layer-shell surface lifecycle. Uses smithay-client-toolkit. One surface per monitor. Hosts the calloop event loop, calls `CycleManager::tick(now)` each frame, and dispatches `CycleEvent`s to advance shaders/palettes. Frame pacing: a render timer at `fps`, gated per surface by `wl_surface.frame` callbacks (1 s fallback), with EGL swap interval 0 so `eglSwapBuffers` never blocks on a hidden output. Fractional/HiDPI scaling via wp-fractional-scale-v1 + wp_viewporter (`scale_factor` is `f32`).
 - `renderer.rs` — OpenGL via glow. Fullscreen quad, uploads uniforms (time, resolution, palette vectors, speed/zoom scales, alpha fade), calls draw. Doesn't know about Wayland.
 - `shaders.rs` — Loads `.frag` files from config dir and built-ins. Handles compilation, hot-reload (notify crate), Shadertoy uniform remapping. Prepends palette function to all shaders. Manages cycle playlists (`set_playlist`, `cycle_next`, `randomize_cycle_start`).
 - `palette.rs` — Cosine gradient palettes (Inigo Quilez technique) and LUT palettes. Four vec3 params (a,b,c,d) → 12 floats. PNG LUT loading via `image` crate. CSS gradient stop palettes. `PaletteManager` with crossfade transition state (`begin_transition` / `advance_transition`).
-- `config.rs` — TOML config with serde. Every field has a default. Config path: CLI flag → `$XDG_CONFIG_HOME/hypr/hyprsaver.toml` (new) → `$XDG_CONFIG_HOME/hyprsaver/config.toml` (legacy, deprecated) → built-in defaults. Includes `[playlists.<name>]` table sections (unified v0.4.0 format; legacy `[shader_playlists.<name>]` / `[palette_playlists.<name>]` still parsed), cycle interval fields, and the `[render_preview.palettes]` shader→palette override map.
+- `config.rs` — TOML config with serde. Every field has a default. Config path: CLI flag → `$XDG_CONFIG_HOME/hypr/hyprsaver.toml` (new) → `$XDG_CONFIG_HOME/hyprsaver/config.toml` (legacy, deprecated) → built-in defaults. Includes `[playlists.<name>]` table sections (unified v0.4.0 format; legacy `[shader_playlists.<name>]` / `[palette_playlists.<name>]` still parsed), cycle interval fields, `[behavior] exclusive_keyboard` (layer-shell keyboard interactivity, default `true`), and the `[render_preview.palettes]` shader→palette override map.
 - `cycle.rs` — `CycleManager`: tick-driven scheduler for shader and palette rotation. `tick(&mut self, now: Instant) -> Vec<CycleEvent>` returns an empty vec when nothing changed. `CycleOrder` supports `Random` (shuffle-bag, no consecutive repeats across bag boundaries) and `Sequential`. Single-item playlists never emit events, preserving fixed-shader behaviour.
 - `shuffle.rs` — `ShuffleBag` randomizer. Returns every index in `0..len` exactly once per bag cycle in a freshly randomized order; reshuffles on exhaustion; guarantees no cross-bag consecutive repeats when `len >= 2`. "iPod shuffle" pattern — uniform-over-cycle, not uniform-per-pick. A separate instance per cycle stream (shaders, palettes), each with its own xorshift64 seed. `seed_from_time()` helper for wall-clock seeding.
 - `preview.rs` — Windowed preview mode with egui control panel. Left region: shader viewport. Right region: 300-px docked panel with Shader and Palette tabs and thumbnail previews. FPS counter is an overlay (top-left, toggled with `I`). Keyboard shortcuts: Space (pause/resume), ←/→ (prev/next shader), ↑/↓ (prev/next palette), R (reset time), F (toggle panel), I (toggle FPS), T (test shader crossfade), Q/Escape (quit).
@@ -21,13 +21,13 @@ Entry point: `main.rs` — CLI (clap), signal handling (signal-hook), config loa
 
 ## Build Environment
 
-This environment does not have all system libraries installed (notably `xkbcommon`). `cargo build` will fail at the linker stage — this is expected and not a code error.
-
-After editing shader files (`.frag`, `.vert`) or Rust source:
-1. Run `touch src/shaders.rs` to invalidate the cargo cache for shader changes
+**Claude Code cloud sessions** do not have all system libraries installed (notably `xkbcommon`). There, `cargo build` fails at the linker stage — expected, not a code error — so:
+1. Run `touch src/shaders.rs` after editing shader files (`.frag`, `.vert`) to invalidate the cargo cache
 2. Do NOT run `cargo build` — it will fail on missing system deps
 3. Do NOT attempt to install system packages
 4. Commit changes and push to the current feature branch
+
+**Local sessions on Mara's Arch machine** have every dependency. Run `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`, and `cargo test --all-targets` before every commit. CI additionally runs `cargo deny`, `cargo audit`, and an MSRV build (`rust-version` in `Cargo.toml`, lock file removed).
 
 ## Build & Run
 ```sh
@@ -43,7 +43,8 @@ cargo build --release
 - **Cosine palettes + LUT**: 12 floats or a 256×1 PNG strip. LUT palettes on texture units 1/2.
 - **Shadertoy compat**: Shaders use Shadertoy conventions (iTime, iResolution, mainImage). A shim in shaders.rs remaps to our uniforms. Users can paste Shadertoy code with minimal edits.
 - **Palette as uniforms, not in-shader**: Palettes are uploaded as vec3 uniforms. Shaders call `palette(t)` with a float. This decouples color from math — any shader × any palette.
-- **Belt-and-suspenders exit**: Exits on either (1) input events on the layer surface or (2) SIGTERM from hypridle's on-resume. Both paths must work independently.
+- **Belt-and-suspenders exit**: Exits on either (1) input events on the layer surface or (2) SIGTERM from hypridle's on-resume. Both paths must work independently. A shutdown watchdog in `main.rs` force-exits the process `fade_out_ms` + 3 s after the first signal (immediately on a second signal), so a wedged event loop can never keep the exclusive keyboard grab alive (issue #348). `force_exit()` removes the PID file only if it names this process.
+- **Never block the render loop on the compositor**: EGL swap interval is 0 and each surface renders only once its previous frame callback has fired (or 1 s has passed). An output that stops presenting (DPMS off, unplugged) idles at ~1 fps instead of parking the whole loop inside `eglSwapBuffers`. Fade-out is time-based, so dismissal completes even on an output that never presents.
 - **Hot-reload**: Filesystem watcher on shader dir. On change, recompile shader; on compile error, log and keep current shader. No restart needed.
 - **Cycle timers**: `CycleManager` in `cycle.rs` (tick()-driven, returns `CycleEvent`s). `wayland.rs` calls `tick()` each frame and acts on the returned events. Shader and palette cycles can have independent intervals; both advance all surfaces simultaneously so monitors stay in sync. Startup randomizes the cycle position.
 - **Triangle-wrap palette sampling**: when sampling a palette over a monotonically growing `t` (depth, scroll position, ribbon arc length), use `palette(abs(fract(x * 0.5) * 2.0 - 1.0))` instead of `palette(fract(x))`. Triangle-wrap reverses direction at the seam, so directional palettes (pride flags etc.) avoid a hard discontinuity at the wrap point. Use plain `fract(x)` only when `t` is intrinsically cyclic and the palette is symmetric. New shaders should default to triangle-wrap.
@@ -167,8 +168,19 @@ Two additional uniforms are injected by `prepare_shader()` in `shaders.rs` for e
 - v0.4.2: Aurora rewrite, Flames shader, preview UI fixes, shader precision fixes, default playlists. ✓ shipped
 - v0.4.3: GPU optimization audit — all 7 Heavy-tier shaders optimized to Medium tier. ✓ shipped
 - v0.4.4: Mandelbrot removed (GPU architectural mismatch on df32 deep zoom); `network` → `circuit` + `sonar` pivot; new shaders `shipburn`, `fractaltrap`, `wormhole`; `waves` renamed to `temple` (ceiling + pillars added); `ShuffleBag` randomizer extracted to `shuffle.rs`; pride palette pack + `pride` playlist. ✓ shipped
-- v0.4.5: 5 new Lightweight shaders (`fireflies`, `stonks`, `attitude`, `waterfall`, `mobius`); triangle-wrap palette refactor across 11 shaders; `render-gif` → `render-preview` (animated WebP); `[render_preview.palettes]` config overrides; preview UI polish (FPS toggle keybind, palette tab dropdown parity, palette transition test button). ✓ shipped
+- v0.4.5: 5 new Lightweight shaders (`fireflies`, `stonks`, `attitude`, `waterfall`, `mobius`); triangle-wrap palette refactor across 11 shaders; `render-gif` → `render-preview` (animated WebP); `[render_preview.palettes]` config overrides; preview UI polish (FPS toggle keybind, palette tab dropdown parity, palette transition test button). ✓ bumped 2026-04-28 but never tagged — shipped with v0.4.6
+- v0.4.6: wedged-daemon fix for #348 (swap interval 0, frame-callback pacing, shutdown watchdog); fractional scaling (#346, external PR #347); `[behavior] exclusive_keyboard`; live preview speed slider; codebase-audit refactors; Rust 1.97 clippy fix. ✓ shipped 2026-09-01
+- v0.4.7 (next): benchmark automation, geometry pass, CI WebP pipeline, ping-pong FBO, terminal glyph expansion, one math shader — see `docs/backlog.md`.
 - v1.0.0: Stable config format, AUR/Nix packages, full Shadertoy uniform support, wgpu/Vulkan backend.
+
+## v0.4.6 Status
+
+Shipped 2026-09-01. Release notes in `CHANGELOG.md`; working backlog in `docs/backlog.md`.
+
+- `wayland.rs`: `Surface::frame_pending_since` + `wants_frame()` gate rendering on frame callbacks (`FRAME_CALLBACK_TIMEOUT` = 1 s); `init_gl()` sets swap interval 0 and calls `apply_viewport()` before the first buffer; `make_layer_surface()` is a `&self` method that reads `behavior.exclusive_keyboard`.
+- `main.rs`: `install_signal_handlers(running, grace)` arms a force-exit watchdog; handlers are installed after config load so the grace period includes `fade_out_ms`.
+- PR #347 (fractional scale, external contributor) was merged through the release branch; fork PRs get no CI until approved, so verify locally and let CI on `main` cover deny/audit/MSRV.
+- v0.4.5 was never tagged; its changelog entry stands and its content shipped in v0.4.6.
 
 ## v0.4.4 Status
 

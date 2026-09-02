@@ -1,6 +1,6 @@
 [package]
 name = "hyprsaver"
-version = "0.4.5"
+version = "0.4.6"
 edition = "2021"
 authors = ["Mara Vexa"]
 description = "A Wayland-native screensaver for Hyprland — fractal shaders on wlr-layer-shell overlays"
@@ -33,6 +33,7 @@ calloop = "0.13"
 calloop-wayland-source = "0.3"
 wayland-client = "0.31"
 wayland-protocols-wlr = "0.3"
+wayland-protocols = { version = "0.32.12", features = ["client", "staging"] }
 toml = "0.8"
 serde = { version = "1", features = ["derive"] }
 clap = { version = "4", features = ["derive"] }

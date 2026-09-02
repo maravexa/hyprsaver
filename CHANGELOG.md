@@ -6,6 +6,50 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [0.4.6] - 2026-09-01
+
+v0.4.5 was bumped in `Cargo.toml` and this changelog on 2026-04-28 but never tagged or
+published. Its entry below stands; its content ships together with v0.4.6.
+
+### Added
+- **Fractional scaling:** `wp-fractional-scale-v1` + `wp_viewporter` support, so overlays render at
+  the correct size on outputs with fractional (1.25×, 1.5×) or integer (2×) scale. Closes #346.
+  Contributed by @livmackintosh in #347
+- **Config — `[behavior] exclusive_keyboard`:** opt out of the exclusive keyboard grab (default
+  `true`). With `false`, key presses no longer dismiss the saver — dismissal relies on hypridle's
+  `on-resume = hyprsaver --quit` — but a stuck instance can never take keyboard focus away from
+  the rest of the session
+- **Preview — live speed slider:** the speed slider applies immediately instead of after a restart
+- **Test:** every `shaders/*.frag` must be a registered built-in and vice versa
+
+### Changed
+- **Frame pacing:** the daemon sets EGL swap interval 0 and paces each surface on
+  `wl_surface.frame` callbacks, with a 1 s fallback so an output that stopped presenting idles at
+  ~1 fps instead of freezing. `eglSwapBuffers` can no longer block the event loop
+- **Shutdown watchdog:** the first SIGTERM/SIGINT starts the normal fade-out; if the event loop
+  has not exited within `fade_out_ms` + 3 s the process force-exits (the compositor releases the
+  keyboard grab, and the PID file is removed). A second signal force-exits immediately. Signal
+  handlers are now installed after config load
+- **Stonks:** `precision highp float` like every other built-in (was the only `mediump` shader)
+- **Preview config saves** use one canonical `save_config_path()`; the no-config-dir fallback no
+  longer diverges from the load path
+- **Internal refactors** from the codebase audit: shared `EglState` (`src/egl.rs`),
+  `PlaylistCursor` shared by the shader and palette managers, table-driven uniform injection in
+  `prepare_shader()`, `UniformLocations::from_program()`, `shader_combo_rows()` in the preview
+- **Dependencies:** lock file refreshed with `cargo update`
+
+### Fixed
+- **Wedged daemon holding the keyboard grab (#348):** after a monitor powered off or was
+  disconnected, `eglSwapBuffers` waited forever for a frame callback, so `--quit` and SIGTERM were
+  never serviced while the exclusive keyboard grab kept every window in the Hyprland session
+  unfocusable. Fixed by the frame pacing and watchdog changes above
+- **First-frame HiDPI size:** the viewport destination is applied before the first buffer is
+  attached, not only on resize
+- **Clippy on Rust 1.97:** `float_literal_f32_fallback` errors in the preview panel
+- **Docs:** README config defaults (300 s / 60 s), roadmap, and benchmark doc link; in-repo
+  `PKGBUILD` version
+
+
 ## [0.4.5] - 2026-04-28
 
 ### Added
@@ -50,7 +94,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **CLI — `render-gif` subcommand:** Headless shader→GIF rendering via EGL surfaceless + FBO capture. Defaults: 960×540, 20 fps, 9 s, 3 random palettes as hard-cut segments. Deterministic frame timing for reproducibility. Purpose: generate README showcase GIFs without screen recording.
 - **Persistent shuffle bag:** `$XDG_STATE_HOME/hyprsaver/shuffle.toml` backs `randomize_cycle_start()` for both palette and shader managers — each name returns once per bag cycle before repeats; cross-launch consecutive repeats eliminated
 - **New benchmarks documented:** Clouds (25%), Terminal (18%)
-- **Benchmark doc:** `docs/benchmark-v0.4.4.md`
+- **Benchmark doc:** `docs/BENCHMARK_0.4.4.md`
 
 ### Changed
 - **Starfield:** Spawn-time dead zone resolves "stars through viewer" artifact — closes v0.4.3 carry-forward. Util 43% → 49%

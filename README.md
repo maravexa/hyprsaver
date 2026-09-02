@@ -124,7 +124,7 @@ graph TD
 
 </details>
 
-`renderer.rs` knows nothing about Wayland. `wayland.rs` knows nothing about OpenGL. `shaders.rs` knows nothing about palettes at upload time -- it only prepends the GLSL `palette()` function. This makes each layer independently testable and replaceable (the wgpu backend in v0.4.0 only needs to replace `renderer.rs`).
+`renderer.rs` knows nothing about Wayland. `wayland.rs` knows nothing about OpenGL. `shaders.rs` knows nothing about palettes at upload time -- it only prepends the GLSL `palette()` function. This makes each layer independently testable and replaceable (a future wgpu backend only needs to replace `renderer.rs`).
 
 ---
 
@@ -176,6 +176,7 @@ graph TD
 - **Wayland-native** via wlr-layer-shell -- not a window, a proper overlay surface
 - **GPU-accelerated GLSL** fragment shaders via OpenGL ES (glow crate)
 - **Multi-monitor** support -- one surface per output, with per-monitor shader/palette assignment via `[[monitor]]` config blocks
+- **HiDPI and fractional scaling** -- correct rendering on 1.25×, 1.5×, and 2× outputs via `wp-fractional-scale-v1` + `wp_viewporter`
 - **Cosine gradient palettes** -- 12 floats define smooth, infinite color ramps. Any shader x any palette
 - **Shadertoy-compatible** shader format -- paste Shadertoy code with minimal edits, it just works
 - **Hot-reload** shaders from `~/.config/hypr/hyprsaver/shaders/` -- edit, save, see the change instantly
@@ -238,7 +239,7 @@ Benchmarked on AMD HawkPoint1 (GMKtec Nucbox K12) with dual 1920×1200 monitors.
 - **Medium (25–50% GPU):** Aurora, Bezier, Donut, Fractaltrap, Geometry, Hypercube, Julia, Kaleidoscope, Lissajous, Marble, Network, Shipburn, Snowfall, Starfield, Temple, Tesla, Voronoi
 - **Heavy (51–75% GPU):** None at steady state (Geometry spikes to 55% during shape transitions only)
 
-All shaders previously in the Heavy tier (Bezier, Geometry, Lissajous, Marble, Network, Snowfall, Starfield) were optimized in v0.4.3. See `docs/BENCHMARK_0.4.3.md` for full results. New shaders in v0.4.4: see `docs/benchmark-v0.4.4.md`.
+All shaders previously in the Heavy tier (Bezier, Geometry, Lissajous, Marble, Network, Snowfall, Starfield) were optimized in v0.4.3. See `docs/BENCHMARK_0.4.3.md` for full results. New shaders in v0.4.4: see `docs/BENCHMARK_0.4.4.md`.
 
 ---
 
@@ -283,14 +284,14 @@ yay -S hyprsaver
 
 ```bash
 # Download the .deb from the latest release
-sudo dpkg -i hyprsaver_0.4.5_amd64.deb
+sudo dpkg -i hyprsaver_0.4.6_amd64.deb
 ```
 
 ### Fedora / RHEL / openSUSE
 
 ```bash
 # Download the .rpm from the latest release
-sudo rpm -i hyprsaver-0.4.5-1.x86_64.rpm
+sudo rpm -i hyprsaver-0.4.6-1.x86_64.rpm
 ```
 
 ### Nix / NixOS
@@ -411,8 +412,8 @@ fps = 30
 fps = 30                          # render frame rate
 shader = "cycle"                  # a shader name, "random", or "cycle" (default)
 palette = "cycle"                 # a palette name, "random", or "cycle" (default)
-shader_cycle_interval = 120       # seconds per shader when shader = "cycle"
-palette_cycle_interval = 20       # seconds per palette when palette = "cycle"
+shader_cycle_interval = 300       # seconds per shader when shader = "cycle"
+palette_cycle_interval = 60       # seconds per palette when palette = "cycle"
 cycle_order = "random"            # "random" (default) or "sequential"
 synced = true                     # sync monitors in cycle mode (default: true)
 shader_playlist = "default"       # playlist name for shader cycling
@@ -422,6 +423,7 @@ palette_playlist = "default"      # playlist name for palette cycling
 fade_in_ms = 800               # fade-in duration
 fade_out_ms = 400              # fade-out duration
 dismiss_on = ["key", "mouse_move", "mouse_click", "touch"]
+exclusive_keyboard = true      # grab the keyboard so any key dismisses; false = rely on --quit only
 
 # Playlists group shaders and palettes together for cycle mode.
 # "all" = all available shaders/palettes. If "default" is not defined, it
@@ -609,22 +611,28 @@ If your shader contains `void mainImage(out vec4 fragColor, in vec2 fragCoord)`,
 
 The panel provides:
 
-| Control | Description |
-|---------|-------------|
-| **Shader** ComboBox | Switch to any built-in or user shader instantly |
-| **Palette** ComboBox | Switch palette without restarting |
-| **Speed** slider | 0.1× – 3.0× time multiplier (default 1.0) |
-| **Zoom** slider | 0.1× – 3.0× zoom depth (fractal / starfield shaders) |
-| **▶  Preview** button | Apply selected shader, palette, speed, and zoom |
+| Tab | Contents |
+|-----|----------|
+| **Preview** | Shader and palette dropdowns with thumbnails, **Speed** slider (0.1× – 3.0×, applies live), **Test Transition** button for the shader crossfade |
+| **Playlists** | Build and edit `[playlists.<name>]` entries (saved to your config), **Apply & Restart Cycle** |
+| **Palette** | Palette dropdown with gradient previews, transition speed slider, **Test Palette Transition** button |
 
 Keyboard shortcuts always active in the preview window:
 
 | Key | Action |
 |-----|--------|
 | `Q` / `Esc` | Quit preview |
-| `R` | Force-reload current shader from disk |
+| `Space` | Pause / resume animation |
+| `←` / `→` | Previous / next shader |
+| `↑` / `↓` | Previous / next palette |
+| `R` | Reset shader time to zero |
+| `F` | Toggle fullscreen viewport (hides the panel) |
+| `T` | Test the shader crossfade transition |
+| `I` | Toggle the FPS overlay |
 
-> **Note:** Speed and zoom sliders only affect the preview window — the daemon always uses `u_speed_scale = 1.0` and `u_zoom_scale = 1.0` unless you add those uniforms to your own shader logic.
+Shaders hot-reload automatically when the file on disk changes.
+
+> **Note:** The speed slider only affects the preview window — the daemon always uses `u_speed_scale = 1.0` (and `u_zoom_scale = 1.0`) unless you add those uniforms to your own shader logic.
 
 ### Hot-Reload Workflow
 
@@ -752,41 +760,49 @@ hyprsaver --quit
 
 ## Roadmap
 
-### Shipped in v0.4.3
+Full history lives in `CHANGELOG.md`; the working backlog is `docs/backlog.md`.
 
-- **GPU audit:** All 7 Heavy-tier shaders optimized to Medium tier
-  - Snowfall: 57% → 32% (grid-based spatial lookup)
-  - Geometry: 70% → 35–55% (flat indexed arrays, bounded edge loops)
-  - Bezier: 70% → 48% (two-pass coarse+fine distance estimation)
-  - Lissajous: 70% → 49% (deferred sqrt, sample count reduction)
-  - Marble: 70% → 43% (merged curl noise samples, reduced steps)
-  - Network: 70% → 43% (grid topology, removed O(n²) pair evaluation)
-  - Starfield: 70% → 43% (Art-of-Code 20-layer zoom architecture)
-- **Lissajous:** Fixed color cycling stall — independent per-curve hue rates
-- **Network:** Grid topology for even screen coverage, 35% overscan, depth-tapered cross-layer lines
-- **Snowfall:** Complete rewrite using grid-cell spatial lookup (3 layers, 27 checks/pixel)
-- **Starfield:** Complete rewrite using multi-layer zoom with golden-angle rotation and dashed trails
-- **New benchmarks:** Aurora (50%), Flames (24%), Oscilloscope (18%)
-- **Benchmark doc:** Added `docs/BENCHMARK_0.4.3.md`
+### Shipped in v0.4.6
 
-### Shipped in v0.4.2
+- **Fix:** a daemon whose output went DPMS-off or was unplugged could wedge inside the GPU driver, ignore `--quit` / SIGTERM, and keep its exclusive keyboard grab so no window in the session could be focused. Rendering now paces on compositor frame callbacks with swap interval 0, and a shutdown watchdog force-exits a stuck event loop
+- **Fractional scaling** (`wp-fractional-scale-v1` + `wp_viewporter`): correct rendering on 1.25×, 1.5×, and 2× outputs — contributed by [@livmackintosh](https://github.com/livmackintosh)
+- **Config:** `[behavior] exclusive_keyboard` to opt out of the exclusive keyboard grab
+- **Preview:** the speed slider applies live, no restart needed
+- Internal refactors from the codebase audit (shared EGL state, playlist cursor, table-driven uniform injection)
 
-- New shaders: Aurora (domain-warped FBM rewrite), Flames (fBm + domain warping)
-- Removed shaders: Fire (superseded), Vortex (experimental), Wormhole (deferred to v0.5.0)
-- Preview UI: scroll wheel fix, dropdown layout improvements, palette gradient previews
-- Shader fixes: Oscilloscope float precision, Tesla orbit clipping
-- Config: default playlists (Elements, Math, Nature, Psychedelic, Tech), updated timing defaults
+### Shipped in v0.4.5
+
+- 5 new Lightweight shaders: Fireflies, Stonks, Attitude, Waterfall, Mobius
+- Triangle-wrap palette sampling across 11 shaders (no seam on directional palettes)
+- `render-preview` subcommand (animated WebP, batch mode, `--skip-existing`) replaces `render-gif`
+- `[render_preview.palettes]` shader→palette overrides
+- Preview UI: FPS overlay toggle (`I`), palette tab dropdown parity, palette transition test button
+
+### Shipped in v0.4.4
+
+- 7 new shaders: Wormhole, Blob, Gridwave, Circuit, Sonar, Shipburn, Fractaltrap
+- Pride palette pack and `pride` playlist
+- Persistent shuffle bag across launches
+- Removed: Mandelbrot (deep-zoom GPU mismatch), Network (replaced by Circuit + Sonar)
+
+### v0.4.7 (next)
+
+- Benchmark automation (`bench-shaders`) and a Geometry optimization pass
+- CI pipeline that regenerates the WebP gallery on shader changes
+- Ping-pong FBO support in the renderer (feedback shaders)
+- Terminal shader glyph set expansion; one new math-themed shader
 
 ### v0.5.0
-- Screencopy pipeline
-- Rain-on-Glass shader
-- Wormhole shader (fly-through curving tunnel, rewrite from scratch)
+
+- Screencopy pipeline (blurred desktop as shader input) and a Rain-on-Glass shader
+- Legacy config path fallback removed (`~/.config/hyprsaver/`)
 
 ### v1.0.0
-- Stable install story
+
+- Stable install story (AUR, Nix module)
 - Stable config format -- no breaking changes after this
-- Comprehensive curated shader library (20+ shaders)
 - Full Shadertoy uniform support: `iChannel` textures, `iDate`, `iSampleRate`
+- wgpu / Vulkan backend
 - Comprehensive documentation and shader authoring guide
 
 ---
