@@ -6,6 +6,44 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [Unreleased]
+
+### Added
+- **New shader — Fibonacci:** phyllotaxis sunflower head. Seeds sit at golden-angle polar
+  positions (r = c·√n) and stream outward as new seeds are born at the centre; colour is a
+  wheel over the seed's angle with a radial drift (triangle-wrapped, so directional palettes
+  show no seam); a faint golden log-spiral is overlaid. Per pixel only the index band
+  |Δn| ≤ 2·r/c is visited. Lightweight tier (2.3 ms/frame at 1920×1200 on the reference rig)
+- **CLI — `hyprsaver bench`:** headless GPU cost benchmark. Renders each shader offscreen for
+  `--frames` frames spread over `--span` seconds of shader time, waits for the GPU, and reports
+  ms/frame plus the share of the daemon's frame budget (`frame_ms × --monitors / (1000/--fps)`)
+  with the Lightweight/Medium/Heavy/Ultra tier. `--markdown` prints a table for the benchmark
+  docs, `--json` writes machine-readable results. Runs on the reference rig without a compositor
+- **Feedback shaders (`u_prev_frame`):** a shader that samples
+  `uniform sampler2D u_prev_frame` gets a ping-pong pair of offscreen buffers: each frame it
+  renders into one while reading the previous frame from the other (texture unit 3), then the
+  result is presented with the fade alpha. Buffers are allocated only for shaders that use the
+  sampler, cleared on load and resize, and work in the daemon, the preview, `render-preview`,
+  and `bench`. Groundwork for trails, reaction–diffusion, and smoke shaders (none shipped yet)
+- **CI — Gallery workflow:** `.github/workflows/gallery.yml` re-renders `media/*.webp` on Mesa
+  llvmpipe for the shaders whose `.frag` changed in a push to `main` (plus any shader without a
+  preview) and commits the result; `workflow_dispatch` accepts a shader list or `all`
+- **Terminal shader:** bitmap font grown from 30 to 72 glyphs (uppercase Latin and 16 more
+  symbols alongside the katakana, digits, and original symbols). The table is generated from
+  ASCII art by `scripts/gen_terminal_glyphs.py`; the original 30 glyphs are bit-exact
+- **Headless EGL:** logs the GL renderer and version at `info` level (llvmpipe vs GPU)
+
+### Changed
+- **Geometry shader:** the palette LUT fetch and anti-aliasing now run only for pixels inside
+  a line's footprint (previously every pixel sampled the palette once per edge — up to 60
+  texture reads per pixel during a morph), and only the vertices the two active shapes
+  reference are projected. 1.88 → 1.41 ms/frame over a 30 s span at 1920×1200, pixel-identical
+  output
+- **`Renderer::render_offscreen()`** split out of `render_and_capture()`; `render_and_capture`
+  and `render_offscreen` now take `&mut self` (feedback state)
+- **Example config:** `fibonacci` added to the `math` playlist
+
+
 ## [0.4.6] - 2026-09-01
 
 v0.4.5 was bumped in `Cargo.toml` and this changelog on 2026-04-28 but never tagged or

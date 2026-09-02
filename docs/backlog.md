@@ -12,17 +12,25 @@ Canonical tracking document for hyprsaver work. Items move between states as the
 
 ## Active Sprint: v0.4.7
 
+All committed and likely-lands items landed on `main` 2026-09-01 (see Completed). Release pending a live-compositor check of the feedback render path.
+
 ### Committed
 
-- [ ] Benchmark automation (`bench-shaders` binary or equivalent)
-- [ ] CI render preview pipeline (auto-regenerate WebP gallery on shader changes)
-- [ ] Ping-pong FBO extension (engine only, no RD shader)
-- [ ] Terminal shader char set expansion
+- [x] Benchmark automation — `hyprsaver bench` subcommand (`src/bench.rs`)
+- [x] CI render preview pipeline — `.github/workflows/gallery.yml` (llvmpipe, changed shaders only)
+- [x] Ping-pong FBO extension — `u_prev_frame` feedback buffers in `renderer.rs` (engine only, no RD shader)
+- [x] Terminal shader char set expansion — 30 → 72 glyphs via `scripts/gen_terminal_glyphs.py`
 
 ### Likely-lands
 
-- [ ] Geometry shader optimization pass (gated on bench-shaders landing)
-- [ ] One new math-themed shader (Fibonacci spiral or similar)
+- [x] Geometry shader optimization pass — 1.88 → 1.41 ms/frame, pixel-identical
+- [x] One new math-themed shader — `fibonacci` (phyllotaxis)
+
+### Next up (v0.4.8 candidates)
+
+- [ ] Reaction-diffusion shader on the new feedback buffers (was blocked on ping-pong FBO)
+- [ ] Trails / smoke shader using `u_prev_frame`
+- [ ] Re-baseline `docs/BENCHMARK_*` tiers on `bench` numbers (the historical radeontop % are ~3–4× higher than render-throughput %)
 
 ---
 
@@ -31,7 +39,7 @@ Canonical tracking document for hyprsaver work. Items move between states as the
 - **Matrix & terminal small-display scaling** — both look great on full displays but don't scale well to small WebP preview thumbnails. Needs DPI-aware glyph sizing or a small-display fallback path.
 - **Stonks pattern variation** — current pattern is repetitive. Needs additional variation modes or organic noise overlay.
 - **Eye shader** — Sauron-style or cat-eye, looking-around motion. New shader idea.
-- **Reaction-diffusion shader** — Gray-Scott or similar. Blocked on ping-pong FBO landing.
+- **Reaction-diffusion shader** — Gray-Scott or similar. Unblocked in v0.4.7 by `u_prev_frame` feedback buffers.
 
 ## Deferred Infrastructure
 
@@ -55,6 +63,9 @@ Project conventions established by prior sprints. All new work must respect them
 - **Raymarch starting inside SDF**: use `abs(d) < HIT_EPS`, not `d < HIT_EPS`. Use abs-step march `t += abs(d)` for monotonic t. (v0.4.4 wormhole, v0.4.5 mobius)
 - **Magenta nuclear test** before debugging shader math — verify pipeline executes first.
 - **2D polar cannot produce real curved tunnels** — only viable path is 3D raymarch + TunnelCenter displacement. (v0.4.4)
+- **Palette fetch only inside the footprint**: distance-test first, `palette()` only for covered pixels. Geometry −25 % with identical pixels. (v0.4.7)
+- **Phyllotaxis: key on √n or angle, never raw n** — spatial neighbours differ by 34/55 in index. (v0.4.7 fibonacci)
+- **Feedback shaders sample `u_prev_frame`** (`gl_FragCoord.xy / u_resolution`); black on first frame / resize / load; render unfaded, fade applied at present. (v0.4.7)
 
 ### GPU optimization (RDNA)
 
@@ -63,6 +74,7 @@ Project conventions established by prior sprints. All new work must respect them
 - Defer `sqrt`: use `dot(dv, dv)` for comparisons, single `sqrt` after loop
 - `smoothstep` returning 0.0 for distant pixels is cheaper than a divergent branch
 - 20 thin zoom layers outperform fewer thick layers for starfield
+- **Measure with `hyprsaver bench` before and after** (`--frames 240 --span 30` for phase-based shaders); verify parity with a PIL diff of `render-preview` frames. (v0.4.7)
 
 ### Rust / build
 
@@ -97,6 +109,16 @@ Project conventions established by prior sprints. All new work must respect them
 ---
 
 ## Completed
+
+### v0.4.7 (2026-09-01, unreleased)
+
+- `hyprsaver bench` headless GPU benchmark (ms/frame, budget %, tiers, `--span`, `--markdown`, `--json`)
+- Geometry optimization: palette fetch gated on line distance, unused vertices skipped — 1.88 → 1.41 ms/frame, pixel-identical
+- `fibonacci` shader (phyllotaxis, 36 built-ins) + gallery preview
+- Terminal font 30 → 72 glyphs; `scripts/gen_terminal_glyphs.py` is the source of truth
+- `u_prev_frame` feedback ping-pong buffers in the renderer (engine only)
+- Gallery CI workflow (llvmpipe, changed shaders only, commits back to `main`)
+- Headless EGL logs the renderer string; `docs/BENCHMARK_0.4.7.md`
 
 ### v0.4.6 (2026-09-01)
 

@@ -4,9 +4,9 @@
 hyprsaver is a Wayland-native screensaver for Hyprland. It renders GLSL fractal shaders on fullscreen wlr-layer-shell overlay surfaces via OpenGL ES (glow). It integrates with hypridle (timeout orchestration) and coexists with hyprlock (lock screen). The two are intentionally separate — Unix philosophy.
 
 ## Architecture
-Eleven modules in `src/` (plus `main.rs`):
+Twelve modules in `src/` (plus `main.rs`):
 - `wayland.rs` — Wayland connection, output enumeration, layer-shell surface lifecycle. Uses smithay-client-toolkit. One surface per monitor. Hosts the calloop event loop, calls `CycleManager::tick(now)` each frame, and dispatches `CycleEvent`s to advance shaders/palettes. Frame pacing: a render timer at `fps`, gated per surface by `wl_surface.frame` callbacks (1 s fallback), with EGL swap interval 0 so `eglSwapBuffers` never blocks on a hidden output. Fractional/HiDPI scaling via wp-fractional-scale-v1 + wp_viewporter (`scale_factor` is `f32`).
-- `renderer.rs` — OpenGL via glow. Fullscreen quad, uploads uniforms (time, resolution, palette vectors, speed/zoom scales, alpha fade), calls draw. Doesn't know about Wayland.
+- `renderer.rs` — OpenGL via glow. Fullscreen quad, uploads uniforms (time, resolution, palette vectors, speed/zoom scales, alpha fade), calls draw. Doesn't know about Wayland. Owns the shader-crossfade `TransitionRenderer` (two FBOs + composite pass) and the feedback `FeedbackBuffers` ping-pong pair: a program whose `u_prev_frame` sampler survives compilation renders into `back` while reading `front` (texture unit 3), unfaded, and a `PresentPass` puts `front` on screen with `u_alpha`. `render_offscreen()` is the explicit-time path shared by `render-preview` and `bench`.
 - `shaders.rs` — Loads `.frag` files from config dir and built-ins. Handles compilation, hot-reload (notify crate), Shadertoy uniform remapping. Prepends palette function to all shaders. Manages cycle playlists (`set_playlist`, `cycle_next`, `randomize_cycle_start`).
 - `palette.rs` — Cosine gradient palettes (Inigo Quilez technique) and LUT palettes. Four vec3 params (a,b,c,d) → 12 floats. PNG LUT loading via `image` crate. CSS gradient stop palettes. `PaletteManager` with crossfade transition state (`begin_transition` / `advance_transition`).
 - `config.rs` — TOML config with serde. Every field has a default. Config path: CLI flag → `$XDG_CONFIG_HOME/hypr/hyprsaver.toml` (new) → `$XDG_CONFIG_HOME/hyprsaver/config.toml` (legacy, deprecated) → built-in defaults. Includes `[playlists.<name>]` table sections (unified v0.4.0 format; legacy `[shader_playlists.<name>]` / `[palette_playlists.<name>]` still parsed), cycle interval fields, `[behavior] exclusive_keyboard` (layer-shell keyboard interactivity, default `true`), and the `[render_preview.palettes]` shader→palette override map.
@@ -15,7 +15,8 @@ Eleven modules in `src/` (plus `main.rs`):
 - `preview.rs` — Windowed preview mode with egui control panel. Left region: shader viewport. Right region: 300-px docked panel with Shader and Palette tabs and thumbnail previews. FPS counter is an overlay (top-left, toggled with `I`). Keyboard shortcuts: Space (pause/resume), ←/→ (prev/next shader), ↑/↓ (prev/next palette), R (reset time), F (toggle panel), I (toggle FPS), T (test shader crossfade), Q/Escape (quit).
 - `render_preview.rs` — `render-preview` subcommand. Headless EGL surfaceless + FBO capture; encodes animated WebP. Defaults: 480×270, 3 s, 15 fps, quality 80. Batch mode (no shader names) renders all shaders. Per-shader palette resolution: CLI override → `[render_preview.palettes]` config map → stable hash-based default. `--skip-existing` skips outputs that already exist.
 - `egl.rs` — Shared `EglState` (EGL instance/display/config) initialisation from a `wl_display` pointer, used by both `wayland.rs` and `preview.rs`. Distinct from `headless_egl.rs` — do not merge.
-- `headless_egl.rs` — Surfaceless EGL context for `render-preview` (no Wayland surface needed).
+- `headless_egl.rs` — Surfaceless EGL context for `render-preview` and `bench` (no Wayland surface needed). Logs the GL renderer string at `info` (llvmpipe vs GPU).
+- `bench.rs` — `bench` subcommand: renders each shader offscreen for `--frames` frames spread over `--span` seconds of shader time, `glFinish`, and reports ms/frame and `util% = frame_ms × monitors / (1000 / fps)` with the Lightweight/Medium/Heavy/Ultra tier. `--markdown` for `docs/BENCHMARK_*.md`, `--json` for tooling. Its percentages are pure render throughput, ~3–4× lower than the historical `radeontop` figures; rankings and tier thresholds are what matter.
 
 Entry point: `main.rs` — CLI (clap), signal handling (signal-hook), config load, then dispatches to `preview.rs` (windowed preview) or `wayland.rs` (layer-shell screensaver). Event loop is calloop.
 
@@ -36,7 +37,11 @@ cargo build --release
 ./target/release/hyprsaver --preview oscilloscope   # windowed preview
 ./target/release/hyprsaver render-preview           # batch-render WebP previews of all shaders
 ./target/release/hyprsaver render-preview blob      # single-shader WebP preview
+./target/release/hyprsaver bench                    # headless GPU cost table for every shader
+./target/release/hyprsaver bench geometry --frames 240 --span 30   # one shader, longer sample
 ```
+
+Shader work checklist: `hyprsaver bench <name>` before and after; visual parity via `render-preview` frames (`python3` + PIL diff of extracted frames is enough); `touch src/shaders.rs` after `.frag` edits.
 
 ## Key Design Decisions
 - **glow over wgpu**: Thin OpenGL wrapper, minimal complexity for v1. wgpu (Vulkan support) remains on the long-term roadmap.
@@ -49,6 +54,9 @@ cargo build --release
 - **Cycle timers**: `CycleManager` in `cycle.rs` (tick()-driven, returns `CycleEvent`s). `wayland.rs` calls `tick()` each frame and acts on the returned events. Shader and palette cycles can have independent intervals; both advance all surfaces simultaneously so monitors stay in sync. Startup randomizes the cycle position.
 - **Triangle-wrap palette sampling**: when sampling a palette over a monotonically growing `t` (depth, scroll position, ribbon arc length), use `palette(abs(fract(x * 0.5) * 2.0 - 1.0))` instead of `palette(fract(x))`. Triangle-wrap reverses direction at the seam, so directional palettes (pride flags etc.) avoid a hard discontinuity at the wrap point. Use plain `fract(x)` only when `t` is intrinsically cyclic and the palette is symmetric. New shaders should default to triangle-wrap.
 - **Camera-roll for view-rotation animations**: when raymarching a scene where the apparent motion is "rolling along an axis" (e.g. mobius, twisted ribbons), roll the *view orientation* and keep the camera position fixed. Moving the camera position to fake roll produces parallax artifacts that don't match the intended geometry. Lesson learned in the mobius v3→v4 rewrite.
+- **Feedback shaders opt in by sampling `u_prev_frame`**: `prepare_shader()` always injects the declaration; GLSL discards the unused sampler, so `get_uniform_location` is `None` for ordinary shaders and the renderer allocates nothing. Feedback passes render with `u_alpha = 1.0` and apply the fade in the present pass so the history never accumulates the fade. Buffers are cleared on shader load and on resize. No built-in feedback shader ships yet (reaction–diffusion is in the backlog).
+- **Palette fetches only inside the footprint**: for line/particle shaders, test the distance first and sample `palette()` only for pixels the primitive actually covers. Geometry went from 30–60 LUT reads per pixel to ~0 for empty space (−25 % frame time, pixel-identical).
+- **Phyllotaxis index vs radius**: in a Vogel spiral, spatially adjacent seeds differ by 34 or 55 in index, so anything keyed on the raw index (colour, pulse phase) scrambles into confetti. Key on √index (∝ radius) or on the seed's angle instead. Lesson learned in `fibonacci`.
 
 ## Conventions
 - Rust 2021 edition, stable toolchain
@@ -65,7 +73,7 @@ cargo build --release
 - Built-in shaders: compiled into binary via `include_str!()`
 - Logs: stderr (journalctl if launched by hypridle)
 
-## Built-in Shaders (v0.4.5 — 35 total)
+## Built-in Shaders (v0.4.7 — 36 total)
 
 `mandelbrot` was removed in v0.4.4 (GPU architectural mismatch on deep zoom). Do NOT add it back. `network` was removed in the same cycle (plexus aesthetic is vertex-native, not fragment-native); `circuit` and `sonar` are its fragment-native replacements.
 
@@ -106,6 +114,7 @@ cargo build --release
 | stonks        | Procedural candlestick chart with MACD oscillator; palette-sampled bull/bear colors |
 | fireflies     | Warm glowing wanderers drifting across a dark field, per-firefly palette colors |
 | attitude      | Artificial-horizon instrument with simulated flight motion |
+| fibonacci     | Phyllotaxis sunflower — golden-angle seed spiral (r = c·√n) growing outward, colour by 21-arm parastichy family, golden log-spiral overlay; per-pixel index band |Δn| ≤ 2·r/c |
 
 ## Playlist / Cycle System (v0.3.0)
 
@@ -114,7 +123,8 @@ cargo build --release
 Cycle scheduling is handled by `CycleManager` in `cycle.rs`. `wayland.rs` calls `CycleManager::tick()` each frame and dispatches the returned `CycleEvent`s — advancing all `Renderer` instances simultaneously so monitors stay in sync.
 
 ## Testing Strategy
-- Unit tests: `#[cfg(test)]` modules in `config`, `cycle`, `palette`, `renderer`, `shaders`, `shuffle`, `wayland` — palette math (`color_at` for known inputs), config deserialization (missing fields → defaults), Shadertoy shim (uniform remapping), playlist cycle, built-in shader count (`test_builtin_shader_count` asserts 35), shuffle-bag uniformity + no-consecutive-repeats.
+- Unit tests: `#[cfg(test)]` modules in `bench`, `config`, `cycle`, `palette`, `renderer`, `shaders`, `shuffle`, `wayland` — palette math (`color_at` for known inputs), config deserialization (missing fields → defaults), Shadertoy shim (uniform remapping), `u_prev_frame` injection, playlist cycle, built-in shader count (`test_builtin_shader_count` asserts 36; `test_every_shader_file_is_registered` keeps `shaders/*.frag` and the registration list in sync), shuffle-bag uniformity + no-consecutive-repeats, bench tier thresholds.
+- Headless: `render-preview` and `bench` run on this machine's GPU and under Mesa llvmpipe (`LIBGL_ALWAYS_SOFTWARE=1 EGL_PLATFORM=surfaceless`), which is what the Gallery workflow uses in CI.
 - Integration: `--preview` mode with a test shader, assert it opens a window and renders frames without panic.
 - Manual: run under Hyprland, verify layer surface appears on all monitors, verify input dismiss, verify SIGTERM dismiss, verify hot-reload, verify cycle advances across monitors.
 
@@ -170,8 +180,12 @@ Two additional uniforms are injected by `prepare_shader()` in `shaders.rs` for e
 - v0.4.4: Mandelbrot removed (GPU architectural mismatch on df32 deep zoom); `network` → `circuit` + `sonar` pivot; new shaders `shipburn`, `fractaltrap`, `wormhole`; `waves` renamed to `temple` (ceiling + pillars added); `ShuffleBag` randomizer extracted to `shuffle.rs`; pride palette pack + `pride` playlist. ✓ shipped
 - v0.4.5: 5 new Lightweight shaders (`fireflies`, `stonks`, `attitude`, `waterfall`, `mobius`); triangle-wrap palette refactor across 11 shaders; `render-gif` → `render-preview` (animated WebP); `[render_preview.palettes]` config overrides; preview UI polish (FPS toggle keybind, palette tab dropdown parity, palette transition test button). ✓ bumped 2026-04-28 but never tagged — shipped with v0.4.6
 - v0.4.6: wedged-daemon fix for #348 (swap interval 0, frame-callback pacing, shutdown watchdog); fractional scaling (#346, external PR #347); `[behavior] exclusive_keyboard`; live preview speed slider; codebase-audit refactors; Rust 1.97 clippy fix. ✓ shipped 2026-09-01
-- v0.4.7 (next): benchmark automation, geometry pass, CI WebP pipeline, ping-pong FBO, terminal glyph expansion, one math shader — see `docs/backlog.md`.
+- v0.4.7 (unreleased, on `main`): `bench` subcommand; geometry optimization pass (−25 %); Gallery CI workflow; `u_prev_frame` feedback buffers; terminal font 30 → 72 glyphs (`scripts/gen_terminal_glyphs.py`); `fibonacci` shader (36 total). See `CHANGELOG.md` [Unreleased] and `docs/backlog.md`.
 - v1.0.0: Stable config format, AUR/Nix packages, full Shadertoy uniform support, wgpu/Vulkan backend.
+
+## v0.4.7 Status (unreleased)
+
+All six committed/likely backlog items landed on `main` on 2026-09-01; not yet tagged. Benchmarks: `docs/BENCHMARK_0.4.7.md` (first doc produced by `hyprsaver bench`). Untested on a live compositor in that session: the daemon/preview `render()` feedback path (verified via `render-preview`, which shares `draw_program_with` and the present pass) — run `--preview` with a `u_prev_frame` shader before shipping a built-in feedback shader.
 
 ## v0.4.6 Status
 
