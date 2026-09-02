@@ -55,6 +55,13 @@ ignore = [
     # daemon mode (notify is only used for shader hot-reload on the filesystem watcher
     # path). Risk: low — unmaintained, not a CVE. Monitor notify for an upstream fix.
     { id = "RUSTSEC-2024-0384", reason = "instant is a transitive dep of notify with no patched version; unreachable in daemon mode; low risk" },
+    # ttf-parser 0.25.1 is unmaintained (RUSTSEC-2026-0192). Pulled in by:
+    # egui 0.29 → epaint → ab_glyph → owned_ttf_parser → ttf-parser. Used only to rasterise
+    # the fonts embedded in epaint_default_fonts for the preview-mode control panel — it never
+    # parses user-supplied files, and the daemon does not link egui code paths at runtime.
+    # No patched version; ab_glyph has not migrated to skrifa. Risk: low — unmaintained, not a
+    # CVE. Revisit when upgrading egui past 0.29.
+    { id = "RUSTSEC-2026-0192", reason = "ttf-parser is a transitive dep of egui/epaint via ab_glyph with no patched version; parses only embedded fonts in preview mode; low risk" },
 ]
 
 [bans]
