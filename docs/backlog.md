@@ -10,23 +10,11 @@ Canonical tracking document for hyprsaver work. Items move between states as the
 
 ---
 
-## Active Sprint: v0.4.7
+## Active Sprint: v0.4.8
 
-All committed and likely-lands items landed on `main` 2026-09-01 (see Completed). Release pending a live-compositor check of the feedback render path.
+No items are committed yet. Candidates from the completed v0.4.7 sprint are listed below.
 
-### Committed
-
-- [x] Benchmark automation — `hyprsaver bench` subcommand (`src/bench.rs`)
-- [x] CI render preview pipeline — `.github/workflows/gallery.yml` (llvmpipe, GitHub Pages artifact)
-- [x] Ping-pong FBO extension — `u_prev_frame` feedback buffers in `renderer.rs` (engine only, no RD shader)
-- [x] Terminal shader char set expansion — 30 → 72 glyphs via `scripts/gen_terminal_glyphs.py`
-
-### Likely-lands
-
-- [x] Geometry shader optimization pass — 1.88 → 1.41 ms/frame, pixel-identical
-- [x] One new math-themed shader — `fibonacci` (phyllotaxis)
-
-### Next up (v0.4.8 candidates)
+### Candidates
 
 - [ ] Reaction-diffusion shader on the new feedback buffers (was blocked on ping-pong FBO)
 - [ ] Trails / smoke shader using `u_prev_frame`
@@ -110,7 +98,7 @@ Project conventions established by prior sprints. All new work must respect them
 
 ## Completed
 
-### v0.4.7 (2026-09-01, unreleased)
+### v0.4.7 (2026-09-01)
 
 - `hyprsaver bench` headless GPU benchmark (ms/frame, budget %, tiers, `--span`, `--markdown`, `--json`)
 - Geometry optimization: palette fetch gated on line distance, unused vertices skipped — 1.88 → 1.41 ms/frame, pixel-identical

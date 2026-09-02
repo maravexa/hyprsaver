@@ -180,12 +180,12 @@ Two additional uniforms are injected by `prepare_shader()` in `shaders.rs` for e
 - v0.4.4: Mandelbrot removed (GPU architectural mismatch on df32 deep zoom); `network` → `circuit` + `sonar` pivot; new shaders `shipburn`, `fractaltrap`, `wormhole`; `waves` renamed to `temple` (ceiling + pillars added); `ShuffleBag` randomizer extracted to `shuffle.rs`; pride palette pack + `pride` playlist. ✓ shipped
 - v0.4.5: 5 new Lightweight shaders (`fireflies`, `stonks`, `attitude`, `waterfall`, `mobius`); triangle-wrap palette refactor across 11 shaders; `render-gif` → `render-preview` (animated WebP); `[render_preview.palettes]` config overrides; preview UI polish (FPS toggle keybind, palette tab dropdown parity, palette transition test button). ✓ bumped 2026-04-28 but never tagged — shipped with v0.4.6
 - v0.4.6: wedged-daemon fix for #348 (swap interval 0, frame-callback pacing, shutdown watchdog); fractional scaling (#346, external PR #347); `[behavior] exclusive_keyboard`; live preview speed slider; codebase-audit refactors; Rust 1.97 clippy fix. ✓ shipped 2026-09-01
-- v0.4.7 (unreleased, on `main`): `bench` subcommand; geometry optimization pass (−25 %); Gallery CI workflow; `u_prev_frame` feedback buffers; terminal font 30 → 72 glyphs (`scripts/gen_terminal_glyphs.py`); `fibonacci` shader (36 total). See `CHANGELOG.md` [Unreleased] and `docs/backlog.md`.
+- v0.4.7: `bench` subcommand; geometry optimization pass (−25 %); Gallery CI workflow; `u_prev_frame` feedback buffers; terminal font 30 → 72 glyphs (`scripts/gen_terminal_glyphs.py`); `fibonacci` shader (36 total). See `CHANGELOG.md` and `docs/backlog.md`. ✓ shipped 2026-09-01
 - v1.0.0: Stable config format, AUR/Nix packages, full Shadertoy uniform support, wgpu/Vulkan backend.
 
-## v0.4.7 Status (unreleased)
+## v0.4.7 Status
 
-All six committed/likely backlog items landed on `main` on 2026-09-01; not yet tagged. Benchmarks: `docs/BENCHMARK_0.4.7.md` (first doc produced by `hyprsaver bench`). Untested on a live compositor in that session: the daemon/preview `render()` feedback path (verified via `render-preview`, which shares `draw_program_with` and the present pass) — run `--preview` with a `u_prev_frame` shader before shipping a built-in feedback shader.
+Shipped 2026-09-01. Benchmarks: `docs/BENCHMARK_0.4.7.md` (first doc produced by `hyprsaver bench`). Release smoke testing covered a custom `u_prev_frame` shader in preview and in a non-exclusive daemon run across 1920×1080 and 1920×1200 outputs; both exited cleanly. No built-in feedback shader ships in this release; `u_prev_frame` is renderer groundwork for a future shader.
 
 ## v0.4.6 Status
 

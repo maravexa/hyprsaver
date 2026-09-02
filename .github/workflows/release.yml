@@ -76,9 +76,9 @@ jobs:
             cp -r doc "${STAGING}/"
           fi
 
-          if [ -f examples/config.toml ]; then
+          if [ -f examples/hyprsaver.toml ]; then
             mkdir -p "${STAGING}/examples"
-            cp examples/config.toml "${STAGING}/examples/"
+            cp examples/hyprsaver.toml "${STAGING}/examples/"
           fi
 
           tar --zstd -cf "${ARCHIVE}" "${STAGING}"

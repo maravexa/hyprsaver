@@ -294,14 +294,14 @@ yay -S hyprsaver
 
 ```bash
 # Download the .deb from the latest release
-sudo dpkg -i hyprsaver_0.4.6_amd64.deb
+sudo dpkg -i hyprsaver_0.4.7_amd64.deb
 ```
 
 ### Fedora / RHEL / openSUSE
 
 ```bash
 # Download the .rpm from the latest release
-sudo rpm -i hyprsaver-0.4.6-1.x86_64.rpm
+sudo rpm -i hyprsaver-0.4.7-1.x86_64.rpm
 ```
 
 ### Nix / NixOS
@@ -809,10 +809,10 @@ Full history lives in `CHANGELOG.md`; the working backlog is `docs/backlog.md`.
 - Persistent shuffle bag across launches
 - Removed: Mandelbrot (deep-zoom GPU mismatch), Network (replaced by Circuit + Sonar)
 
-### v0.4.7 (next)
+### Shipped in v0.4.7
 
-- Benchmark automation (`bench-shaders`) and a Geometry optimization pass
-- CI pipeline that regenerates the WebP gallery on shader changes
+- Benchmark automation (`hyprsaver bench`) and a Geometry optimization pass
+- CI pipeline that regenerates and deploys the WebP gallery through GitHub Pages
 - Ping-pong FBO support in the renderer (feedback shaders)
 - Terminal shader glyph set expansion; one new math-themed shader
 

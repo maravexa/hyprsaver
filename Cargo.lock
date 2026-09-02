@@ -663,7 +663,7 @@ checksum = "e17592d60ebacc7d5e169f4663c5f84f9161cc90328abcfe8456f41e4dfcb284"
 
 [[package]]
 name = "hyprsaver"
-version = "0.4.6"
+version = "0.4.7"
 dependencies = [
  "anyhow",
  "bytemuck",

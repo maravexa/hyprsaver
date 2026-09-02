@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+## [0.4.7] - 2026-09-01
+
 ### Added
 - **New shader — Fibonacci:** phyllotaxis sunflower head. Seeds sit at golden-angle polar
   positions (r = c·√n) and stream outward as new seeds are born at the centre; colour is a
@@ -343,7 +346,10 @@ published. Its entry below stands; its content ships together with v0.4.6.
 - Zero-config mode with sensible built-in defaults
 - hypridle integration via `on-timeout` / `on-resume`
 
-[0.4.5]: https://github.com/maravexa/hyprsaver/compare/v0.4.4...v0.4.5
+[Unreleased]: https://github.com/maravexa/hyprsaver/compare/v0.4.7...HEAD
+[0.4.7]: https://github.com/maravexa/hyprsaver/compare/v0.4.6...v0.4.7
+[0.4.6]: https://github.com/maravexa/hyprsaver/compare/v0.4.4...v0.4.6
+[0.4.5]: https://github.com/maravexa/hyprsaver/compare/v0.4.4...v0.4.6
 [0.4.2]: https://github.com/maravexa/hyprsaver/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/maravexa/hyprsaver/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/maravexa/hyprsaver/compare/v0.3.0...v0.4.0
