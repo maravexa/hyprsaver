@@ -36,6 +36,9 @@ pub struct UniformLocations {
     // Preview speed/zoom multipliers (uploaded every frame; default 1.0 in daemon mode)
     pub u_speed_scale: Option<glow::UniformLocation>,
     pub u_zoom_scale: Option<glow::UniformLocation>,
+    /// Previous frame's colour buffer (texture unit 3). `Some` only for
+    /// feedback shaders — GLSL drops the injected sampler when it is unused.
+    pub u_prev_frame: Option<glow::UniformLocation>,
 }
 
 impl UniformLocations {
@@ -55,6 +58,7 @@ impl UniformLocations {
             u_alpha: gl.get_uniform_location(prog, "u_alpha"),
             u_speed_scale: gl.get_uniform_location(prog, "u_speed_scale"),
             u_zoom_scale: gl.get_uniform_location(prog, "u_zoom_scale"),
+            u_prev_frame: gl.get_uniform_location(prog, "u_prev_frame"),
         }
     }
 }
@@ -309,33 +313,43 @@ void main() {
 /// bug or a build-time regression in the shader source — not a recoverable
 /// runtime condition.
 fn compile_composite_program(gl: &glow::Context) -> glow::Program {
+    compile_fullscreen_program(gl, COMPOSITE_FRAGMENT_SHADER, "composite")
+}
+
+/// Compile + link an attribute-less fullscreen pass from
+/// [`crate::shaders::VERTEX_SHADER`] and the given fragment source.
+///
+/// Panics with a descriptive message on any GL error: every caller passes a
+/// built-in shader compiled into the binary, so a failure is a driver bug or
+/// a build-time regression, not a recoverable runtime condition.
+fn compile_fullscreen_program(gl: &glow::Context, frag_src: &str, label: &str) -> glow::Program {
     unsafe {
         let vert = gl
             .create_shader(glow::VERTEX_SHADER)
-            .expect("composite: create vertex shader failed");
+            .unwrap_or_else(|_| panic!("{label}: create vertex shader failed"));
         gl.shader_source(vert, crate::shaders::VERTEX_SHADER);
         gl.compile_shader(vert);
         if !gl.get_shader_compile_status(vert) {
             let log = gl.get_shader_info_log(vert);
             gl.delete_shader(vert);
-            panic!("composite: vertex shader compile error: {log}");
+            panic!("{label}: vertex shader compile error: {log}");
         }
 
         let frag = gl
             .create_shader(glow::FRAGMENT_SHADER)
-            .expect("composite: create fragment shader failed");
-        gl.shader_source(frag, COMPOSITE_FRAGMENT_SHADER);
+            .unwrap_or_else(|_| panic!("{label}: create fragment shader failed"));
+        gl.shader_source(frag, frag_src);
         gl.compile_shader(frag);
         if !gl.get_shader_compile_status(frag) {
             let log = gl.get_shader_info_log(frag);
             gl.delete_shader(vert);
             gl.delete_shader(frag);
-            panic!("composite: fragment shader compile error: {log}");
+            panic!("{label}: fragment shader compile error: {log}");
         }
 
         let program = gl
             .create_program()
-            .expect("composite: create program failed");
+            .unwrap_or_else(|_| panic!("{label}: create program failed"));
         gl.attach_shader(program, vert);
         gl.attach_shader(program, frag);
         gl.link_program(program);
@@ -345,10 +359,127 @@ fn compile_composite_program(gl: &glow::Context) -> glow::Program {
         if !gl.get_program_link_status(program) {
             let log = gl.get_program_info_log(program);
             gl.delete_program(program);
-            panic!("composite: program link error: {log}");
+            panic!("{label}: program link error: {log}");
         }
 
         program
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Feedback (ping-pong) buffers — previous-frame input for shaders
+// ---------------------------------------------------------------------------
+
+/// GLSL ES 3.20 fragment shader that copies one texture to the bound
+/// framebuffer, multiplied by the fade alpha. Feedback shaders render
+/// *unfaded* into their ping-pong pair so the loop never accumulates a dimmed
+/// history; the fade is applied by this pass on the way to the screen.
+/// Paired with [`crate::shaders::VERTEX_SHADER`].
+pub const PRESENT_FRAGMENT_SHADER: &str = r#"#version 320 es
+precision mediump float;
+
+uniform sampler2D u_src;
+uniform vec2 u_resolution;
+uniform float u_alpha;
+
+out vec4 fragColor;
+
+void main() {
+    vec2 uv = gl_FragCoord.xy / u_resolution;
+    fragColor = texture(u_src, uv) * u_alpha;
+}
+"#;
+
+/// Compiled present pass (see [`PRESENT_FRAGMENT_SHADER`]).
+struct PresentPass {
+    program: glow::Program,
+    loc_src: Option<glow::UniformLocation>,
+    loc_resolution: Option<glow::UniformLocation>,
+    loc_alpha: Option<glow::UniformLocation>,
+}
+
+impl PresentPass {
+    fn new(gl: &glow::Context) -> Self {
+        let program = compile_fullscreen_program(gl, PRESENT_FRAGMENT_SHADER, "present");
+        unsafe {
+            Self {
+                program,
+                loc_src: gl.get_uniform_location(program, "u_src"),
+                loc_resolution: gl.get_uniform_location(program, "u_resolution"),
+                loc_alpha: gl.get_uniform_location(program, "u_alpha"),
+            }
+        }
+    }
+}
+
+/// Two [`OffscreenTarget`]s used as a ping-pong pair by shaders that sample
+/// `uniform sampler2D u_prev_frame` (trails, reaction–diffusion, smoke —
+/// anything that integrates state over time).
+///
+/// Each frame the shader renders into `back` while sampling `front` (the
+/// previous frame); the pair is then swapped and `front` is presented. Both
+/// buffers are cleared to black on allocation, on resize, and whenever a new
+/// shader is loaded, so a feedback shader always starts from a known state.
+pub struct FeedbackBuffers {
+    targets: [OffscreenTarget; 2],
+    /// Index into `targets` of the buffer holding the last completed frame.
+    front: usize,
+}
+
+impl FeedbackBuffers {
+    /// Allocate a pair at the given size and clear both to black.
+    pub fn new(gl: &glow::Context, width: u32, height: u32) -> Self {
+        let fb = Self {
+            targets: [
+                OffscreenTarget::new(gl, width, height),
+                OffscreenTarget::new(gl, width, height),
+            ],
+            front: 0,
+        };
+        fb.clear(gl);
+        fb
+    }
+
+    /// Reallocate both buffers if the size changed (contents are cleared).
+    pub fn resize(&mut self, gl: &glow::Context, width: u32, height: u32) {
+        if self.targets[0].width == width && self.targets[0].height == height {
+            return;
+        }
+        for t in self.targets.iter_mut() {
+            t.resize(gl, width, height);
+        }
+        self.clear(gl);
+    }
+
+    /// Clear both buffers to the current GL clear colour (black).
+    pub fn clear(&self, gl: &glow::Context) {
+        for t in &self.targets {
+            t.bind(gl);
+            unsafe { gl.clear(glow::COLOR_BUFFER_BIT) };
+        }
+        OffscreenTarget::unbind(gl);
+    }
+
+    /// Buffer holding the previous frame (read side).
+    pub fn front(&self) -> &OffscreenTarget {
+        &self.targets[self.front]
+    }
+
+    /// Buffer the next frame renders into (write side).
+    pub fn back(&self) -> &OffscreenTarget {
+        &self.targets[1 - self.front]
+    }
+
+    /// Promote the freshly rendered `back` buffer to `front`.
+    pub fn swap(&mut self) {
+        self.front = 1 - self.front;
+    }
+
+    /// Delete both targets. Consumes `self`.
+    pub fn destroy(self, gl: &glow::Context) {
+        let [a, b] = self.targets;
+        a.destroy(gl);
+        b.destroy(gl);
     }
 }
 
@@ -711,6 +842,17 @@ pub struct Renderer {
     /// at the start of a crossfade so it keeps consistent time during the
     /// transition.
     outgoing_start_elapsed: f32,
+
+    // ------------------------------------------------------------------
+    // Feedback (previous-frame) state
+    // ------------------------------------------------------------------
+    /// Ping-pong pair, allocated only while a loaded program samples
+    /// `u_prev_frame`. Sized to the last rendered resolution.
+    feedback: Option<FeedbackBuffers>,
+
+    /// Present pass that puts the feedback front buffer on screen with the
+    /// fade alpha applied. Compiled lazily on first use.
+    present: Option<PresentPass>,
 }
 
 /// Hardcoded GLSL ES 3.20 vertex shader source. Passes UV coordinates (0..1) to the fragment
@@ -803,6 +945,8 @@ impl Renderer {
             outgoing_uniforms: UniformLocations::default(),
             shader_start_elapsed: 0.0,
             outgoing_start_elapsed: 0.0,
+            feedback: None,
+            present: None,
         })
     }
 
@@ -845,6 +989,7 @@ impl Renderer {
         self.program = Some(program);
         self.shader_start_elapsed = self.start_time.elapsed().as_secs_f32();
         self.refresh_uniform_locations();
+        self.reset_feedback();
 
         log::debug!("Shader loaded successfully");
         Ok(())
@@ -948,6 +1093,7 @@ impl Renderer {
         self.program = Some(new_program);
         self.shader_start_elapsed = self.start_time.elapsed().as_secs_f32();
         self.refresh_uniform_locations();
+        self.reset_feedback();
 
         // Kick off the transition state machine. The outgoing program handle
         // stays alive inside `TransitionState::Crossfading` until `tick()`
@@ -1060,26 +1206,44 @@ impl Renderer {
             }
             self.outgoing_uniforms = UniformLocations::default();
             log::info!("Shader transition complete (outgoing program released)");
+            // The outgoing shader may have been the only user of the pair.
+            if self.uniforms.u_prev_frame.is_none() {
+                self.release_feedback();
+            }
         }
 
         let elapsed = self.start_time.elapsed().as_secs_f32();
         let frame = self.frame;
 
+        // Feedback shaders need their ping-pong pair at the current size
+        // before either draw path runs.
+        if self.uniforms.u_prev_frame.is_some() || self.outgoing_uniforms.u_prev_frame.is_some() {
+            self.ensure_feedback(width, height);
+        }
+
         if transitioning {
-            self.render_with_transition(resolution, elapsed, frame);
-        } else {
-            unsafe {
-                self.gl
-                    .viewport(0, 0, resolution[0] as i32, resolution[1] as i32);
-                self.gl.clear(glow::COLOR_BUFFER_BIT);
+            let fed_back = self.render_with_transition(resolution, elapsed, frame);
+            if fed_back {
+                if let Some(fb) = self.feedback.as_mut() {
+                    fb.swap();
+                }
             }
-            if let Some(program) = self.program {
-                // Clone because draw_program_with takes &UniformLocations by
-                // reference and we're inside &mut self — the borrow checker
-                // won't let us pass &self.uniforms while also needing &self
-                // to call the helper on. UniformLocations is a small struct
-                // of Options so the clone is cheap.
-                let uniforms = self.uniforms.clone();
+        } else if let Some(program) = self.program {
+            // Clone because draw_program_with takes &UniformLocations by
+            // reference and we're inside &mut self — the borrow checker
+            // won't let us pass &self.uniforms while also needing &self
+            // to call the helper on. UniformLocations is a small struct
+            // of Options so the clone is cheap.
+            let uniforms = self.uniforms.clone();
+            if uniforms.u_prev_frame.is_some() && self.feedback.is_some() {
+                // Pass 1: shader → back buffer, sampling front (the previous
+                // frame). Rendered unfaded so the history never accumulates
+                // the fade.
+                let prev = self.feedback.as_ref().map(|fb| fb.front().texture);
+                if let Some(fb) = self.feedback.as_ref() {
+                    fb.back().bind(&self.gl);
+                }
+                unsafe { self.gl.clear(glow::COLOR_BUFFER_BIT) };
                 self.draw_program_with(
                     program,
                     &uniforms,
@@ -1087,7 +1251,38 @@ impl Renderer {
                     elapsed,
                     self.shader_start_elapsed,
                     frame,
+                    prev,
+                    1.0,
                 );
+                if let Some(fb) = self.feedback.as_mut() {
+                    fb.swap();
+                }
+                // Pass 2: present the new front buffer with the fade alpha.
+                if let Some(front) = self.feedback.as_ref().map(|fb| fb.front().texture) {
+                    self.present(None, front, resolution, self.alpha);
+                }
+            } else {
+                unsafe {
+                    self.gl
+                        .viewport(0, 0, resolution[0] as i32, resolution[1] as i32);
+                    self.gl.clear(glow::COLOR_BUFFER_BIT);
+                }
+                self.draw_program_with(
+                    program,
+                    &uniforms,
+                    resolution,
+                    elapsed,
+                    self.shader_start_elapsed,
+                    frame,
+                    None,
+                    self.alpha,
+                );
+            }
+        } else {
+            unsafe {
+                self.gl
+                    .viewport(0, 0, resolution[0] as i32, resolution[1] as i32);
+                self.gl.clear(glow::COLOR_BUFFER_BIT);
             }
         }
 
@@ -1101,19 +1296,27 @@ impl Renderer {
     /// [`TransitionRenderer::render_composite`]. Both passes upload the same
     /// time/resolution/palette/etc. uniforms — per-shader palette during a
     /// transition is a future enhancement (see docs/0.1d prompt).
-    fn render_with_transition(&self, resolution: [f32; 2], elapsed: f32, frame: u64) {
+    ///
+    /// Feedback shaders on either side sample the shared ping-pong front
+    /// buffer; when the *incoming* shader is a feedback shader its `fbo_b`
+    /// result is copied into the back buffer and `true` is returned so the
+    /// caller swaps the pair. (During a crossfade the fade alpha is baked into
+    /// the FBO contents as before, so a feedback history rendered mid-fade is
+    /// slightly dimmed — a two-second, preview-only edge case.)
+    fn render_with_transition(&self, resolution: [f32; 2], elapsed: f32, frame: u64) -> bool {
         let Some(incoming_program) = self.program else {
-            return;
+            return false;
         };
         let Some(transition) = self.transition.as_ref() else {
-            return;
+            return false;
         };
         let outgoing_program = match &transition.state {
             TransitionState::Crossfading {
                 outgoing_program, ..
             } => *outgoing_program,
-            TransitionState::Idle => return,
+            TransitionState::Idle => return false,
         };
+        let prev = self.feedback.as_ref().map(|fb| fb.front().texture);
 
         // ---- Outgoing → fbo_a ----
         transition.fbo_a.bind(&self.gl);
@@ -1131,6 +1334,8 @@ impl Renderer {
             elapsed,
             self.outgoing_start_elapsed,
             frame,
+            prev,
+            self.alpha,
         );
 
         // ---- Incoming → fbo_b ----
@@ -1146,7 +1351,24 @@ impl Renderer {
             elapsed,
             self.shader_start_elapsed,
             frame,
+            prev,
+            self.alpha,
         );
+
+        // Keep the incoming feedback shader's history flowing: copy its
+        // fresh frame into the back buffer; the caller swaps the pair.
+        let fed_back = match (in_uniforms.u_prev_frame, self.feedback.as_ref()) {
+            (Some(_), Some(fb)) => {
+                self.blit(
+                    transition.fbo_b.fbo,
+                    fb.back().fbo,
+                    resolution[0] as i32,
+                    resolution[1] as i32,
+                );
+                true
+            }
+            _ => false,
+        };
 
         // ---- Composite to default framebuffer ----
         // render_composite internally unbinds the FBO and sets the viewport
@@ -1162,6 +1384,7 @@ impl Renderer {
         unsafe {
             self.gl.bind_vertex_array(None);
         }
+        fed_back
     }
 
     /// Upload all per-frame uniforms and issue the fullscreen-quad draw for
@@ -1178,6 +1401,11 @@ impl Renderer {
     /// frame.  Pass `self.shader_start_elapsed` for the incoming/normal shader
     /// and `self.outgoing_start_elapsed` for the outgoing shader during a
     /// crossfade.
+    ///
+    /// `prev` is bound to texture unit 3 as `u_prev_frame` when the program
+    /// samples it; `alpha` is uploaded as `u_alpha` (feedback passes send
+    /// `1.0` and apply the fade when presenting instead).
+    #[allow(clippy::too_many_arguments)]
     fn draw_program_with(
         &self,
         program: glow::Program,
@@ -1186,6 +1414,8 @@ impl Renderer {
         elapsed: f32,
         shader_start_elapsed: f32,
         frame: u64,
+        prev: Option<glow::Texture>,
+        alpha: f32,
     ) {
         unsafe {
             self.gl.use_program(Some(program));
@@ -1216,7 +1446,7 @@ impl Renderer {
 
             // Fade alpha (always uploaded)
             if let Some(ref loc) = uniforms.u_alpha {
-                self.gl.uniform_1_f32(Some(loc), self.alpha);
+                self.gl.uniform_1_f32(Some(loc), alpha);
             }
 
             // Speed / zoom multipliers (default 1.0 — no behavioral change in daemon mode)
@@ -1240,6 +1470,12 @@ impl Renderer {
             self.gl.bind_texture(glow::TEXTURE_2D, tex_b);
             if let Some(ref loc) = uniforms.u_lut_b {
                 self.gl.uniform_1_i32(Some(loc), 2);
+            }
+            // Texture unit 3 → u_prev_frame (feedback shaders only)
+            if let Some(ref loc) = uniforms.u_prev_frame {
+                self.gl.active_texture(glow::TEXTURE3);
+                self.gl.bind_texture(glow::TEXTURE_2D, prev);
+                self.gl.uniform_1_i32(Some(loc), 3);
             }
             // Reset active texture unit to 0
             self.gl.active_texture(glow::TEXTURE0);
@@ -1338,7 +1574,16 @@ impl Renderer {
             self.gl.viewport(0, 0, size as i32, size as i32);
             self.gl.clear(glow::COLOR_BUFFER_BIT);
         }
-        self.draw_program_with(prog, &uniforms, [size as f32, size as f32], time, 0.0, 0);
+        self.draw_program_with(
+            prog,
+            &uniforms,
+            [size as f32, size as f32],
+            time,
+            0.0,
+            0,
+            None,
+            1.0,
+        );
 
         // Read pixels
         let mut pixels = vec![0u8; (size * size * 4) as usize];
@@ -1400,29 +1645,21 @@ impl Renderer {
     /// without wall-clock time. The Wayland path is unaffected — it continues
     /// to call [`Renderer::render`].
     pub fn render_and_capture(
-        &self,
+        &mut self,
         fbo: glow::Framebuffer,
         resolution: [u32; 2],
         time: f32,
         frame: u64,
     ) -> anyhow::Result<Vec<u8>> {
         let [w, h] = resolution;
-        let program = self
-            .program
-            .ok_or_else(|| anyhow::anyhow!("render_and_capture: no shader program loaded"))?;
+        if self.program.is_none() {
+            anyhow::bail!("render_and_capture: no shader program loaded");
+        }
+        self.render_offscreen(fbo, resolution, time, frame);
 
         unsafe {
             self.gl.bind_framebuffer(glow::FRAMEBUFFER, Some(fbo));
-            self.gl.viewport(0, 0, w as i32, h as i32);
-            self.gl.clear(glow::COLOR_BUFFER_BIT);
         }
-
-        // Reuse the existing uniform upload + draw kernel.
-        // Pass `time` as both `elapsed` and `shader_start_elapsed = 0.0` so
-        // u_time = time - 0.0 = time (explicit GIF frame time).
-        let uniforms = self.uniforms.clone();
-        self.draw_program_with(program, &uniforms, [w as f32, h as f32], time, 0.0, frame);
-
         let pixel_count = (w * h * 4) as usize;
         let mut pixels = vec![0u8; pixel_count];
         unsafe {
@@ -1439,6 +1676,64 @@ impl Renderer {
         }
 
         Ok(pixels)
+    }
+
+    /// Render one frame of the current shader into `fbo` at an explicit time,
+    /// without reading anything back. Leaves the default framebuffer bound.
+    ///
+    /// Used by `render-preview` (followed by a readback) and by `bench`
+    /// (followed by [`Renderer::finish`]). A no-op when no program is loaded.
+    pub fn render_offscreen(
+        &mut self,
+        fbo: glow::Framebuffer,
+        resolution: [u32; 2],
+        time: f32,
+        frame: u64,
+    ) {
+        let [w, h] = resolution;
+        let Some(program) = self.program else {
+            return;
+        };
+        let res_f = [w as f32, h as f32];
+        // Pass `time` as `elapsed` with `shader_start_elapsed = 0.0` so
+        // u_time == time exactly (explicit frame time, not wall clock).
+        let uniforms = self.uniforms.clone();
+
+        if uniforms.u_prev_frame.is_some() {
+            // Same two-pass scheme as `render()`, presenting into `fbo`.
+            self.ensure_feedback(w, h);
+            let prev = self.feedback.as_ref().map(|fb| fb.front().texture);
+            if let Some(fb) = self.feedback.as_ref() {
+                fb.back().bind(&self.gl);
+            }
+            unsafe { self.gl.clear(glow::COLOR_BUFFER_BIT) };
+            self.draw_program_with(program, &uniforms, res_f, time, 0.0, frame, prev, 1.0);
+            if let Some(fb) = self.feedback.as_mut() {
+                fb.swap();
+            }
+            if let Some(front) = self.feedback.as_ref().map(|fb| fb.front().texture) {
+                self.present(Some(fbo), front, res_f, self.alpha);
+            }
+            return;
+        }
+
+        unsafe {
+            self.gl.bind_framebuffer(glow::FRAMEBUFFER, Some(fbo));
+            self.gl.viewport(0, 0, w as i32, h as i32);
+            self.gl.clear(glow::COLOR_BUFFER_BIT);
+        }
+        self.draw_program_with(
+            program, &uniforms, res_f, time, 0.0, frame, None, self.alpha,
+        );
+        unsafe {
+            self.gl.bind_framebuffer(glow::FRAMEBUFFER, None);
+        }
+    }
+
+    /// Block until every queued GL command has completed on the GPU
+    /// (`glFinish`). Used to bracket benchmark timings.
+    pub fn finish(&self) {
+        unsafe { self.gl.finish() };
     }
 
     /// Release all GPU resources. Must be called before the GL context is destroyed.
@@ -1459,6 +1754,13 @@ impl Renderer {
             if let Some(tex) = self.lut_texture_b.take() {
                 self.gl.delete_texture(tex);
             }
+        }
+
+        if let Some(fb) = self.feedback.take() {
+            fb.destroy(&self.gl);
+        }
+        if let Some(p) = self.present.take() {
+            unsafe { self.gl.delete_program(p.program) };
         }
 
         // If a crossfade was still in flight at teardown, release the
@@ -1482,6 +1784,103 @@ impl Renderer {
     // ------------------------------------------------------------------
     // Private helpers
     // ------------------------------------------------------------------
+
+    /// Allocate or resize the feedback pair (and compile the present pass)
+    /// for the given resolution. No-op when already at that size.
+    fn ensure_feedback(&mut self, width: u32, height: u32) {
+        match self.feedback.as_mut() {
+            Some(fb) => fb.resize(&self.gl, width, height),
+            None => {
+                self.feedback = Some(FeedbackBuffers::new(&self.gl, width, height));
+                log::debug!("Feedback buffers allocated ({width}x{height})");
+            }
+        }
+        if self.present.is_none() {
+            self.present = Some(PresentPass::new(&self.gl));
+        }
+    }
+
+    /// Called after a program swap. A feedback program starts from black
+    /// (the pair is cleared); a non-feedback program releases the pair unless
+    /// an outgoing crossfade shader still reads it.
+    fn reset_feedback(&mut self) {
+        if self.uniforms.u_prev_frame.is_some() {
+            if let Some(fb) = self.feedback.as_ref() {
+                fb.clear(&self.gl);
+            }
+        } else if self.outgoing_uniforms.u_prev_frame.is_none() {
+            self.release_feedback();
+        }
+    }
+
+    /// Delete the feedback pair if allocated.
+    fn release_feedback(&mut self) {
+        if let Some(fb) = self.feedback.take() {
+            fb.destroy(&self.gl);
+            log::debug!("Feedback buffers released");
+        }
+    }
+
+    /// Draw `tex` over the whole of `target` (`None` = default framebuffer)
+    /// multiplied by `alpha`, using the present pass. Leaves the default
+    /// framebuffer bound.
+    fn present(
+        &self,
+        target: Option<glow::Framebuffer>,
+        tex: glow::Texture,
+        resolution: [f32; 2],
+        alpha: f32,
+    ) {
+        let Some(p) = self.present.as_ref() else {
+            return;
+        };
+        unsafe {
+            self.gl.bind_framebuffer(glow::FRAMEBUFFER, target);
+            self.gl
+                .viewport(0, 0, resolution[0] as i32, resolution[1] as i32);
+            self.gl.use_program(Some(p.program));
+            self.gl.active_texture(glow::TEXTURE0);
+            self.gl.bind_texture(glow::TEXTURE_2D, Some(tex));
+            if let Some(loc) = &p.loc_src {
+                self.gl.uniform_1_i32(Some(loc), 0);
+            }
+            if let Some(loc) = &p.loc_resolution {
+                self.gl
+                    .uniform_2_f32(Some(loc), resolution[0], resolution[1]);
+            }
+            if let Some(loc) = &p.loc_alpha {
+                self.gl.uniform_1_f32(Some(loc), alpha);
+            }
+            // Attribute-less fullscreen strip driven by gl_VertexID; GLES
+            // still requires some VAO to be bound for the draw.
+            self.gl.bind_vertex_array(self.vao);
+            self.gl.draw_arrays(glow::TRIANGLE_STRIP, 0, 4);
+            self.gl.bind_vertex_array(None);
+            self.gl.bind_texture(glow::TEXTURE_2D, None);
+            self.gl.bind_framebuffer(glow::FRAMEBUFFER, None);
+        }
+    }
+
+    /// Copy the colour attachment of `src` into `dst` (same size).
+    fn blit(&self, src: glow::Framebuffer, dst: glow::Framebuffer, w: i32, h: i32) {
+        unsafe {
+            self.gl.bind_framebuffer(glow::READ_FRAMEBUFFER, Some(src));
+            self.gl.bind_framebuffer(glow::DRAW_FRAMEBUFFER, Some(dst));
+            self.gl.blit_framebuffer(
+                0,
+                0,
+                w,
+                h,
+                0,
+                0,
+                w,
+                h,
+                glow::COLOR_BUFFER_BIT,
+                glow::NEAREST,
+            );
+            self.gl.bind_framebuffer(glow::FRAMEBUFFER, None);
+        }
+    }
 
     /// One-shot sanity check for `OffscreenTarget`: allocate a 1920×1080 FBO,
     /// bind it, clear to red, unbind, and destroy. Logs GL errors (if any)
@@ -1691,6 +2090,16 @@ mod tests {
             assert!(
                 COMPOSITE_FRAGMENT_SHADER.contains(name),
                 "composite shader missing identifier `{name}`"
+            );
+        }
+    }
+
+    #[test]
+    fn test_present_fragment_shader_uniforms() {
+        for needle in ["u_src", "u_resolution", "u_alpha", "#version 320 es"] {
+            assert!(
+                PRESENT_FRAGMENT_SHADER.contains(needle),
+                "present shader must reference {needle}"
             );
         }
     }

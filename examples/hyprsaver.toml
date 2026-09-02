@@ -196,6 +196,7 @@ shaders = [
     "donut",
     "geometry",
     "julia",
+    "fibonacci",
 ]
 
 [playlists.nature]

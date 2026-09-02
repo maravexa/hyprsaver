@@ -45,6 +45,7 @@ cargo install hyprsaver
 | **circuit** | ![circuit](https://github.com/maravexa/hyprsaver/raw/main/media/circuit.webp) |
 | **clouds** | ![clouds](https://github.com/maravexa/hyprsaver/raw/main/media/clouds.webp) |
 | **donut** | ![donut](https://github.com/maravexa/hyprsaver/raw/main/media/donut.webp) |
+| **fibonacci** | ![fibonacci](https://github.com/maravexa/hyprsaver/raw/main/media/fibonacci.webp) |
 | **fireflies** | ![fireflies](https://github.com/maravexa/hyprsaver/raw/main/media/fireflies.webp) |
 | **flames** | ![flames](https://github.com/maravexa/hyprsaver/raw/main/media/flames.webp) |
 | **fractaltrap** | ![fractaltrap](https://github.com/maravexa/hyprsaver/raw/main/media/fractaltrap.webp) |
@@ -181,7 +182,7 @@ graph TD
 - **Shadertoy-compatible** shader format -- paste Shadertoy code with minimal edits, it just works
 - **Hot-reload** shaders from `~/.config/hypr/hyprsaver/shaders/` -- edit, save, see the change instantly
 - **Cycle mode** for shaders and palettes -- rotate through all or a named playlist on a configurable interval
-- **Built-in shader collection** (35 shaders):
+- **Built-in shader collection** (36 shaders):
 
   | Name            | Description                                          |
   |-----------------|------------------------------------------------------|
@@ -220,6 +221,7 @@ graph TD
   | `stonks`        | Procedural candlestick chart with MACD oscillator — palette-sampled bull/bear colors |
   | `attitude`      | Artificial-horizon instrument with simulated flight motion |
   | `waterfall`     | Stylized 2D waterfall with retro quantize-and-dither post |
+  | `fibonacci`     | Phyllotaxis sunflower — golden-angle seed spiral growing outward, Fibonacci parastichy arms, golden log-spiral overlay |
 - **Built-in palette collection**: rainbow, autumn, vaporwave, frost, ember, ocean, monochrome, sunset, aurora, midnight
 - Configurable FPS and dismiss triggers
 - **Preview mode** for shader authoring (`--preview <shader>`) with speed/zoom control panel
@@ -240,6 +242,14 @@ Benchmarked on AMD HawkPoint1 (GMKtec Nucbox K12) with dual 1920×1200 monitors.
 - **Heavy (51–75% GPU):** None at steady state (Geometry spikes to 55% during shape transitions only)
 
 All shaders previously in the Heavy tier (Bezier, Geometry, Lissajous, Marble, Network, Snowfall, Starfield) were optimized in v0.4.3. See `docs/BENCHMARK_0.4.3.md` for full results. New shaders in v0.4.4: see `docs/BENCHMARK_0.4.4.md`.
+
+Since v0.4.7 the numbers come from `hyprsaver bench`, which renders every shader headlessly and reports ms/frame and the share of the 30 fps frame budget for two 1920×1200 monitors (`docs/BENCHMARK_0.4.7.md`). It measures pure render throughput, so its percentages sit well below the old `radeontop` readings, but the ranking and the tier thresholds are the same:
+
+```sh
+hyprsaver bench                      # every built-in shader, sorted by cost
+hyprsaver bench geometry --frames 240 --span 30
+hyprsaver bench --markdown > docs/BENCHMARK_x.y.z.md
+```
 
 ---
 
@@ -561,6 +571,11 @@ uniform float     u_palette_blend;
 uniform float u_speed_scale;
 uniform float u_zoom_scale;
 
+// Previous frame (feedback / ping-pong). Sampling this uniform is what turns
+// the buffers on: texture(u_prev_frame, gl_FragCoord.xy / u_resolution).
+// Black on the first frame, after a resize, and whenever the shader is loaded.
+uniform sampler2D u_prev_frame;
+
 out vec4 fragColor;
 
 // Palette helper -- included automatically, always available
@@ -724,6 +739,15 @@ OPTIONS:
     -v, --verbose                    Enable debug logging (RUST_LOG=hyprsaver=debug)
     -h, --help                       Print help
     -V, --version                    Print version
+
+SUBCOMMANDS (headless — no compositor needed):
+    render-preview [SHADER]...       Render animated WebP previews (480×270, 3 s, 15 fps by default)
+                                     Options: --palette, --cycle-palettes, --duration, --resolution,
+                                     --fps, --quality, --seed, --skip-existing, -o/--output
+    bench [SHADER]...                Benchmark GPU cost: ms/frame and share of the frame budget
+                                     Options: --resolution (1920x1200), --monitors (2), --fps (30),
+                                     --frames (120), --span (30 s), --warmup, --palette,
+                                     --markdown, --json <PATH>, --sort cost|name
 ```
 
 **Examples:**

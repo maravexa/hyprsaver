@@ -386,10 +386,15 @@ void main() {
     // ── Project lerped vertex positions to 2-D ─────────────────────────────
     // Loop always runs to 20: morphing interpolates between shapes with
     // different vertex counts; padding/cycling ensures valid data at all 20.
+    // Only the vertices the two shapes' edge lists can reference need
+    // projecting: edges index below VERT_COUNT[shape], and the padding
+    // beyond it is never touched. Uniform bound, so no divergence.
     int base_a = shape_a * 20;
     int base_b = shape_b * 20;
+    int vert_count = max(VERT_COUNT[shape_a], VERT_COUNT[shape_b]);
     vec2 pts[20];
     for (int i = 0; i < 20; i++) {
+        if (i >= vert_count) break;
         vec3 va = ALL_VERTS[base_a + i];
         vec3 vb = ALL_VERTS[base_b + i];
         vec3 v  = rot * mix(va, vb, morph_t);
@@ -418,13 +423,20 @@ void main() {
     float alpha_a = 1.0 - morph_t;
     float alpha_b = morph_t;
 
+    // Only pixels that actually lie on a line pay for the palette LUT fetch.
+    // Before v0.4.7 every pixel sampled the palette once per edge — 30 to 60
+    // texture reads per pixel during a morph — for a wireframe that covers a
+    // few percent of the screen. The distance test is pure ALU; the fetch and
+    // the smoothstep now run only inside the line's footprint.
+
     // Shape A edges (fade out)
     if (alpha_a > 0.0) {
         for (int i = 0; i < 30; i++) {
             if (i >= edge_count_a) break;
-            float edge_hue = base_hue + float(i) * (1.0 / 30.0);
             ivec2 ea = ALL_EDGES[edge_base_a + i];
             float d  = segDist(uv, pts[ea.x], pts[ea.y]);
+            if (d >= LINE_WIDTH) continue;
+            float edge_hue = base_hue + float(i) * (1.0 / 30.0);
             float ga = 1.0 - smoothstep(0.0, LINE_WIDTH, d);
             col += palette(edge_hue) * ga * alpha_a;
         }
@@ -434,9 +446,10 @@ void main() {
     if (alpha_b > 0.0) {
         for (int i = 0; i < 30; i++) {
             if (i >= edge_count_b) break;
-            float edge_hue = base_hue + float(i) * (1.0 / 30.0);
             ivec2 eb = ALL_EDGES[edge_base_b + i];
             float d  = segDist(uv, pts[eb.x], pts[eb.y]);
+            if (d >= LINE_WIDTH) continue;
+            float edge_hue = base_hue + float(i) * (1.0 / 30.0);
             float gb = 1.0 - smoothstep(0.0, LINE_WIDTH, d);
             col += palette(edge_hue) * gb * alpha_b;
         }

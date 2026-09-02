@@ -610,7 +610,7 @@ fn flip_vertical(pixels: &mut [u8], width: u32, height: u32) {
 // Resolution parsing
 // ---------------------------------------------------------------------------
 
-fn parse_resolution(s: &str) -> anyhow::Result<(u32, u32)> {
+pub(crate) fn parse_resolution(s: &str) -> anyhow::Result<(u32, u32)> {
     let (ws, hs) = s
         .split_once('x')
         .or_else(|| s.split_once('X'))
