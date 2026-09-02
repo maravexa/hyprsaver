@@ -294,7 +294,7 @@ yay -S hyprsaver
 
 ```bash
 # Download the .deb from the latest release
-sudo dpkg -i hyprsaver_0.4.7_amd64.deb
+sudo dpkg -i hyprsaver_0.4.7-1_amd64.deb
 ```
 
 ### Fedora / RHEL / openSUSE
