@@ -3007,7 +3007,7 @@ fn draw_palette_editor_tab(
             painter.rect_stroke(
                 strip_rect,
                 2.0,
-                egui::Stroke::new(1.0, egui::Color32::from_gray(80)),
+                egui::Stroke::new(1.0_f32, egui::Color32::from_gray(80)),
             );
             let step_w = strip_rect.width() / STEPS as f32;
             for i in 0..STEPS {
@@ -3186,7 +3186,7 @@ fn draw_reorderable_list(
         let y = list_top + tgt as f32 * ITEM_H;
         ui.painter().line_segment(
             [egui::pos2(list_left, y), egui::pos2(list_left + avail_w, y)],
-            egui::Stroke::new(2.0, egui::Color32::from_rgb(0x5e, 0x81, 0xf4)),
+            egui::Stroke::new(2.0_f32, egui::Color32::from_rgb(0x5e, 0x81, 0xf4)),
         );
     }
 
