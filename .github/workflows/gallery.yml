@@ -68,7 +68,7 @@ jobs:
         run: |
           mkdir -p site/gallery
           cd site/gallery
-          ../../../target/release/hyprsaver render-preview --seed 0 --fps 12 --quality 75
+          ../../target/release/hyprsaver render-preview --seed 0 --fps 12 --quality 75
 
       - name: Write gallery landing page
         run: |
