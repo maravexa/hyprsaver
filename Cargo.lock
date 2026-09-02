@@ -675,6 +675,7 @@ dependencies = [
  "toml",
  "wayland-client",
  "wayland-egl",
+ "wayland-protocols",
  "wayland-protocols-wlr",
  "webp-animation",
 ]

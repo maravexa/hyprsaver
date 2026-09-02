@@ -33,6 +33,7 @@ calloop = "0.13"
 calloop-wayland-source = "0.3"
 wayland-client = "0.31"
 wayland-protocols-wlr = "0.3"
+wayland-protocols = { version = "0.32.12", features = ["client", "staging"] }
 toml = "0.8"
 serde = { version = "1", features = ["derive"] }
 clap = { version = "4", features = ["derive"] }

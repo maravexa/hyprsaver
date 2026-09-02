@@ -31,7 +31,14 @@ use smithay_client_toolkit::{
 use wayland_client::{
     globals::registry_queue_init,
     protocol::{wl_keyboard, wl_output, wl_pointer, wl_seat, wl_surface},
-    Connection, QueueHandle,
+    Connection, Dispatch, QueueHandle,
+};
+use wayland_protocols::wp::{
+    fractional_scale::v1::client::{
+        wp_fractional_scale_manager_v1::WpFractionalScaleManagerV1,
+        wp_fractional_scale_v1::{self, WpFractionalScaleV1},
+    },
+    viewporter::client::{wp_viewport::WpViewport, wp_viewporter::WpViewporter},
 };
 
 use crate::{
@@ -83,8 +90,14 @@ pub struct Surface {
     /// Height in logical pixels (before scale factor).
     pub height: u32,
 
-    /// Output scale factor (1 = normal, 2 = HiDPI ×2, etc.).
-    pub scale_factor: i32,
+    /// Output scale factor
+    pub scale_factor: f32,
+
+    // Optional fractional scale from wayland protocol extension
+    pub fractional_scale: Option<WpFractionalScaleV1>,
+
+    // Viewport
+    pub viewport: Option<WpViewport>,
 
     /// Whether the surface has been configured by the compositor yet.
     pub configured: bool,
@@ -129,12 +142,12 @@ pub struct Surface {
 impl Surface {
     /// Physical pixel width (logical × scale).
     pub fn phys_width(&self) -> u32 {
-        self.width * self.scale_factor.max(1) as u32
+        ((self.width as f32) * self.scale_factor.max(1.0)).round() as u32
     }
 
     /// Physical pixel height (logical × scale).
     pub fn phys_height(&self) -> u32 {
-        self.height * self.scale_factor.max(1) as u32
+        ((self.height as f32) * self.scale_factor.max(1.0)).round() as u32
     }
 
     /// Compute the current alpha value based on fade state and config durations.
@@ -297,6 +310,11 @@ impl Surface {
         let w = self.phys_width().max(1) as i32;
         let h = self.phys_height().max(1) as i32;
 
+        if let Some(ref viewport) = self.viewport {
+            // Set the logical bounds for the viewport for scaling
+            viewport.set_destination(self.width as i32, self.height as i32);
+        }
+
         if let Some(ref wew) = self.wl_egl_window {
             wew.resize(w, h, 0, 0);
         }
@@ -343,6 +361,11 @@ pub struct WaylandState {
 
     /// Active surfaces, keyed by the `WlOutput` they cover.
     pub surfaces: HashMap<wl_output::WlOutput, Surface>,
+
+    // Manager for fractional scaling wayland protocol v1
+    pub fractional_scale_manager: Option<WpFractionalScaleManagerV1>,
+
+    pub viewporter: Option<WpViewporter>,
 
     /// Set to false when exit is requested (after fade-out completes or immediately
     /// if fade_out_ms == 0).
@@ -526,6 +549,7 @@ impl WaylandState {
 
     /// Create a layer surface for the given output and return the Surface.
     fn make_layer_surface(
+        &self,
         compositor: &CompositorState,
         layer_shell: &LayerShell,
         output: Option<&wl_output::WlOutput>,
@@ -547,12 +571,24 @@ impl WaylandState {
         layer_surface.set_keyboard_interactivity(KeyboardInteractivity::Exclusive);
         layer_surface.commit();
 
+        let fractional_scale = self
+            .fractional_scale_manager
+            .as_ref()
+            .map(|manager| manager.get_fractional_scale(&wl_surf, qh, ()));
+
+        let viewport = self
+            .viewporter
+            .as_ref()
+            .map(|viewporter| viewporter.get_viewport(&wl_surf, qh, ()));
+
         Surface {
             wl_surface: wl_surf,
             layer_surface,
             width: 0,
             height: 0,
-            scale_factor: 1,
+            scale_factor: 1.0,
+            fractional_scale,
+            viewport,
             configured: false,
             wl_egl_window: None,
             egl_surface: None,
@@ -595,6 +631,13 @@ pub fn run(
     let seat_state = SeatState::new(&globals, &qh);
     let output_state = OutputState::new(&globals, &qh);
     let registry_state = RegistryState::new(&globals);
+    let fractional_scale_manager = registry_state
+        .bind_one::<WpFractionalScaleManagerV1, _, _>(&qh, 1..=1, ())
+        .ok();
+
+    let viewporter = registry_state
+        .bind_one::<WpViewporter, _, _>(&qh, 1..=1, ())
+        .ok();
 
     // Randomize the cycle starting position once at startup so every session
     // begins at a different shader/palette regardless of playlist order.
@@ -675,6 +718,8 @@ pub fn run(
         seat_state,
         layer_shell,
         surfaces: HashMap::new(),
+        fractional_scale_manager,
+        viewporter,
         running: true,
         fading_out: false,
         config,
@@ -714,7 +759,7 @@ pub fn run(
                 (sn, pn, Some(mgr))
             };
 
-            let mut surface = WaylandState::make_layer_surface(
+            let mut surface = state.make_layer_surface(
                 &state.compositor_state,
                 &state.layer_shell,
                 Some(output),
@@ -1157,8 +1202,8 @@ impl CompositorHandler for WaylandState {
         new_factor: i32,
     ) {
         for surf in self.surfaces.values_mut() {
-            if &surf.wl_surface == surface {
-                surf.scale_factor = new_factor;
+            if &surf.wl_surface == surface && surf.fractional_scale.is_none() {
+                surf.scale_factor = new_factor as f32;
                 // If already configured, resize GL surface.
                 if surf.configured {
                     if let Some(egl) = &self.egl {
@@ -1243,7 +1288,7 @@ impl OutputHandler for WaylandState {
             "New output detected (name={:?}); creating layer surface",
             output_name
         );
-        let mut surface = WaylandState::make_layer_surface(
+        let mut surface = self.make_layer_surface(
             &self.compositor_state,
             &self.layer_shell,
             Some(&output),
@@ -1507,6 +1552,74 @@ impl ProvidesRegistryState for WaylandState {
         &mut self.registry_state
     }
     registry_handlers![OutputState, SeatState];
+}
+
+impl Dispatch<WpFractionalScaleManagerV1, ()> for WaylandState {
+    fn event(
+        _state: &mut Self,
+        _proxy: &WpFractionalScaleManagerV1,
+        _event: <WpFractionalScaleManagerV1 as wayland_client::Proxy>::Event,
+        _data: &(),
+        _conn: &Connection,
+        _qh: &QueueHandle<Self>,
+    ) {
+    }
+}
+
+impl Dispatch<WpFractionalScaleV1, ()> for WaylandState {
+    fn event(
+        state: &mut Self,
+        proxy: &WpFractionalScaleV1,
+        event: wp_fractional_scale_v1::Event,
+        _data: &(),
+        _conn: &Connection,
+        _qh: &QueueHandle<Self>,
+    ) {
+        if let wp_fractional_scale_v1::Event::PreferredScale { scale } = event {
+            // Convert Wayland's 120-denominator integer to an exact f32 float
+            let target_scale = scale as f32 / 120.0;
+
+            // Look through your surface map to find the matching proxy
+            for surf in state.surfaces.values_mut() {
+                if surf.fractional_scale.as_ref() == Some(proxy) {
+                    surf.scale_factor = target_scale;
+
+                    // Execute your existing configured surface GL resizing logic
+                    if surf.configured {
+                        if let Some(egl) = &state.egl {
+                            let egl_ptr = egl as *const EglState;
+                            surf.resize_gl(unsafe { &*egl_ptr });
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+    }
+}
+
+impl Dispatch<WpViewporter, ()> for WaylandState {
+    fn event(
+        _state: &mut Self,
+        _proxy: &WpViewporter,
+        _event: <WpViewporter as wayland_client::Proxy>::Event,
+        _data: &(),
+        _conn: &Connection,
+        _qh: &QueueHandle<Self>,
+    ) {
+    }
+}
+
+impl Dispatch<WpViewport, ()> for WaylandState {
+    fn event(
+        _state: &mut Self,
+        _proxy: &WpViewport,
+        _event: <WpViewport as wayland_client::Proxy>::Event,
+        _data: &(),
+        _conn: &Connection,
+        _qh: &QueueHandle<Self>,
+    ) {
+    }
 }
 
 // calloop event loop needs WaylandState to be the data type
