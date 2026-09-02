@@ -10,14 +10,12 @@ Canonical tracking document for hyprsaver work. Items move between states as the
 
 ---
 
-## Active Sprint: v0.4.6
+## Active Sprint: v0.4.7
 
 ### Committed
 
-- [ ] Live uniform updates in preview (speed slider only)
 - [ ] Benchmark automation (`bench-shaders` binary or equivalent)
 - [ ] CI render preview pipeline (auto-regenerate WebP gallery on shader changes)
-- [ ] Per-monitor shader/palette assignment
 - [ ] Ping-pong FBO extension (engine only, no RD shader)
 - [ ] Terminal shader char set expansion
 
@@ -70,8 +68,15 @@ Project conventions established by prior sprints. All new work must respect them
 
 - **Stable hashing for reproducibility**: FNV-1a or fixed-seed seahash/ahash. Never `std::hash::DefaultHasher` (not stable across Rust versions). (v0.4.5)
 - **Cloud-vs-local environment asymmetry**: Claude Code cloud may have build deps local doesn't. Add `git status --ignored` check before commits in cloud sessions. (v0.4.5)
-- **Shader build process**: `touch src/shaders.rs` after shader edits to force re-embedding via `include_str!()`. Do not run `cargo build` locally (linker fails on xkbcommon).
+- **Shader build process**: `touch src/shaders.rs` after shader edits to force re-embedding via `include_str!()`. Do not run `cargo build` in Claude Code cloud sessions (linker fails on xkbcommon); local Arch sessions build fine — always run fmt/clippy/test there before committing. (v0.4.6)
+- **Toolchain drift**: months between sessions means a newer stable Rust; new clippy lints (e.g. `float_literal_f32_fallback` in 1.97) break CI's `-D warnings`. Run clippy locally first thing after a long gap. (v0.4.6)
 - `cargo update` works (resolution-only, doesn't build).
+
+### Wayland / daemon
+
+- **Never block the event loop on the compositor**: EGL swap interval 0, render a surface only after its previous frame callback fired (1 s fallback). A hidden output must idle, not wedge. (v0.4.6, #348)
+- **Signals must work even when the loop is stuck**: watchdog force-exit after `fade_out_ms` + 3 s; second signal exits immediately. The exclusive keyboard grab is the blast radius — a stuck process locks the whole session. (v0.4.6)
+- **External PRs**: fork PRs get no CI until approved. Fetch the commit, merge it through a local branch, run fmt/clippy/test locally, then let CI on `main` cover deny/audit/MSRV. (v0.4.6)
 
 ### Workflow / process
 
@@ -87,10 +92,22 @@ Project conventions established by prior sprints. All new work must respect them
 - Release sequence: bump `Cargo.toml` → `cargo update` → commit both → push → tag → push tag → wait 2–3 min for CDN → `updpkgsums` → regenerate `.SRCINFO` → push to AUR
 - AUR uses `master` branch; GitHub uses `main`; raw README URLs use `main`
 - `.SRCINFO` regenerated with `makepkg --printsrcinfo > .SRCINFO`
+- **Finish the sequence in one sitting.** v0.4.5 was bumped in `Cargo.toml`/`CHANGELOG.md` (2026-04-28) but never tagged or published; it shipped four months later inside v0.4.6. (v0.4.6)
 
 ---
 
 ## Completed
+
+### v0.4.6 (2026-09-01)
+
+- Live speed slider in preview (#344) — was listed as open for this sprint
+- Wedged-daemon fix for #348: EGL swap interval 0, per-surface frame-callback pacing with 1 s fallback, shutdown watchdog (`fade_out_ms` + 3 s; second signal exits immediately)
+- Fractional scaling (#346) via wp-fractional-scale-v1 + wp_viewporter — external PR #347, plus first-frame viewport fix
+- `[behavior] exclusive_keyboard` config option
+- Codebase-audit refactors (#345): shared `EglState`, `PlaylistCursor`, table-driven uniform injection, registration desync test
+- Rust 1.97 clippy fix (`float_literal_f32_fallback`)
+- Docs/packaging drift: README roadmap + defaults, benchmark link, `PKGBUILD` version, lock file refresh
+- **Dropped from the sprint:** "Per-monitor shader/palette assignment" — already shipped in v0.2.0 (`[[monitor]]` blocks, `resolve_monitor_config()` in `wayland.rs`)
 
 ### v0.4.5
 
@@ -104,7 +121,7 @@ Project conventions established by prior sprints. All new work must respect them
 
 ### v0.4.4 and earlier
 
-See git log and `CHANGELOG.md` for full history. This section is populated forward from v0.4.6 onward.
+See git log and `CHANGELOG.md` for full history. This section is populated forward from v0.4.6 onward (v0.4.5 above was back-filled).
 
 ---
 
