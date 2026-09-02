@@ -17,7 +17,7 @@ All committed and likely-lands items landed on `main` 2026-09-01 (see Completed)
 ### Committed
 
 - [x] Benchmark automation — `hyprsaver bench` subcommand (`src/bench.rs`)
-- [x] CI render preview pipeline — `.github/workflows/gallery.yml` (llvmpipe, changed shaders only)
+- [x] CI render preview pipeline — `.github/workflows/gallery.yml` (llvmpipe, GitHub Pages artifact)
 - [x] Ping-pong FBO extension — `u_prev_frame` feedback buffers in `renderer.rs` (engine only, no RD shader)
 - [x] Terminal shader char set expansion — 30 → 72 glyphs via `scripts/gen_terminal_glyphs.py`
 
@@ -117,7 +117,7 @@ Project conventions established by prior sprints. All new work must respect them
 - `fibonacci` shader (phyllotaxis, 36 built-ins) + gallery preview
 - Terminal font 30 → 72 glyphs; `scripts/gen_terminal_glyphs.py` is the source of truth
 - `u_prev_frame` feedback ping-pong buffers in the renderer (engine only)
-- Gallery CI workflow (llvmpipe, changed shaders only, commits back to `main`)
+- Gallery CI workflow (llvmpipe, deploys generated previews to GitHub Pages)
 - Headless EGL logs the renderer string; `docs/BENCHMARK_0.4.7.md`
 
 ### v0.4.6 (2026-09-01)

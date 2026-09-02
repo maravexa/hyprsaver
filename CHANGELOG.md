@@ -25,9 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   result is presented with the fade alpha. Buffers are allocated only for shaders that use the
   sampler, cleared on load and resize, and work in the daemon, the preview, `render-preview`,
   and `bench`. Groundwork for trails, reaction–diffusion, and smoke shaders (none shipped yet)
-- **CI — Gallery workflow:** `.github/workflows/gallery.yml` re-renders `media/*.webp` on Mesa
-  llvmpipe for the shaders whose `.frag` changed in a push to `main` (plus any shader without a
-  preview) and commits the result; `workflow_dispatch` accepts a shader list or `all`
+- **CI — Gallery workflow:** `.github/workflows/gallery.yml` re-renders the WebP gallery on Mesa
+  llvmpipe and deploys it to GitHub Pages as an artifact; generated media is not committed
 - **Terminal shader:** bitmap font grown from 30 to 72 glyphs (uppercase Latin and 16 more
   symbols alongside the katakana, digits, and original symbols). The table is generated from
   ASCII art by `scripts/gen_terminal_glyphs.py`; the original 30 glyphs are bit-exact
