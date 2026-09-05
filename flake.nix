@@ -32,6 +32,7 @@
       nativeBuildInputsFor = pkgs: with pkgs; [
         pkg-config
         cmake
+        makeWrapper
       ];
 
     in {
@@ -46,10 +47,12 @@
             version = (builtins.fromTOML (builtins.readFile ./Cargo.toml)).package.version;
 
             src = ./.;
-
             cargoLock.lockFile = ./Cargo.lock;
 
-            nativeBuildInputs = nativeBuildInputsFor pkgs;
+            nativeBuildInputs = (nativeBuildInputsFor pkgs) ++ [
+              pkgs.makeWrapper
+            ];
+
             buildInputs = buildInputsFor pkgs;
 
             # wayland-egl is provided by the wayland package; mesa supplies EGL.
@@ -60,6 +63,9 @@
             ];
 
             postInstall = ''
+              wrapProgram $out/bin/hyprsaver \
+                --prefix LD_LIBRARY_PATH : ${pkgs.lib.makeLibraryPath (buildInputsFor pkgs)}
+
               # Install example configs and assets.
               install -dm755 $out/share/hyprsaver/examples
               cp -r examples/palettes $out/share/hyprsaver/examples/
