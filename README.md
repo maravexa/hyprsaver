@@ -182,7 +182,7 @@ graph TD
 - **Shadertoy-compatible** shader format -- paste Shadertoy code with minimal edits, it just works
 - **Hot-reload** shaders from `~/.config/hypr/hyprsaver/shaders/` -- edit, save, see the change instantly
 - **Cycle mode** for shaders and palettes -- rotate through all or a named playlist on a configurable interval
-- **Built-in shader collection** (36 shaders):
+- **Built-in shader collection** (37 shaders):
 
   | Name            | Description                                          |
   |-----------------|------------------------------------------------------|
@@ -222,6 +222,7 @@ graph TD
   | `attitude`      | Artificial-horizon instrument with simulated flight motion |
   | `waterfall`     | Stylized 2D waterfall with retro quantize-and-dither post |
   | `fibonacci`     | Phyllotaxis sunflower — golden-angle seed spiral growing outward, Fibonacci parastichy arms, golden log-spiral overlay |
+  | `hyperflower`   | Psychedelic kaleidoscopic flower with folded filigree and a fixed rainbow palette |
 - **Built-in palette collection**: rainbow, autumn, vaporwave, frost, ember, ocean, monochrome, sunset, aurora, midnight
 - Configurable FPS and dismiss triggers
 - **Preview mode** for shader authoring (`--preview <shader>`) with speed/zoom control panel
