@@ -620,6 +620,10 @@ fn shader_descriptions() -> std::collections::HashMap<&'static str, &'static str
             "fibonacci",
             "Phyllotaxis sunflower — golden-angle seed spiral with Fibonacci arms",
         ),
+        (
+            "hyperflower",
+            "Psychedelic kaleidoscopic flower with folded filigree and a fixed rainbow palette",
+        ),
     ]
     .into_iter()
     .collect()

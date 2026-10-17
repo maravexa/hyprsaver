@@ -146,6 +146,9 @@ pub const BUILTIN_FIREFLIES: &str = include_str!("../shaders/fireflies.frag");
 /// parastichy family, faint golden log-spiral overlay. Per pixel visits only the index band
 /// |Δn| ≤ 2·r/c (≤ 56 per side). Lightweight GPU tier.
 pub const BUILTIN_FIBONACCI: &str = include_str!("../shaders/fibonacci.frag");
+/// Psychedelic polar flower with kaleidoscopic petals, folded filigree, and a fixed
+/// cosine rainbow palette. Pure screen-space math with four bounded iterations.
+pub const BUILTIN_HYPERFLOWER: &str = include_str!("../shaders/hyperflower.frag");
 
 // ---------------------------------------------------------------------------
 // Vertex shader for the fullscreen quad (triangle-strip, no VBO needed)
@@ -369,6 +372,7 @@ impl ShaderManager {
             ("stonks", BUILTIN_STONKS),
             ("fireflies", BUILTIN_FIREFLIES),
             ("fibonacci", BUILTIN_FIBONACCI),
+            ("hyperflower", BUILTIN_HYPERFLOWER),
         ];
         for (name, raw_const) in builtins {
             let raw = raw_const
@@ -860,7 +864,7 @@ mod tests {
 
     #[test]
     fn test_builtin_shader_count() {
-        assert_eq!(manager().list().len(), 36);
+        assert_eq!(manager().list().len(), 37);
     }
 
     #[test]
@@ -943,7 +947,7 @@ mod tests {
             stems, registered,
             "shaders/*.frag files and registered built-ins must match exactly"
         );
-        assert_eq!(stems.len(), 36);
+        assert_eq!(stems.len(), 37);
     }
 
     #[test]
@@ -987,12 +991,25 @@ mod tests {
             "stonks",
             "fireflies",
             "fibonacci",
+            "hyperflower",
         ] {
             assert!(
                 names.contains(expected),
                 "missing built-in shader: {expected}"
             );
         }
+    }
+
+    #[test]
+    fn test_hyperflower_preparation() {
+        let mgr = manager();
+        let source = mgr.get("hyperflower").expect("hyperflower is registered");
+        assert!(source.builtin);
+        assert_eq!(source.compiled.matches("vec3 palette(").count(), 1);
+        assert!(!source.compiled.contains("uniform sampler2D u_lut_a"));
+        assert!(source.compiled.contains("uniform float u_speed_scale;"));
+        assert!(source.compiled.contains("uniform float u_zoom_scale;"));
+        assert!(source.compiled.contains("fragColor *= u_alpha;"));
     }
 
     #[test]
