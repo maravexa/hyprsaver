@@ -111,18 +111,18 @@ Edit `PKGBUILD`:
 
 1. Set `pkgver=0.X.Y`
 2. Reset `pkgrel=1`
-3. Update `sha256sums` — download the crate tarball and hash it:
+3. Update `sha256sums` — download and hash the GitHub tag archive used by `source` in `PKGBUILD`:
 
 ```sh
-curl -L "https://crates.io/api/v1/crates/hyprsaver/0.X.Y/download" \
-     -o hyprsaver-0.X.Y.crate
-sha256sum hyprsaver-0.X.Y.crate
+curl -L "https://github.com/maravexa/hyprsaver/archive/v0.X.Y.tar.gz" \
+     -o hyprsaver-0.X.Y.tar.gz
+sha256sum hyprsaver-0.X.Y.tar.gz
 ```
 
 Test the PKGBUILD locally:
 
 ```sh
-makepkg -si
+makepkg --cleanbuild
 ```
 
 Push the updated PKGBUILD to the AUR:

@@ -296,14 +296,14 @@ yay -S hyprsaver
 
 ```bash
 # Download the .deb from the latest release
-sudo dpkg -i hyprsaver_0.4.7-1_amd64.deb
+sudo dpkg -i hyprsaver_0.4.8-1_amd64.deb
 ```
 
 ### Fedora / RHEL / openSUSE
 
 ```bash
 # Download the .rpm from the latest release
-sudo rpm -i hyprsaver-0.4.7-1.x86_64.rpm
+sudo rpm -i hyprsaver-0.4.8-1.x86_64.rpm
 ```
 
 ### Nix / NixOS
