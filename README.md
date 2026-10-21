@@ -225,6 +225,7 @@ graph TD
   | `hyperflower`   | Psychedelic kaleidoscopic flower with folded filigree and a fixed rainbow palette |
 - **Built-in palette collection**: rainbow, autumn, vaporwave, frost, ember, ocean, monochrome, sunset, aurora, midnight
 - Configurable FPS and dismiss triggers
+- Mouse cursor hidden over screensaver surfaces; windowed preview keeps its cursor
 - **Preview mode** for shader authoring (`--preview <shader>`) with speed/zoom control panel
 - **PID file based instance management** (`--quit` to signal a running instance)
 - Zero-config: works with no config file, sensible defaults throughout

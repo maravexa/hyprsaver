@@ -1573,11 +1573,18 @@ impl PointerHandler for WaylandState {
         &mut self,
         _conn: &Connection,
         _qh: &QueueHandle<Self>,
-        _pointer: &wl_pointer::WlPointer,
+        pointer: &wl_pointer::WlPointer,
         events: &[PointerEvent],
     ) {
         for event in events {
             match event.kind {
+                PointerEventKind::Enter { serial } => {
+                    // Use the enter serial to hide the cursor only while it is
+                    // over a screensaver surface, including on another monitor.
+                    // On exit, the newly focused client/compositor owns its cursor;
+                    // do not change Hyprland's global cursor visibility setting.
+                    pointer.set_cursor(serial, None, 0, 0);
+                }
                 PointerEventKind::Motion { .. }
                     if self
                         .config
