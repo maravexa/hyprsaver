@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 
+## [0.4.8] - 2026-10-21
+
+### Added
+- Hyperflower psychedelic shader (#352).
+
+### Fixed
+- Hide the cursor over screensaver surfaces using the pointer-enter serial; keep
+  windowed preview unchanged. Cursor hiding and restoration confirmed on KDE
+  Wayland; actual Hyprland and full multi-monitor behavior remain unverified.
+- Nix flake and Wayland support improvements (#354).
+
+
 ## [0.4.7] - 2026-09-01
 
 ### Added
