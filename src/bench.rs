@@ -93,7 +93,7 @@ pub struct BenchArgs {
 #[derive(Debug, Clone)]
 pub struct BenchResult {
     pub name: String,
-    /// Mean GPU time per frame for one monitor, in milliseconds.
+    /// Mean synchronized wall-clock render time per frame for one monitor, in milliseconds.
     pub frame_ms: f64,
     /// Share of the frame budget used across all monitors, in percent.
     pub util_pct: f64,
@@ -240,7 +240,7 @@ pub fn run(
 
     let mut out = std::io::stdout().lock();
     if args.markdown {
-        writeln!(out, "| Shader | ms/frame | GPU % | Tier |")?;
+        writeln!(out, "| Shader | ms/frame | Budget % | Tier |")?;
         writeln!(out, "|--------|---------:|------:|------|")?;
         for r in &results {
             match &r.error {
@@ -253,7 +253,7 @@ pub fn run(
             }
         }
     } else {
-        writeln!(out, "shader          ms/frame    GPU%  tier")?;
+        writeln!(out, "shader          ms/frame budget%  tier")?;
         for r in &results {
             match &r.error {
                 Some(e) => writeln!(
@@ -274,7 +274,14 @@ pub fn run(
         let mut s = String::from("[\n");
         for (i, r) in results.iter().enumerate() {
             let err = match &r.error {
-                Some(e) => format!("\"{}\"", e.replace('\\', "\\\\").replace('"', "\\\"")),
+                Some(e) => format!(
+                    "\"{}\"",
+                    e.replace('\\', "\\\\")
+                        .replace('"', "\\\"")
+                        .replace('\n', "\\n")
+                        .replace('\r', "\\r")
+                        .replace('\t', "\\t")
+                ),
                 None => "null".to_string(),
             };
             s.push_str(&format!(
@@ -292,6 +299,9 @@ pub fn run(
         eprintln!("bench: wrote {}", path.display());
     }
 
+    if results.iter().any(|r| r.error.is_some()) {
+        anyhow::bail!("one or more shaders failed to compile (see results above)");
+    }
     Ok(())
 }
 

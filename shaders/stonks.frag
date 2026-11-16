@@ -6,56 +6,53 @@ uniform vec2  u_resolution;
 uniform vec2  u_mouse;
 uniform int   u_frame;
 
-// stonks.frag — procedural candlestick chart with MACD oscillator overlay.
+// stonks.frag — procedural candlestick chart with price-derived momentum overlay.
 //
 // Palette positions (fixed semantic mapping — palette change shifts colors but NOT roles):
 //   0.85 = bullish candle body
 //   0.15 = bearish candle body
-//   0.50 = MACD line (neutral)
+//   0.50 = momentum line (neutral)
 //   0.65 = signal line
 //   0.08 = grid lines
 
 const int   VISIBLE = 40;
 
-// Fixed price and MACD bounds (sine amplitude envelopes + ~10% margin)
+// Fixed bounds for the bounded price process and decorative momentum
 const float P_MIN = -2.5;
 const float P_MAX =  2.5;
 const float M_MIN = -0.95;
 const float M_MAX =  0.95;
 
 // ---------------------------------------------------------------------------
-// O(1) candle data — direct sine evaluation, no per-pixel loops.
+// O(1) candle data — bounded noise evaluation, no per-pixel loops.
 // Close of candle N == open of candle N+1 (continuity by construction).
 // ---------------------------------------------------------------------------
-void candleAt(float col_abs, out float o, out float c, out float h, out float l) {
-    float amp_mod = 0.6 + sin(col_abs * 0.04) * 0.4;   // slow envelope, range 0.2..1.0
-
-    float noise_o = (sin(col_abs * 0.55) * 1.1
-                  +  sin(col_abs * 0.13 + 1.7) * 0.55
-                  +  sin(col_abs * 0.037 + 3.1) * 0.6
-                  +  sin(col_abs * 1.73 + 0.4) * 0.20) * amp_mod;
-
-    float noise_c = (sin((col_abs + 1.0) * 0.55) * 1.1
-                  +  sin((col_abs + 1.0) * 0.13 + 1.7) * 0.55
-                  +  sin((col_abs + 1.0) * 0.037 + 3.1) * 0.6
-                  +  sin((col_abs + 1.0) * 1.73 + 0.4) * 0.20) * amp_mod;
-
-    o = noise_o;
-    c = noise_c;
-
-    float wick_top = max(0.0, sin(col_abs * 2.3 + 4.1) * 0.20 * amp_mod);
-    float wick_bot = max(0.0, sin(col_abs * 1.9 + 7.7) * 0.20 * amp_mod);
-    h = max(o, c) + wick_top;
-    l = min(o, c) - wick_bot;
+// Polynomial hash avoids repeated transcendental evaluations in the price octaves.
+float hashPrice(float n) {
+    n = fract(n * 0.1031);
+    n *= n + 33.33;
+    n *= n + n;
+    return fract(n);
 }
-
-float macd_at(float col_abs) {
-    return sin(col_abs * 0.22) * 0.5 + sin(col_abs * 0.09 + 2.3) * 0.3;
+float priceNoise(float x) {
+    float i = floor(x), f = fract(x);
+    f = f * f * (3.0 - 2.0 * f);
+    return mix(hashPrice(i), hashPrice(i + 1.0), f) * 2.0 - 1.0;
 }
-
-float signal_at(float col_abs) {
-    return sin(col_abs * 0.18) * 0.45 + sin(col_abs * 0.07 + 2.1) * 0.28;
+float priceAt(float n) {
+    // Multiscale, bounded deterministic process: regimes, swings and daily noise.
+    return 1.25 * priceNoise(n * 0.025) + 0.65 * priceNoise(n * 0.11 + 97.0)
+         + 0.30 * priceNoise(n * 0.43 + 211.0) + 0.10 * (hashPrice(n + 433.0) * 2.0 - 1.0);
 }
+void candleAt(float n, out float o, out float c, out float h, out float l) {
+    o = priceAt(n);
+    c = priceAt(n + 1.0); // Exactly equals the next candle's open.
+    h = max(o, c) + 0.15 * hashPrice(n + 733.0);
+    l = min(o, c) - 0.15 * hashPrice(n + 971.0);
+}
+// Decorative momentum indicator derived from the same price process, not real MACD.
+float macd_at(float n) { return (priceAt(n) - priceAt(n - 6.0)) * 0.4; }
+float signal_at(float n) { return (macd_at(n) + macd_at(n - 2.0) + macd_at(n - 4.0)) / 3.0; }
 
 // ---------------------------------------------------------------------------
 // Main
@@ -155,7 +152,7 @@ void main() {
         }
     }
 
-    // ---- MACD + signal lines ----
+    // ---- Momentum + signal lines ----
     if (in_macd) {
         float macd_val_raw = macd_at(col_abs);
         float sig_val_raw  = signal_at(col_abs);

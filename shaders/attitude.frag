@@ -92,17 +92,17 @@ float arcTickCov(vec2 p, float theta_deg, float R, float len, float thick) {
 void main() {
     vec2  fc  = gl_FragCoord.xy;
     vec2  res = u_resolution.xy;
-    float t   = mod(u_time * u_speed_scale, 600.0);
+    float t   = u_time * u_speed_scale;
 
     // Centred UV — y normalised by screen height.
-    vec2  uv  = (fc - 0.5 * res) / res.y;
+    vec2  uv  = (fc - 0.5 * res) / min(res.x, res.y);
     float r   = length(uv);
     float aaR = fwidth(r);
 
     // --- Simulated flight motion ----------------------------------------
     // Compound sines give non-repetitive motion without explicit noise.
-    float roll_deg  =  20.0*sin(t*0.27) + 10.0*sin(t*0.11);
-    float pitch_deg =  12.0*sin(t*0.19) +  5.0*sin(t*0.13);
+    float roll_deg  =  32.0*sin(t*0.137 + 0.7*sin(t*0.041)) + 14.0*sin(t*0.317);
+    float pitch_deg =  16.0*sin(t*0.193 + 0.4*sin(t*0.067)) + 6.0*sin(t*0.431);
     float roll_rad  = radians(roll_deg);
     float pitch_off = pitch_deg * 0.01;
 
@@ -118,9 +118,10 @@ void main() {
     const float R_DISC = 0.355;   // outer edge of rotating disc
 
     // --- Colour roles ---------------------------------------------------
-    vec3 sky    = palette(0.92);
-    vec3 ground = palette(0.08);
-    vec3 accent = palette(0.50);   // see header note on tuning
+    // Fixed luminance separation keeps monochrome/pride palettes legible.
+    vec3 sky    = mix(palette(0.80), vec3(0.72), 0.30);
+    vec3 ground = palette(0.20) * 0.38;
+    vec3 accent = mix(palette(0.50), vec3(1.0), 0.72);   // see header note on tuning
     vec3 white  = vec3(1.0);
     vec3 bezel  = vec3(0.0);
 

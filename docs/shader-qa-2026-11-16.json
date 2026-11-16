@@ -1,0 +1,620 @@
+{
+  "benchmark": {
+    "binary_sha256": "8e97436448cb29efedb960272b767145dd84f97c4f1c0d5d751111b4805f797d",
+    "settings": {
+      "repeats": 5,
+      "frames": 240,
+      "warmup": 24,
+      "span_seconds": 60,
+      "resolution": "1920x1080",
+      "palette": "rainbow",
+      "monitors": 1
+    },
+    "sources": {
+      "mobius-candidate.frag": "f43f724f37fad7bfb9d9e4d6d1748d84b733eb6f4ced88b6956613cd35422f1d",
+      "matrix-candidate.frag": "f6e7a7dc9d41f16a77a133785fd61606de41996a8dbf11355fab69975e9f54cb",
+      "fibonacci-candidate.frag": "cbae2200c5b5c5e7b194f04723f0e04f2e78f4fd0ecf1d85222b824c12c92e58",
+      "attitude-candidate.frag": "9b148f511154cef70e400ab1667d5f062fe4638df53307c2e3b08391e41ffa5d",
+      "stonks-candidate.frag": "5826eb3df2fc014afe979ae5fa307046c707d2bab5ce5452f36065bb69234faf",
+      "mobius-halfangle.frag": "11b7e48fca35189e4f8dbacae9357ec4064b0c6ece2cff2badc02048fffd43ca",
+      "circuit-candidate.frag": "ca0009069c6684779410ae646e3778bf19d384059d204d1ab35ee39799630738"
+    },
+    "samples": {
+      "matrix": [
+        0.1218,
+        0.1115,
+        0.2557,
+        0.1111,
+        0.1812
+      ],
+      "matrix-candidate": [
+        0.2009,
+        0.1153,
+        0.1049,
+        0.1148,
+        0.1062
+      ],
+      "attitude": [
+        0.3332,
+        0.3107,
+        0.2871,
+        0.3117,
+        0.2872
+      ],
+      "attitude-candidate": [
+        0.337,
+        0.3188,
+        0.319,
+        0.3192,
+        0.3205
+      ],
+      "circuit": [
+        0.7287,
+        0.7677,
+        0.7666,
+        0.7677,
+        0.7676
+      ],
+      "circuit-candidate": [
+        0.3833,
+        0.4004,
+        0.4032,
+        0.4016,
+        0.4023
+      ],
+      "fibonacci": [
+        0.7964,
+        0.8143,
+        0.8149,
+        0.8151,
+        0.8204
+      ],
+      "fibonacci-candidate": [
+        0.7846,
+        0.788,
+        0.789,
+        0.7873,
+        0.7891
+      ],
+      "stonks": [
+        0.0818,
+        0.0604,
+        0.0609,
+        0.0591,
+        0.0624
+      ],
+      "stonks-candidate": [
+        0.1404,
+        0.1375,
+        0.1369,
+        0.1371,
+        0.1371
+      ],
+      "mobius": [
+        0.2839,
+        0.3069,
+        0.3065,
+        0.3077,
+        0.3071
+      ],
+      "mobius-candidate": [
+        0.3097,
+        0.2969,
+        0.3194,
+        0.2958,
+        0.3195
+      ],
+      "mobius-halfangle": [
+        0.209,
+        0.2153,
+        0.2167,
+        0.4034,
+        0.2173
+      ]
+    },
+    "renderer": "renderer 'AMD Radeon RX 6700 XT (radeonsi, navi22, ACO, DRM 3.64, 7.3.0-9-generic)', version 'OpenGL ES 3.2 Mesa 26.2.4-1ubuntu1'",
+    "summary": {
+      "matrix": {
+        "median_ms": 0.1218,
+        "mad_ms": 0.010700000000000001
+      },
+      "matrix-candidate": {
+        "median_ms": 0.1148,
+        "mad_ms": 0.008599999999999997,
+        "change_pct": -5.747126436781613,
+        "regression": false
+      },
+      "attitude": {
+        "median_ms": 0.3107,
+        "mad_ms": 0.02250000000000002
+      },
+      "attitude-candidate": {
+        "median_ms": 0.3192,
+        "mad_ms": 0.00040000000000001146,
+        "change_pct": 2.7357579658835007,
+        "regression": false
+      },
+      "circuit": {
+        "median_ms": 0.7676,
+        "mad_ms": 0.00010000000000010001
+      },
+      "circuit-candidate": {
+        "median_ms": 0.4016,
+        "mad_ms": 0.0012000000000000344,
+        "change_pct": -47.681083897863466,
+        "regression": false
+      },
+      "fibonacci": {
+        "median_ms": 0.8149,
+        "mad_ms": 0.0005999999999999339
+      },
+      "fibonacci-candidate": {
+        "median_ms": 0.788,
+        "mad_ms": 0.0010000000000000009,
+        "change_pct": -3.3010185298809613,
+        "regression": false
+      },
+      "stonks": {
+        "median_ms": 0.0609,
+        "mad_ms": 0.0014999999999999944
+      },
+      "stonks-candidate": {
+        "median_ms": 0.1371,
+        "mad_ms": 0.00020000000000000573,
+        "change_pct": 125.1231527093596,
+        "regression": false
+      },
+      "mobius": {
+        "median_ms": 0.3069,
+        "mad_ms": 0.00040000000000001146
+      },
+      "mobius-candidate": {
+        "median_ms": 0.3097,
+        "mad_ms": 0.009800000000000031,
+        "change_pct": 0.912349299446058,
+        "regression": false
+      },
+      "mobius-halfangle": {
+        "median_ms": 0.2167,
+        "mad_ms": 0.0014000000000000123
+      }
+    }
+  },
+  "visual": {
+    "renderer": "renderer 'AMD Radeon RX 6700 XT (radeonsi, navi22, ACO, DRM 3.64, 7.3.0-9-generic)', version 'OpenGL ES 3.2 Mesa 26.2.4-1ubuntu1'",
+    "times": [
+      0,
+      10,
+      20,
+      30
+    ],
+    "cases": {
+      "matrix/800x480/rainbow": {
+        "min_coverage": 0.2293046875,
+        "min_contrast": 45.8797291233215,
+        "mean_temporal_delta": 35.64185792824074
+      },
+      "matrix-candidate/800x480/rainbow": {
+        "min_coverage": 0.19094791666666666,
+        "min_contrast": 44.055278401112915,
+        "mean_temporal_delta": 30.18069965277778
+      },
+      "attitude/800x480/rainbow": {
+        "min_coverage": 0.3691796875,
+        "min_contrast": 60.291832984706154,
+        "mean_temporal_delta": 5.449550347222223
+      },
+      "attitude-candidate/800x480/rainbow": {
+        "min_coverage": 0.367046875,
+        "min_contrast": 62.33315296713801,
+        "mean_temporal_delta": 7.685845486111111
+      },
+      "circuit/800x480/rainbow": {
+        "min_coverage": 0.08187760416666667,
+        "min_contrast": 15.874231823682617,
+        "mean_temporal_delta": 8.608978587962962
+      },
+      "circuit-candidate/800x480/rainbow": {
+        "min_coverage": 0.08187760416666667,
+        "min_contrast": 15.874231823682617,
+        "mean_temporal_delta": 8.60898263888889
+      },
+      "fibonacci/800x480/rainbow": {
+        "min_coverage": 0.26648958333333334,
+        "min_contrast": 36.22908280412687,
+        "mean_temporal_delta": 23.955788483796297
+      },
+      "fibonacci-candidate/800x480/rainbow": {
+        "min_coverage": 0.2559401041666667,
+        "min_contrast": 35.95445429274584,
+        "mean_temporal_delta": 23.266472222222223
+      },
+      "stonks/800x480/rainbow": {
+        "min_coverage": 0.06761458333333334,
+        "min_contrast": 27.96462574885236,
+        "mean_temporal_delta": 13.19781105324074
+      },
+      "stonks-candidate/800x480/rainbow": {
+        "min_coverage": 0.04383854166666667,
+        "min_contrast": 22.021233881388053,
+        "mean_temporal_delta": 5.9746762152777775
+      },
+      "mobius/800x480/rainbow": {
+        "min_coverage": 0.241046875,
+        "min_contrast": 52.786807192867265,
+        "mean_temporal_delta": 63.22102690972222
+      },
+      "mobius-candidate/800x480/rainbow": {
+        "min_coverage": 0.6234973958333333,
+        "min_contrast": 48.4128062222634,
+        "mean_temporal_delta": 100.46863339120371
+      },
+      "mobius-prior/800x480/rainbow": {
+        "min_coverage": 0.6234973958333333,
+        "min_contrast": 48.41279260301844,
+        "mean_temporal_delta": 100.46862586805555
+      },
+      "matrix/800x480/forest": {
+        "min_coverage": 0.21845833333333334,
+        "min_contrast": 39.05895218954656,
+        "mean_temporal_delta": 24.456618923611114
+      },
+      "matrix-candidate/800x480/forest": {
+        "min_coverage": 0.180609375,
+        "min_contrast": 38.88482413515473,
+        "mean_temporal_delta": 21.00680758101852
+      },
+      "attitude/800x480/forest": {
+        "min_coverage": 0.3693671875,
+        "min_contrast": 66.07975991460752,
+        "mean_temporal_delta": 2.4706125578703704
+      },
+      "attitude-candidate/800x480/forest": {
+        "min_coverage": 0.3675572916666667,
+        "min_contrast": 50.447035715650266,
+        "mean_temporal_delta": 6.848334490740741
+      },
+      "circuit/800x480/forest": {
+        "min_coverage": 0.07748697916666666,
+        "min_contrast": 15.339101178152731,
+        "mean_temporal_delta": 5.091885127314815
+      },
+      "circuit-candidate/800x480/forest": {
+        "min_coverage": 0.07748697916666666,
+        "min_contrast": 15.339101178152731,
+        "mean_temporal_delta": 5.0918816550925925
+      },
+      "fibonacci/800x480/forest": {
+        "min_coverage": 0.25424739583333333,
+        "min_contrast": 31.17544432711514,
+        "mean_temporal_delta": 16.3936244212963
+      },
+      "fibonacci-candidate/800x480/forest": {
+        "min_coverage": 0.2449765625,
+        "min_contrast": 31.006053121684584,
+        "mean_temporal_delta": 15.971216145833333
+      },
+      "stonks/800x480/forest": {
+        "min_coverage": 0.07060677083333333,
+        "min_contrast": 23.808023322220315,
+        "mean_temporal_delta": 8.265723958333334
+      },
+      "stonks-candidate/800x480/forest": {
+        "min_coverage": 0.047328125,
+        "min_contrast": 16.581452372489615,
+        "mean_temporal_delta": 3.704607638888889
+      },
+      "mobius/800x480/forest": {
+        "min_coverage": 0.241046875,
+        "min_contrast": 37.28903211021376,
+        "mean_temporal_delta": 28.70929079861111
+      },
+      "mobius-candidate/800x480/forest": {
+        "min_coverage": 0.6234973958333333,
+        "min_contrast": 39.349797617827186,
+        "mean_temporal_delta": 37.619671296296296
+      },
+      "mobius-prior/800x480/forest": {
+        "min_coverage": 0.6234973958333333,
+        "min_contrast": 39.34979348950987,
+        "mean_temporal_delta": 37.619667534722225
+      },
+      "matrix/480x800/rainbow": {
+        "min_coverage": 0.19030729166666666,
+        "min_contrast": 43.60901764254027,
+        "mean_temporal_delta": 28.47046412037037
+      },
+      "matrix-candidate/480x800/rainbow": {
+        "min_coverage": 0.11723958333333333,
+        "min_contrast": 33.69545913427312,
+        "mean_temporal_delta": 17.43135011574074
+      },
+      "attitude/480x800/rainbow": {
+        "min_coverage": 0.8000364583333334,
+        "min_contrast": 55.62698388363536,
+        "mean_temporal_delta": 13.529238425925925
+      },
+      "attitude-candidate/480x800/rainbow": {
+        "min_coverage": 0.367046875,
+        "min_contrast": 62.33315296713801,
+        "mean_temporal_delta": 7.685845486111111
+      },
+      "mobius/480x800/rainbow": {
+        "min_coverage": 0.2740911458333333,
+        "min_contrast": 53.577736159997215,
+        "mean_temporal_delta": 68.92073292824074
+      },
+      "mobius-candidate/480x800/rainbow": {
+        "min_coverage": 0.6543567708333333,
+        "min_contrast": 39.46179773743926,
+        "mean_temporal_delta": 109.43869155092592
+      },
+      "mobius-prior/480x800/rainbow": {
+        "min_coverage": 0.6543567708333333,
+        "min_contrast": 39.46179386497487,
+        "mean_temporal_delta": 109.43867418981482
+      },
+      "matrix/480x800/forest": {
+        "min_coverage": 0.1804765625,
+        "min_contrast": 37.27313597193378,
+        "mean_temporal_delta": 19.827986979166667
+      },
+      "matrix-candidate/480x800/forest": {
+        "min_coverage": 0.11238020833333333,
+        "min_contrast": 29.44579604279265,
+        "mean_temporal_delta": 11.809038773148147
+      },
+      "attitude/480x800/forest": {
+        "min_coverage": 0.800296875,
+        "min_contrast": 57.47162081011142,
+        "mean_temporal_delta": 6.25654224537037
+      },
+      "attitude-candidate/480x800/forest": {
+        "min_coverage": 0.3675572916666667,
+        "min_contrast": 50.447035715650266,
+        "mean_temporal_delta": 6.848334490740741
+      },
+      "mobius/480x800/forest": {
+        "min_coverage": 0.2740911458333333,
+        "min_contrast": 38.19983961707692,
+        "mean_temporal_delta": 30.13962847222222
+      },
+      "mobius-candidate/480x800/forest": {
+        "min_coverage": 0.6543567708333333,
+        "min_contrast": 35.837875035333354,
+        "mean_temporal_delta": 40.4903509837963
+      },
+      "mobius-prior/480x800/forest": {
+        "min_coverage": 0.6543567708333333,
+        "min_contrast": 35.83787272810165,
+        "mean_temporal_delta": 40.49033333333334
+      }
+    },
+    "contracts": {
+      "circuit/800x480/rainbow": {
+        "max_channel_delta": 1,
+        "passed": true,
+        "contract": "optimization preserves pixels within one channel level"
+      },
+      "fibonacci/800x480/rainbow": {
+        "max_added_channel_level": 0,
+        "max_removed_channel_level": 87,
+        "passed": true,
+        "contract": "remove the overlay without adding new bright structures"
+      },
+      "mobius/800x480/rainbow": {
+        "baseline_min_coverage": 0.241046875,
+        "candidate_min_coverage": 0.6234973958333333,
+        "passed": true,
+        "contract": "minimum visible strip coverage improves by five percentage points"
+      },
+      "circuit/800x480/forest": {
+        "max_channel_delta": 1,
+        "passed": true,
+        "contract": "optimization preserves pixels within one channel level"
+      },
+      "fibonacci/800x480/forest": {
+        "max_added_channel_level": 0,
+        "max_removed_channel_level": 69,
+        "passed": true,
+        "contract": "remove the overlay without adding new bright structures"
+      },
+      "mobius/800x480/forest": {
+        "baseline_min_coverage": 0.241046875,
+        "candidate_min_coverage": 0.6234973958333333,
+        "passed": true,
+        "contract": "minimum visible strip coverage improves by five percentage points"
+      },
+      "mobius/480x800/rainbow": {
+        "baseline_min_coverage": 0.2740911458333333,
+        "candidate_min_coverage": 0.6543567708333333,
+        "passed": true,
+        "contract": "minimum visible strip coverage improves by five percentage points"
+      },
+      "mobius/480x800/forest": {
+        "baseline_min_coverage": 0.2740911458333333,
+        "candidate_min_coverage": 0.6543567708333333,
+        "passed": true,
+        "contract": "minimum visible strip coverage improves by five percentage points"
+      }
+    },
+    "halfangle_parity": {
+      "800x480/rainbow": [
+        {
+          "mean_abs_rgb": 7.986111111111112e-05,
+          "changed_over_one_level_fraction": 5.208333333333333e-06,
+          "max_channel_error": 2
+        },
+        {
+          "mean_abs_rgb": 0.0001232638888888889,
+          "changed_over_one_level_fraction": 2.34375e-05,
+          "max_channel_error": 2
+        },
+        {
+          "mean_abs_rgb": 0.0001154513888888889,
+          "changed_over_one_level_fraction": 2.6041666666666666e-06,
+          "max_channel_error": 2
+        },
+        {
+          "mean_abs_rgb": 8.506944444444443e-05,
+          "changed_over_one_level_fraction": 2.6041666666666666e-06,
+          "max_channel_error": 2
+        }
+      ],
+      "800x480/forest": [
+        {
+          "mean_abs_rgb": 3.0381944444444447e-05,
+          "changed_over_one_level_fraction": 0.0,
+          "max_channel_error": 1
+        },
+        {
+          "mean_abs_rgb": 2.7777777777777776e-05,
+          "changed_over_one_level_fraction": 0.0,
+          "max_channel_error": 1
+        },
+        {
+          "mean_abs_rgb": 3.298611111111111e-05,
+          "changed_over_one_level_fraction": 0.0,
+          "max_channel_error": 1
+        },
+        {
+          "mean_abs_rgb": 2.0833333333333333e-05,
+          "changed_over_one_level_fraction": 0.0,
+          "max_channel_error": 1
+        }
+      ],
+      "480x800/rainbow": [
+        {
+          "mean_abs_rgb": 5.295138888888889e-05,
+          "changed_over_one_level_fraction": 0.0,
+          "max_channel_error": 1
+        },
+        {
+          "mean_abs_rgb": 0.00010069444444444445,
+          "changed_over_one_level_fraction": 2.6041666666666666e-06,
+          "max_channel_error": 2
+        },
+        {
+          "mean_abs_rgb": 8.159722222222222e-05,
+          "changed_over_one_level_fraction": 2.6041666666666666e-06,
+          "max_channel_error": 2
+        },
+        {
+          "mean_abs_rgb": 8.246527777777778e-05,
+          "changed_over_one_level_fraction": 5.208333333333333e-06,
+          "max_channel_error": 2
+        }
+      ],
+      "480x800/forest": [
+        {
+          "mean_abs_rgb": 1.6493055555555554e-05,
+          "changed_over_one_level_fraction": 0.0,
+          "max_channel_error": 1
+        },
+        {
+          "mean_abs_rgb": 3.125e-05,
+          "changed_over_one_level_fraction": 0.0,
+          "max_channel_error": 1
+        },
+        {
+          "mean_abs_rgb": 1.8229166666666668e-05,
+          "changed_over_one_level_fraction": 0.0,
+          "max_channel_error": 1
+        },
+        {
+          "mean_abs_rgb": 3.125e-05,
+          "changed_over_one_level_fraction": 0.0,
+          "max_channel_error": 1
+        }
+      ]
+    },
+    "failures": []
+  },
+  "final_source_sha256": {
+    "matrix": "f6e7a7dc9d41f16a77a133785fd61606de41996a8dbf11355fab69975e9f54cb",
+    "attitude": "9b148f511154cef70e400ab1667d5f062fe4638df53307c2e3b08391e41ffa5d",
+    "circuit": "ca0009069c6684779410ae646e3778bf19d384059d204d1ab35ee39799630738",
+    "fibonacci": "1e13588325a85a46cb4503e0bffdf8b3367ac344759bb21b284c82e302d2c22d",
+    "stonks": "669e9de9f3fb6dc4acb14894669e31f706410727a5de1c8eda608b419459c9f2",
+    "mobius": "ff6099432c9f75c9da6a5a6a91dadef08b8973b54660d5fe6b130fc3a491ce75"
+  },
+  "note": "Final source differs from qualified candidate only in comments. Mobius final corresponds to mobius-halfangle benchmark.",
+  "integrated_embedding": {
+    "binary_sha256": "c258440d936abb63317e93c87df34751c77f7fcbd4924c5af1be5b64a7a18d72",
+    "renderer": "renderer 'AMD Radeon RX 6700 XT (radeonsi, navi22, ACO, DRM 3.64, 7.3.0-9-generic)', version 'OpenGL ES 3.2 Mesa 26.2.4-1ubuntu1'",
+    "cases": {
+      "matrix": {
+        "frames": 4,
+        "exact_png_parity": true,
+        "builtin_sha256": "f6e7a7dc9d41f16a77a133785fd61606de41996a8dbf11355fab69975e9f54cb"
+      },
+      "attitude": {
+        "frames": 4,
+        "exact_png_parity": true,
+        "builtin_sha256": "9b148f511154cef70e400ab1667d5f062fe4638df53307c2e3b08391e41ffa5d"
+      },
+      "circuit": {
+        "frames": 4,
+        "exact_png_parity": true,
+        "builtin_sha256": "ca0009069c6684779410ae646e3778bf19d384059d204d1ab35ee39799630738"
+      },
+      "fibonacci": {
+        "frames": 4,
+        "exact_png_parity": true,
+        "builtin_sha256": "1e13588325a85a46cb4503e0bffdf8b3367ac344759bb21b284c82e302d2c22d"
+      },
+      "stonks": {
+        "frames": 4,
+        "exact_png_parity": true,
+        "builtin_sha256": "669e9de9f3fb6dc4acb14894669e31f706410727a5de1c8eda608b419459c9f2"
+      },
+      "mobius": {
+        "frames": 4,
+        "exact_png_parity": true,
+        "builtin_sha256": "ff6099432c9f75c9da6a5a6a91dadef08b8973b54660d5fe6b130fc3a491ce75"
+      }
+    },
+    "failures": []
+  },
+  "validation": {
+    "rust_tests_passed": 153,
+    "clippy_all_targets_all_features": "pass",
+    "rustfmt": "pass",
+    "python_tests_passed": 2,
+    "baseline_harness": "pass"
+  },
+  "wormhole_newton_rejected": [
+    {
+      "phase": 0,
+      "exhausted": 12,
+      "missed_known_hits": 12,
+      "errors_over_0_2": 4,
+      "median_depth_error": 0.0006467175752433718,
+      "max_depth_error": 31.226362153849095
+    },
+    {
+      "phase": 10,
+      "exhausted": 6,
+      "missed_known_hits": 6,
+      "errors_over_0_2": 0,
+      "median_depth_error": 0.000549545627649195,
+      "max_depth_error": 13.010166361698435
+    },
+    {
+      "phase": 20,
+      "exhausted": 11,
+      "missed_known_hits": 11,
+      "errors_over_0_2": 0,
+      "median_depth_error": 0.00042889986848448913,
+      "max_depth_error": 23.221319720508866
+    },
+    {
+      "phase": 30,
+      "exhausted": 2,
+      "missed_known_hits": 2,
+      "errors_over_0_2": 1,
+      "median_depth_error": 0.0007324086689854958,
+      "max_depth_error": 17.02569019900576
+    }
+  ]
+}

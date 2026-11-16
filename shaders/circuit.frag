@@ -69,7 +69,8 @@ float hash_edge(vec2 a, vec2 b) {
 // ---------------------------------------------------------------------------
 vec3 edge_contribution(vec2 pg, NodeInfo nA, NodeInfo nB,
                         float e_hash, float t) {
-    float exists = smoothstep(0.60, 0.70, e_hash);  // ~30% density
+    float exists = smoothstep(0.60, 0.70, e_hash);
+    if (exists <= 0.0) return vec3(0.0);  // ~30% density
 
     vec2  ab     = nB.cell_uv - nA.cell_uv;
     vec2  ap     = pg - nA.cell_uv;
@@ -79,7 +80,8 @@ vec3 edge_contribution(vec2 pg, NodeInfo nA, NodeInfo nB,
     float dist    = length(pg - closest);
 
     float width = mix(nA.intensity, nB.intensity, edge_t) * EDGE_WIDTH;
-    float shape = smoothstep(width, width * 0.35, dist);
+    if (dist >= width) return vec3(0.0);
+    float shape = 1.0 - smoothstep(width * 0.35, width, dist);
 
     // Single palette call per edge; hash offset provides per-edge variety
     float _ec_raw = edge_t * 2.0 + t * 0.08 + e_hash * 0.7;
@@ -87,7 +89,7 @@ vec3 edge_contribution(vec2 pg, NodeInfo nA, NodeInfo nB,
 
     // Gradient pulse sweeps along edge
     float pulse_pos = fract(t * 0.25 + e_hash);
-    float pulse     = smoothstep(0.08, 0.0, abs(edge_t - pulse_pos));
+    float pulse     = (1.0 - smoothstep(0.0, 0.08, abs(edge_t - pulse_pos)));
 
     float brightness = mix(0.35, 1.4, pulse);
 
@@ -100,7 +102,8 @@ vec3 edge_contribution(vec2 pg, NodeInfo nA, NodeInfo nB,
 vec3 node_contribution(vec2 pg, NodeInfo n, float t) {
     float dist   = length(pg - n.cell_uv);
     float radius = NODE_SIZE * n.intensity;
-    float shape  = smoothstep(radius, radius * 0.3, dist);
+    if (dist >= radius) return vec3(0.0);
+    float shape  = 1.0 - smoothstep(radius * 0.3, radius, dist);
 
     vec3 col = palette(abs(fract(n.intensity * 0.6 + t * 0.05) * 2.0 - 1.0));
     return col * shape * 0.8;
@@ -113,7 +116,7 @@ void main() {
     float t  = u_time * u_speed_scale;
     vec2  uv = gl_FragCoord.xy / u_resolution.xy;
 
-    vec2 cell_coord  = uv * GRID_SIZE + SCROLL_VELOCITY * t;
+    vec2 cell_coord  = uv * GRID_SIZE / clamp(u_zoom_scale, 0.5, 3.0) + SCROLL_VELOCITY * t;
     vec2 center_cell = floor(cell_coord);
     vec2 pg          = cell_coord;
 

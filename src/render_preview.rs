@@ -79,6 +79,18 @@ pub struct RenderPreviewArgs {
     #[arg(long, default_value = "15", value_name = "FPS")]
     pub fps: u64,
 
+    /// First shader timestamp in seconds (independent of playback timestamps).
+    #[arg(long, default_value = "0")]
+    pub start_time: f32,
+
+    /// Fixed shader-time step; defaults to 1/fps. Useful for phase diagnostics.
+    #[arg(long)]
+    pub time_step: Option<f32>,
+
+    /// Save lossless RGBA PNG frames under PATH/SHADER, before WebP encoding.
+    #[arg(long, value_name = "PATH")]
+    pub frames_dir: Option<PathBuf>,
+
     /// WebP quality (0–100).
     #[arg(long, default_value = "80", value_name = "0-100")]
     pub quality: u8,
@@ -109,6 +121,14 @@ pub fn run(
     palette_manager: &PaletteManager,
     palette_overrides: &HashMap<String, String>,
 ) -> anyhow::Result<()> {
+    if !args.start_time.is_finite()
+        || args.start_time < 0.0
+        || args.time_step.is_some_and(|v| !v.is_finite() || v <= 0.0)
+    {
+        anyhow::bail!(
+            "--start-time must be finite and nonnegative; --time-step finite and positive"
+        );
+    }
     // Validate [render_preview.palettes] config entries up front so the user
     // gets a clear error before any rendering work begins.
     validate_palette_overrides(palette_overrides, shader_manager, palette_manager)?;
@@ -260,6 +280,7 @@ pub fn run(
             duration,
             quality,
             &output_path,
+            args,
         );
 
         match result {
@@ -301,6 +322,7 @@ fn render_shader_to_webp(
     duration: u64,
     quality: u8,
     output_path: &Path,
+    args: &RenderPreviewArgs,
 ) -> anyhow::Result<usize> {
     // Validate output directory.
     if let Some(parent) = output_path.parent() {
@@ -360,8 +382,12 @@ fn render_shader_to_webp(
     let mut encoder = webp_animation::Encoder::new_with_options((width, height), enc_options)
         .context("failed to create WebP encoder")?;
 
+    let frames_dir = args.frames_dir.as_ref().map(|root| root.join(shader_name));
+    if let Some(path) = &frames_dir {
+        std::fs::create_dir_all(path).context("failed to create raw-frame directory")?;
+    }
     for frame_idx in 0..total_frames {
-        let t = frame_idx as f32 / fps as f32;
+        let t = args.start_time + frame_idx as f32 * args.time_step.unwrap_or(1.0 / fps as f32);
 
         // Palette crossfade state for this moment in time.
         let (a_idx, b_idx, mix) = palette_state_at(t, n, slot_duration, XFADE_DURATION);
@@ -385,6 +411,17 @@ fn render_shader_to_webp(
 
         // OpenGL origin is bottom-left; WebP expects top-left.
         flip_vertical(&mut pixels, width, height);
+
+        if let Some(path) = &frames_dir {
+            image::save_buffer(
+                path.join(format!("frame-{frame_idx:06}.png")),
+                &pixels,
+                width,
+                height,
+                image::ColorType::Rgba8,
+            )
+            .context("failed to save raw RGBA frame")?;
+        }
 
         // Timestamp is the start of this frame in milliseconds.
         let timestamp_ms = ((frame_idx as f64 * 1000.0) / fps as f64).round() as i32;

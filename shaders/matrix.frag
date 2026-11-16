@@ -76,8 +76,10 @@ void main() {
     vec2  fc = gl_FragCoord.xy;
     float t  = u_time * u_speed_scale;
 
-    float cellW = CELL_PX;
-    float cellH = CELL_PX * CELL_ASPECT;
+    // Preserve readable 5x5 glyphs while fitting useful rain columns on thumbnails.
+    float cellW = clamp(min(u_resolution.x / 32.0, u_resolution.y / 18.0), 9.0, CELL_PX)
+                  * clamp(u_zoom_scale, 0.5, 3.0);
+    float cellH = cellW * CELL_ASPECT;
 
     // Row 0 = top of screen, increasing downward (matches rain direction).
     float row_ft = floor((u_resolution.y - fc.y) / cellH);

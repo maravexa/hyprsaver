@@ -11,8 +11,8 @@ precision highp float;
 // Animation: the head "grows" — a continuous index offset pushes every seed
 // outward while new seeds are born at the centre — and the whole pattern
 // slowly rotates. Colour follows the 21-arm parastichy family with a slow
-// radial drift and a brightness pulse travelling along the arms. A faint
-// golden log-spiral (radius × φ every quarter turn) is overlaid.
+// radial drift and a brightness pulse travelling along the arms.
+// The dots alone define the spiral arms; no solid spiral is overlaid.
 //
 // Cost model: per pixel we only visit the seeds that can be within reach —
 // the index band |Δn| ≤ 2·r/c around the ring at the pixel's own radius,
@@ -100,20 +100,7 @@ void main() {
         col += palette(hue) * (core + halo) * pulse * twink * 1.35;
     }
 
-    // ── Golden spiral overlay ─────────────────────────────────────────────
-    // r = A·e^{bθ} with b = ln φ / (π/2): the radius grows by φ every quarter
-    // turn. In log-polar space the spiral is a straight line repeating every
-    // 2πb in ln r; the distance to the nearest branch, scaled back by r,
-    // gives an approximately constant on-screen line width.
-    float b     = log(PHI) / (TAU * 0.25);
-    float theta = atan(uv.y, uv.x) - rot;
-    float rho   = log(max(r, 1e-4));
-    float phase = (rho - b * theta + t * 0.12) / (TAU * b);
-    float dl    = abs(fract(phase) - 0.5) * (TAU * b);      // distance in ln r
-    float de    = r * dl / sqrt(1.0 + b * b);               // ≈ euclidean
-    float line  = 1.0 - smoothstep(0.0025, 0.0065, de);
-    line *= smoothstep(0.03, 0.12, r);                      // hide the pole
-    col += palette(triwrap(rho * 0.35 + t * 0.03)) * line * 0.28;
+    // Keep the phyllotaxis dot field free of the former solid spiral overlay.
 
     // ── Soft centre glow, edge fade, tone-map ─────────────────────────────
     col += palette(0.08) * 0.05 * exp(-r * r * 9.0);

@@ -123,10 +123,10 @@ Shader work checklist: `hyprsaver bench <name>` before and after; visual parity 
 | gridwave      | Perspective-projected neon grid with scrolling forward motion — classic Tron/Outrun aesthetic |
 | blob          | Lit blob with flowing energy emission and atmospheric halo — warped sphere SDF, Phong lighting |
 | mobius        | Race along a twisted Möbius ribbon against the void — palette gradient flips after each full loop |
-| stonks        | Procedural candlestick chart with MACD oscillator; palette-sampled bull/bear colors |
+| stonks        | Continuous noise-based candlestick chart with decorative price-derived momentum; palette-sampled bull/bear colors |
 | fireflies     | Warm glowing wanderers drifting across a dark field, per-firefly palette colors |
 | attitude      | Artificial-horizon instrument with simulated flight motion |
-| fibonacci     | Phyllotaxis sunflower — golden-angle seed spiral (r = c·√n) growing outward, colour by 21-arm parastichy family, golden log-spiral overlay; per-pixel index band |Δn| ≤ 2·r/c |
+| fibonacci     | Phyllotaxis sunflower — golden-angle seed spiral (r = c·√n) growing outward, colour by 21-arm parastichy family, no solid spiral overlay; per-pixel index band |Δn| ≤ 2·r/c |
 
 ## Playlist / Cycle System (v0.3.0)
 

@@ -8,6 +8,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Reproducible shader A/B QA with preserved baselines, deterministic raw PNG
+  captures (`--start-time`, `--time-step`, `--frames-dir`) and repeated timing.
+
+### Changed
+- Matrix glyph sizing, Attitude motion/contrast, Circuit footprint optimization,
+  Fibonacci dot-only pattern, Stonks continuous noise-based candles, and Mobius
+  coverage with faster half-angle distance evaluation. Six variants are integrated;
+  Wormhole remains unchanged after failed solver validation. See
+  [qualification results](docs/SHADER_QA_2026-11-16.md) for AMD timings and limits,
+  including Stonks's measured cost increase.
+
+### Fixed
+- Benchmark compile failures return a nonzero exit status with escaped JSON errors;
+  timing percentages are labelled frame budget instead of GPU utilization.
+
 
 ## [0.4.8] - 2026-10-21
 

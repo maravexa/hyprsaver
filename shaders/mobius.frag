@@ -36,8 +36,8 @@ const float R              = 1.5;    // major radius of ring
 const float W              = 0.3;    // ribbon half-width
 const float THICKNESS      = 0.018;  // SDF ribbon thickness (half)
 const float SPEED          = 1.2;    // radians / sec camera advance (3× v2)
-const float ELEVATION      = 0.3;    // off-surface elevation (in rolled_up direction)
-const float DIP_ANGLE      = 0.15;   // radians downward tilt toward strip (~8.6°)
+const float ELEVATION      = 0.22;    // off-surface elevation (along surface normal)
+const float DIP_ANGLE      = 0.48;   // radians downward tilt toward strip (~27.5°)
 const float ROLL_SPEED     = 0.1;    // rad/sec slow camera roll around forward axis
 const float TAU            = 6.283185307;
 const float BANDS_PER_LOOP = 16.0;  // doubled to compensate for triangle-wrap halving cycle rate
@@ -51,9 +51,12 @@ const float BANDS_PER_LOOP = 16.0;  // doubled to compensate for triangle-wrap h
 // ---------------------------------------------------------------------------
 float mobiusSDF(vec3 p) {
     float rxy   = max(length(p.xy), 0.001);
-    float theta = atan(p.y, p.x);
-    float ch    = cos(theta * 0.5);
-    float sh    = sin(theta * 0.5);
+    // Half-angle identities avoid atan/sin/cos at every march step.
+    // atan(y,x) lies in [-pi,pi], so cos(theta/2) is nonnegative.
+    float cos_theta = clamp(p.x / rxy, -1.0, 1.0);
+    float ch = sqrt(max(0.0, 0.5 * (1.0 + cos_theta)));
+    float sh = (p.y < 0.0 ? -1.0 : 1.0)
+             * sqrt(max(0.0, 0.5 * (1.0 - cos_theta)));
     float dr    = rxy - R;
     // Project (dr, p.z) onto ribbon axes
     float v     =  dr * ch + p.z * sh;   // along ribbon width  in [-W, W]
@@ -76,8 +79,7 @@ void main() {
     //   snorm_cam = surface normal = (cos u·sin(u/2), sin u·sin(u/2), −cos(u/2))
     //
     // Roll rotates the (snorm_cam, wdir_cam) plane around the tangent axis,
-    // so rolled_up sweeps from normal → binormal → −normal → −binormal over
-    // one full roll cycle.  DIP_ANGLE tilts the look direction downward so the
+    // with a bounded oscillation toward the binormal.  DIP_ANGLE tilts the look direction downward so the
     // strip sits in the lower portion of the frame at roll=0.
     // ---------------------------------------------------------------------------
     float ch_cam = cos(u_cam * 0.5);
@@ -91,7 +93,7 @@ void main() {
     vec3 tangent   = vec3(-su, cu, 0.0);                        // ring tangent (unit)
 
     // Slow roll: rotate camera's up vector around the forward (tangent) axis
-    float roll_rad = u_time * ROLL_SPEED;
+    float roll_rad = 0.45 * sin(u_time * u_speed_scale * ROLL_SPEED);
     vec3 rolled_up = cos(roll_rad) * snorm_cam + sin(roll_rad) * wdir_cam;
 
     // Camera position: fixed offset along surface normal — independent of roll.
