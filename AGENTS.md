@@ -52,7 +52,7 @@ cargo build --release
 ./target/release/hyprsaver bench geometry --frames 240 --span 30   # one shader, longer sample
 ```
 
-Shader work checklist: `hyprsaver bench <name>` before and after; visual parity via `render-preview` frames (`python3` + PIL diff of extracted frames is enough); check rebuild freshness after `.frag` edits.
+Shader work checklist: `hyprsaver bench <name>` before and after; visual parity via `render-preview` frames (`python3` + PIL diff of extracted frames is enough); check rebuild freshness after `.frag` edits. For Wormhole intersection changes, run `scripts/check_wormhole_depth.py` with NumPy/Pillow and review `docs/WORMHOLE_QUALIFICATION.md`; record the renderer and keep software results separate from GPU acceptance.
 
 ## Key Design Decisions
 - **glow over wgpu**: Thin OpenGL wrapper, minimal complexity for v1. wgpu (Vulkan support) remains on the long-term roadmap.
@@ -118,7 +118,7 @@ Shader work checklist: `hyprsaver bench <name>` before and after; visual parity 
 | oscilloscope  | Realistic CRT oscilloscope display with three animated waveform traces |
 | clouds        | Slowly drifting procedural fBm clouds over a tinted sky  |
 | temple        | Retro temple interior — floor + ceiling triangle-wave lattice, 4 scrolling pillars with ring trace pattern, CRT scanlines |
-| wormhole      | Curved-tunnel raymarch; z-dominant palette rings, angular contribution dropped |
+| wormhole      | Curved tunnel with conservative first-hit marching and palette depth rings |
 | waterfall     | Stylized 2D waterfall with retro quantize-and-dither post |
 | gridwave      | Perspective-projected neon grid with scrolling forward motion — classic Tron/Outrun aesthetic |
 | blob          | Lit blob with flowing energy emission and atmospheric halo — warped sphere SDF, Phong lighting |

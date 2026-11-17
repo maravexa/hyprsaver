@@ -6,7 +6,7 @@ precision highp float;
 //
 // Curved wormhole tunnel. 3D raymarcher flying through a static curved axis
 // (TunnelCenter). The curve is fixed in world space; we fly through it by
-// translating z. ≤50 abs-step march iterations, no lighting, no normals.
+// translating z. ≤64 conservative march iterations, no lighting, no normals.
 // Coloring is hybrid gradient bands + wireframe ring highlights + distance fog.
 // Lightweight GPU tier.
 // ---------------------------------------------------------------------------
@@ -18,13 +18,15 @@ uniform int   u_frame;
 uniform float u_speed_scale;
 uniform float u_zoom_scale;
 
-const int   MAX_STEPS = 50;
+const int   MAX_STEPS = 64;
 const float MAX_DIST  = 80.0;
-const float HIT_EPS   = 0.002;
+// World-z reconstruction loses precision at bends later in the flight.
+// 5e-5 avoids float32 stalls while keeping near-tangent first-hit errors small.
+const float HIT_EPS   = 0.00005;
 
 #define PS1_QUANTIZE 1
 
-// Set once per frame in main(), read by Map(). Models forward flight by
+// Set once per frame in main(). Models forward flight by
 // translating the world backward rather than moving the camera.
 float g_z_offset;
 
@@ -40,20 +42,6 @@ vec2 TunnelCenter(float z) {
         sin(z * 0.10 + 4.0) * 3.0
     );
 }
-
-// ---------------------------------------------------------------------------
-// Map — SDF for the tunnel interior
-// Inside the tube Map() is positive; we march from inside so distance shrinks
-// toward the wall and the march terminates when d < HIT_EPS.
-// ---------------------------------------------------------------------------
-float Map(vec3 pos) {
-    pos.z -= g_z_offset;
-    pos.xy -= TunnelCenter(pos.z);
-    float r = sin(pos.z * 0.1) * 0.5 + 3.0;
-    return length(pos.xy) - r;
-}
-
-// ---------------------------------------------------------------------------
 
 void main() {
     // Forward flight: translate world backward so camera stays at origin.
@@ -83,20 +71,43 @@ void main() {
     uv /= u_zoom_scale;
     vec3 rd = normalize(uv.x * right + uv.y * upC + fwd);
 
-    // Abs-step sphere march: always steps forward by abs(d), guaranteeing
-    // monotonic t. Inside-the-tunnel abs(d) = distance to nearest wall, so
-    // rays converge in 5-15 iterations instead of 20-40. t > MAX_DIST escape
-    // catches near-axial rays in nearly-straight sections.
+    // The radial field is negative inside; abs(field) is not a distance
+    // bound along a curved axis and can skip the first wall near a bend.
+    // Global bounds on q' and q'' along this ray. The radial curvature
+    // bound requires |q| >= 2; clip its step to preserve that condition.
+    float zspeed = abs(rd.z);
+    float vmax = length(rd.xy) + length(vec2(0.204, 0.3)) * zspeed;
+    float lipschitz = vmax + 0.05 * zspeed;
+    float curvature = length(vec2(0.03468, 0.03)) * zspeed * zspeed
+                    + vmax * vmax * 0.5 + 0.005 * zspeed * zspeed;
     float t = 0.0;
     vec3 p = ro;
     int iter_count = 0;
+    bool hit = false;
     for (int i = 0; i < MAX_STEPS; i++) {
-        float d = Map(p);
-        float step = abs(d);
-        t += step;
-        p += step * rd;
+        float z = p.z - g_z_offset;
+        vec2 q = p.xy - TunnelCenter(z);
+        float qlen = length(q);
+        float d = qlen - (sin(z * 0.1) * 0.5 + 3.0);
         iter_count = i + 1;
-        if (step < HIT_EPS || t > MAX_DIST) break;
+        if (abs(d) < HIT_EPS) { hit = true; break; }
+        if (t > MAX_DIST) break;
+        vec2 center_slope = vec2(0.204 * cos(z * 0.17),
+                                 0.3 * cos(z * 0.1 + 4.0));
+        float slope = dot(q / max(qlen, 0.000001), rd.xy - center_slope * rd.z)
+                    - 0.05 * cos(z * 0.1) * rd.z;
+        float safe_step = max(-d / lipschitz, 0.0);
+        // Rationalize the positive-slope root to avoid subtracting nearly
+        // equal float32 values at the wall (which previously stalled rays).
+        float discriminant = sqrt(max(slope * slope - 2.0 * curvature * d, 0.0));
+        float quadratic_step = slope >= 0.0
+            ? (-2.0 * d) / max(slope + discriminant, 0.000001)
+            : (discriminant - slope) / curvature;
+        float room = max(qlen - 2.0, 0.0) / vmax;
+        float advance = qlen > 2.0 ? max(safe_step, min(quadratic_step, room)) : safe_step;
+        advance *= 0.9999;
+        t += advance;
+        p = ro + t * rd;
     }
 
     // ---------------------------------------------------------------------------
@@ -119,7 +130,7 @@ void main() {
     // Distance fog fades the far wall to palette(0.0). t is monotonic-positive
     // with abs-step march, so no max(t, 0.0) guard needed.
     float fog = 1.0 - exp(-t * 0.025);
-    col = mix(col, palette(0.0), fog);
+    col = mix(col, palette(0.0), hit ? fog : 1.0);
 
     col = clamp(col, 0.0, 1.0);
 
